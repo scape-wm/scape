@@ -1,13 +1,59 @@
 [package]
+edition = "2018"
 name = "scape"
-version = "0.1.0"
-edition = "2021"
+version = "0.0.1"
 
 [dependencies]
-anyhow = "1.0.66"
-slog = "2.7.0"
-slog-async = "2.7.0"
+bitflags = "1.2.1"
+fps_ticker = {version = "1.0.0", optional = true}
+image = {version = "0.24.0", default-features = false, optional = true}
+rand = "0.8"
+slog = {version = "2.1.1"}
+slog-async = "2.2"
 slog-scope = "4.4.0"
-slog-stdlog = "4.1.1"
-slog-term = "2.9.0"
-smithay = "0.3.0"
+slog-stdlog = "4.1.0"
+slog-term = "2.8"
+thiserror = "1"
+xcursor = {version = "0.3.3", optional = true}
+xkbcommon = "0.5.0"
+renderdoc = {version = "0.10.1", optional = true}
+
+[dependencies.smithay]
+default-features = false
+features = ["desktop", "wayland_frontend", "slog-stdlog"]
+git = "https://github.com/smithay/smithay"
+# path = "../smithay"
+
+[dependencies.x11rb]
+default-features = false
+features = ["composite"]
+optional = true
+version = "0.10.0"
+
+[build-dependencies]
+gl_generator = "0.14"
+system-deps = "6.0"
+
+[package.metadata.system-deps]
+egl = "1.0"
+
+[features]
+debug = ["fps_ticker", "image/png", "renderdoc"]
+default = ["egl", "winit", "udev", "xwayland"]
+egl = ["smithay/use_system_lib", "smithay/backend_egl"]
+test_all_features = ["default", "debug"]
+udev = [
+  "smithay/backend_libinput",
+  "smithay/backend_udev",
+  "smithay/backend_drm",
+  "smithay/backend_gbm",
+  "smithay/backend_egl",
+  "smithay/backend_session_libseat",
+  "image",
+  "smithay/renderer_gl",
+  "smithay/renderer_multi",
+  "xcursor",
+]
+winit = ["smithay/backend_winit"]
+xwayland = ["smithay/xwayland", "x11rb", "smithay/x11rb_event_source"]
+
