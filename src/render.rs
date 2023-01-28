@@ -1,3 +1,9 @@
+#[cfg(feature = "debug")]
+use crate::drawing::FpsElement;
+use crate::{
+    drawing::{PointerRenderElement, CLEAR_COLOR},
+    shell::{FullscreenSurface, WindowElement, WindowRenderElement},
+};
 use smithay::{
     backend::renderer::{
         damage::{DamageTrackedRenderer, DamageTrackedRendererError, DamageTrackedRendererMode},
@@ -9,7 +15,7 @@ use smithay::{
             },
             AsRenderElements, RenderElementStates,
         },
-        ImportAll, Renderer,
+        ImportAll, ImportMem, Renderer,
     },
     desktop::{
         self,
@@ -20,16 +26,9 @@ use smithay::{
     utils::{Physical, Point, Rectangle, Size},
 };
 
-#[cfg(feature = "debug")]
-use crate::drawing::FpsElement;
-use crate::{
-    drawing::{PointerRenderElement, CLEAR_COLOR},
-    shell::FullscreenSurface,
-};
-
 smithay::backend::renderer::element::render_elements! {
     pub CustomRenderElements<R> where
-        R: ImportAll;
+        R: ImportAll + ImportMem;
     Pointer=PointerRenderElement<R>,
     Surface=WaylandSurfaceRenderElement<R>,
     #[cfg(feature = "debug")]
@@ -42,9 +41,9 @@ smithay::backend::renderer::element::render_elements! {
 
 smithay::backend::renderer::element::render_elements! {
     pub OutputRenderElements<'a, R> where
-        R: ImportAll;
+        R: ImportAll + ImportMem;
     Custom=&'a CustomRenderElements<R>,
-    Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>>,
+    Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -63,7 +62,7 @@ pub fn render_output<'a, R>(
     DamageTrackedRendererError<R>,
 >
 where
-    R: Renderer + ImportAll,
+    R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
 {
     let output_scale = output.current_scale().fractional_scale().into();

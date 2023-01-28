@@ -31,6 +31,7 @@ use crate::state::{AnvilState, Backend};
 
 mod element;
 mod grabs;
+pub(crate) mod ssd;
 #[cfg(feature = "xwayland")]
 mod x11;
 mod xdg;
@@ -82,7 +83,7 @@ impl FullscreenSurface {
     }
 }
 
-impl<BackendData> BufferHandler for AnvilState<BackendData> {
+impl<BackendData: Backend> BufferHandler for AnvilState<BackendData> {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
 }
 
@@ -112,7 +113,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
     }
 }
 
-impl<BackendData> WlrLayerShellHandler for AnvilState<BackendData> {
+impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
         &mut self.layer_shell_state
     }
@@ -134,7 +135,7 @@ impl<BackendData> WlrLayerShellHandler for AnvilState<BackendData> {
     }
 }
 
-impl<BackendData> AnvilState<BackendData> {
+impl<BackendData: Backend> AnvilState<BackendData> {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
         self.space
             .elements()

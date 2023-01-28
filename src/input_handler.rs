@@ -34,7 +34,6 @@ use smithay::output::Output;
 
 #[cfg(feature = "xwayland")]
 use crate::shell::WindowElement;
-#[cfg(feature = "udev")]
 use crate::state::Backend;
 #[cfg(feature = "udev")]
 use smithay::{
@@ -51,7 +50,7 @@ use smithay::{
     },
 };
 
-impl<Backend> AnvilState<Backend> {
+impl<BackendData: Backend> AnvilState<BackendData> {
     fn process_common_key_action(&mut self, action: KeyAction) {
         match action {
             KeyAction::None => (),
