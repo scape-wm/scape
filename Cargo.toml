@@ -29,7 +29,7 @@ rev = "85c9470"
 default-features = false
 features = ["composite"]
 optional = true
-version = "0.10.0"
+version = "0.11.1"
 
 [build-dependencies]
 gl_generator = "0.14"
