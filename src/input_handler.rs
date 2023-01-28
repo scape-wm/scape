@@ -912,16 +912,16 @@ fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Optio
         ))
     } else if modifiers.logo && keysym == xkb::KEY_Return {
         // run terminal
-        Some(KeyAction::Run("weston-terminal".into()))
+        Some(KeyAction::Run("alacritty".into()))
     } else if modifiers.logo && (xkb::KEY_1..=xkb::KEY_9).contains(&keysym) {
         Some(KeyAction::Screen((keysym - xkb::KEY_1) as usize))
     } else if modifiers.logo && modifiers.shift && keysym == xkb::KEY_M {
         Some(KeyAction::ScaleDown)
     } else if modifiers.logo && modifiers.shift && keysym == xkb::KEY_P {
         Some(KeyAction::ScaleUp)
-    } else if modifiers.logo && modifiers.shift && keysym == xkb::KEY_W {
+    } else if modifiers.logo && keysym == xkb::KEY_W {
         Some(KeyAction::TogglePreview)
-    } else if modifiers.logo && modifiers.shift && keysym == xkb::KEY_R {
+    } else if modifiers.logo && keysym == xkb::KEY_R {
         Some(KeyAction::RotateOutput)
     } else {
         None

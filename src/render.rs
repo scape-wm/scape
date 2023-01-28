@@ -48,6 +48,7 @@ smithay::backend::renderer::element::render_elements! {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn render_output<'a, R>(
     output: &Output,
     space: &'a Space<Window>,
@@ -57,7 +58,10 @@ pub fn render_output<'a, R>(
     age: usize,
     show_window_preview: bool,
     log: &slog::Logger,
-) -> Result<(Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates), DamageTrackedRendererError<R>>
+) -> Result<
+    (Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates),
+    DamageTrackedRendererError<R>,
+>
 where
     R: Renderer + ImportAll,
     R::TextureId: Clone + 'static,
@@ -81,7 +85,13 @@ where
             .chain(window_render_elements.iter())
             .collect::<Vec<_>>();
 
-        damage_tracked_renderer.render_output(renderer, age, &render_elements, CLEAR_COLOR, log.clone())
+        damage_tracked_renderer.render_output(
+            renderer,
+            age,
+            &render_elements,
+            CLEAR_COLOR,
+            log.clone(),
+        )
     } else {
         let mut output_render_elements = custom_elements
             .iter()
