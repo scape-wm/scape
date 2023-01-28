@@ -233,6 +233,8 @@ delegate_keyboard_shortcuts_inhibit!(@<BackendData: Backend + 'static> AnvilStat
 
 delegate_virtual_keyboard_manager!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
+delegate_relative_pointer!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+
 delegate_viewporter!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
 impl<BackendData: Backend> XdgActivationHandler for AnvilState<BackendData> {
@@ -465,6 +467,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         TextInputManagerState::new::<Self>(&dh);
         InputMethodManagerState::new::<Self>(&dh);
         VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
+        // Expose global only if backend supports relative motion events
+        if BackendData::HAS_RELATIVE_MOTION {
+            RelativePointerManagerState::new::<Self>(&dh);
+        }
 
         // init input
         let seat_name = backend_data.seat_name();
@@ -654,6 +660,7 @@ pub fn take_presentation_feedback(
 }
 
 pub trait Backend {
+    const HAS_RELATIVE_MOTION: bool = false;
     fn seat_name(&self) -> String;
     fn reset_buffers(&mut self, output: &Output);
     fn early_import(&mut self, surface: &WlSurface);

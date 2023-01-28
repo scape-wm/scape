@@ -1,10 +1,13 @@
-use std::cell::RefCell;
-
+use super::{SurfaceData, WindowElement};
+use crate::{
+    focus::FocusTarget,
+    state::{AnvilState, Backend},
+};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::{
         AxisFrame, ButtonEvent, GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab,
-        PointerInnerHandle,
+        PointerInnerHandle, RelativeMotionEvent,
     },
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
     utils::{IsAlive, Logical, Point, Serial, Size},
@@ -12,12 +15,7 @@ use smithay::{
 };
 #[cfg(feature = "xwayland")]
 use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
-
-use super::{SurfaceData, WindowElement};
-use crate::{
-    focus::FocusTarget,
-    state::{AnvilState, Backend},
-};
+use std::cell::RefCell;
 
 pub struct MoveSurfaceGrab<B: Backend + 'static> {
     pub start_data: PointerGrabStartData<AnvilState<B>>,
@@ -43,17 +41,24 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
             .map_element(self.window.clone(), new_location.to_i32_round(), true);
     }
 
-    fn button(
+    fn relative_motion(
         &mut self,
         data: &mut AnvilState<BackendData>,
         handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
-        event: &ButtonEvent,
+        focus: Option<(FocusTarget, Point<i32, Logical>)>,
+        event: &RelativeMotionEvent,
     ) {
-        handle.button(data, event);
-        if handle.current_pressed().is_empty() {
-            // No more buttons are pressed, release the grab.
-            handle.unset_grab(data, event.serial, event.time);
-        }
+        handle.relative_motion(data, focus, event);
+    }
+
+    fn relative_motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        focus: Option<(FocusTarget, Point<i32, Logical>)>,
+        event: &RelativeMotionEvent,
+    ) {
+        handle.relative_motion(data, focus, event);
     }
 
     fn axis(
@@ -242,6 +247,16 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
                 .unwrap();
             }
         }
+    }
+
+    fn relative_motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        focus: Option<(FocusTarget, Point<i32, Logical>)>,
+        event: &RelativeMotionEvent,
+    ) {
+        handle.relative_motion(data, focus, event);
     }
 
     fn button(

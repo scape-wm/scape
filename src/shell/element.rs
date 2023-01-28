@@ -1,5 +1,5 @@
-use std::time::Duration;
-
+use super::ssd::HEADER_BAR_HEIGHT;
+use crate::AnvilState;
 use smithay::{
     backend::{
         input::KeyState,
@@ -14,7 +14,7 @@ use smithay::{
     desktop::{space::SpaceElement, utils::OutputPresentationFeedback, Window, WindowSurfaceType},
     input::{
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerTarget},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerTarget, RelativeMotionEvent},
         Seat,
     },
     output::Output,
@@ -34,9 +34,7 @@ use smithay::{
     },
     xwayland::X11Surface,
 };
-
-use super::ssd::HEADER_BAR_HEIGHT;
-use crate::AnvilState;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowElement {
@@ -245,6 +243,21 @@ impl<Backend: crate::state::Backend> PointerTarget<AnvilState<Backend>> for Wind
                 #[cfg(feature = "xwayland")]
                 WindowElement::X11(w) => PointerTarget::motion(w, seat, data, event),
             };
+        }
+    }
+    fn relative_motion(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        event: &RelativeMotionEvent,
+    ) {
+        let state = self.decoration_state();
+        if !state.is_ssd || state.ptr_entered_window {
+            match self {
+                WindowElement::Wayland(w) => PointerTarget::relative_motion(w, seat, data, event),
+                #[cfg(feature = "xwayland")]
+                WindowElement::X11(w) => PointerTarget::relative_motion(w, seat, data, event),
+            }
         }
     }
     fn button(
