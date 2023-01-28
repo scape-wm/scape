@@ -354,8 +354,9 @@ pub fn run_udev(log: Logger) {
      * Start XWayland if supported
      */
     #[cfg(feature = "xwayland")]
-    state.start_xwayland();
-
+    if let Err(e) = state.xwayland.start(state.handle.clone()) {
+        error!(log, "Failed to start XWayland: {}", e);
+    }
     /*
      * And run our loop
      */

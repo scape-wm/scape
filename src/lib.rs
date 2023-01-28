@@ -18,7 +18,5 @@ pub mod state;
 pub mod udev;
 #[cfg(feature = "winit")]
 pub mod winit;
-#[cfg(feature = "xwayland")]
-pub mod xwayland;
 
 pub use state::{AnvilState, CalloopData, ClientState};

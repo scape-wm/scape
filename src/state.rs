@@ -6,11 +6,12 @@ use std::{
 
 use smithay::{
     backend::renderer::element::{default_primary_scanout_output_compare, RenderElementStates},
-    delegate_compositor, delegate_data_device, delegate_fractional_scale, delegate_input_method_manager,
-    delegate_keyboard_shortcuts_inhibit, delegate_layer_shell, delegate_output, delegate_presentation,
-    delegate_primary_selection, delegate_seat, delegate_shm, delegate_tablet_manager,
-    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
-    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_compositor, delegate_data_device, delegate_fractional_scale,
+    delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
+    delegate_output, delegate_presentation, delegate_primary_selection, delegate_seat,
+    delegate_shm, delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter,
+    delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
+    delegate_xdg_shell,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
@@ -23,7 +24,8 @@ use smithay::{
     reexports::{
         calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction},
         wayland_protocols::xdg::decoration::{
-            self as xdg_decoration, zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
+            self as xdg_decoration,
+            zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
         },
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
@@ -38,10 +40,13 @@ use smithay::{
             set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
             ServerDndGrabHandler,
         },
-        fractional_scale::{with_fractional_scale, FractionScaleHandler, FractionalScaleManagerState},
+        fractional_scale::{
+            with_fractional_scale, FractionScaleHandler, FractionalScaleManagerState,
+        },
         input_method::{InputMethodManagerState, InputMethodSeat},
         keyboard_shortcuts_inhibit::{
-            KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+            KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState,
+            KeyboardShortcutsInhibitor,
         },
         output::OutputManagerState,
         presentation::PresentationState,
@@ -64,11 +69,10 @@ use smithay::{
             XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
         },
     },
+    xwayland::X11Wm,
 };
 
 use crate::focus::FocusTarget;
-#[cfg(feature = "xwayland")]
-use crate::xwayland::X11State;
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::{XWayland, XWaylandEvent};
 
@@ -128,7 +132,7 @@ pub struct AnvilState<BackendData: 'static> {
     #[cfg(feature = "xwayland")]
     pub xwayland: XWayland,
     #[cfg(feature = "xwayland")]
-    pub x11_state: Option<X11State>,
+    pub xwm: Option<X11Wm>,
 
     #[cfg(feature = "debug")]
     pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
@@ -147,7 +151,12 @@ impl<BackendData> DataDeviceHandler for AnvilState<BackendData> {
     }
 }
 impl<BackendData> ClientDndGrabHandler for AnvilState<BackendData> {
-    fn started(&mut self, _source: Option<WlDataSource>, icon: Option<WlSurface>, _seat: Seat<Self>) {
+    fn started(
+        &mut self,
+        _source: Option<WlDataSource>,
+        icon: Option<WlSurface>,
+        _seat: Seat<Self>,
+    ) {
         self.dnd_icon = icon;
     }
     fn dropped(&mut self, _seat: Seat<Self>) {
@@ -239,7 +248,13 @@ impl<BackendData> XdgActivationHandler for AnvilState<BackendData> {
             let w = self
                 .space
                 .elements()
-                .find(|window| window.toplevel().wl_surface() == &surface)
+                .find(|window| {
+                    window
+                        .toplevel()
+                        .wl_surface()
+                        .map(|s| s == surface)
+                        .unwrap_or(false)
+                })
                 .cloned();
             if let Some(window) = w {
                 self.space.raise_element(&window, true);
@@ -311,8 +326,9 @@ impl<BackendData> FractionScaleHandler for AnvilState<BackendData> {
                             })
                         })
                     } else {
-                        self.window_for_surface(&root)
-                            .and_then(|window| self.space.outputs_for_element(&window).first().cloned())
+                        self.window_for_surface(&root).and_then(|window| {
+                            self.space.outputs_for_element(&window).first().cloned()
+                        })
                     }
                 })
                 .or_else(|| self.space.outputs().next().cloned());
@@ -385,7 +401,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let xdg_decoration_state = XdgDecorationState::new::<Self, _>(&dh, log.clone());
         let xdg_shell_state = XdgShellState::new::<Self, _>(&dh, log.clone());
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
-        let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self, _>(&dh, log.clone());
+        let fractional_scale_manager_state =
+            FractionalScaleManagerState::new::<Self, _>(&dh, log.clone());
         TextInputManagerState::new::<Self>(&dh);
         InputMethodManagerState::new::<Self>(&dh);
         VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
@@ -400,23 +417,40 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             .expect("Failed to initialize the keyboard");
 
         let cursor_status2 = cursor_status.clone();
-        seat.tablet_seat().on_cursor_surface(move |_tool, new_status| {
-            // TODO: tablet tools should have their own cursors
-            *cursor_status2.lock().unwrap() = new_status;
-        });
+        seat.tablet_seat()
+            .on_cursor_surface(move |_tool, new_status| {
+                // TODO: tablet tools should have their own cursors
+                *cursor_status2.lock().unwrap() = new_status;
+            });
 
         seat.add_input_method(XkbConfig::default(), 200, 25);
 
-        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&display.handle());
+        let dh = display.handle();
+        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         #[cfg(feature = "xwayland")]
         let xwayland = {
-            let (xwayland, channel) = XWayland::new(log.clone(), &display.handle());
-            let ret = handle.insert_source(channel, |event, _, data| match event {
+            let (xwayland, channel) = XWayland::new(log.clone(), &dh);
+            let log2 = log.clone();
+            let ret = handle.insert_source(channel, move |event, _, data| match event {
                 XWaylandEvent::Ready {
-                    connection, client, ..
-                } => data.state.xwayland_ready(connection, client),
-                XWaylandEvent::Exited => data.state.xwayland_exited(),
+                    connection,
+                    client,
+                    client_fd: _,
+                    display: _,
+                } => {
+                    let wm = X11Wm::start_wm(
+                        data.state.handle.clone(),
+                        dh.clone(),
+                        connection,
+                        client,
+                        log2.clone(),
+                    )
+                    .expect("Failed to attach X11 Window Manager");
+                }
+                XWaylandEvent::Exited => {
+                    let _ = data.state.xwm.take();
+                }
             });
             if let Err(e) = ret {
                 error!(
@@ -460,7 +494,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             #[cfg(feature = "xwayland")]
             xwayland,
             #[cfg(feature = "xwayland")]
-            x11_state: None,
+            xwm: None,
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
@@ -532,7 +566,9 @@ pub fn take_presentation_feedback(
             window.take_presentation_feedback(
                 &mut output_presentation_feedback,
                 surface_primary_scanout_output,
-                |surface, _| surface_presentation_feedback_flags_from_states(surface, render_element_states),
+                |surface, _| {
+                    surface_presentation_feedback_flags_from_states(surface, render_element_states)
+                },
             );
         }
     });
@@ -541,7 +577,9 @@ pub fn take_presentation_feedback(
         layer_surface.take_presentation_feedback(
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
-            |surface, _| surface_presentation_feedback_flags_from_states(surface, render_element_states),
+            |surface, _| {
+                surface_presentation_feedback_flags_from_states(surface, render_element_states)
+            },
         );
     }
 

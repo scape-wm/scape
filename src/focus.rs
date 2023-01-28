@@ -37,28 +37,48 @@ impl From<FocusTarget> for WlSurface {
 }
 
 impl<Backend> PointerTarget<AnvilState<Backend>> for FocusTarget {
-    fn enter(&self, seat: &Seat<AnvilState<Backend>>, data: &mut AnvilState<Backend>, event: &MotionEvent) {
+    fn enter(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        event: &MotionEvent,
+    ) {
         match self {
             FocusTarget::Window(w) => PointerTarget::enter(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::enter(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::enter(p.wl_surface(), seat, data, event),
         }
     }
-    fn motion(&self, seat: &Seat<AnvilState<Backend>>, data: &mut AnvilState<Backend>, event: &MotionEvent) {
+    fn motion(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        event: &MotionEvent,
+    ) {
         match self {
             FocusTarget::Window(w) => PointerTarget::motion(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::motion(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::motion(p.wl_surface(), seat, data, event),
         }
     }
-    fn button(&self, seat: &Seat<AnvilState<Backend>>, data: &mut AnvilState<Backend>, event: &ButtonEvent) {
+    fn button(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        event: &ButtonEvent,
+    ) {
         match self {
             FocusTarget::Window(w) => PointerTarget::button(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::button(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::button(p.wl_surface(), seat, data, event),
         }
     }
-    fn axis(&self, seat: &Seat<AnvilState<Backend>>, data: &mut AnvilState<Backend>, frame: AxisFrame) {
+    fn axis(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        frame: AxisFrame,
+    ) {
         match self {
             FocusTarget::Window(w) => PointerTarget::axis(w, seat, data, frame),
             FocusTarget::LayerSurface(l) => PointerTarget::axis(l, seat, data, frame),
@@ -91,10 +111,17 @@ impl<Backend> KeyboardTarget<AnvilState<Backend>> for FocusTarget {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
             FocusTarget::LayerSurface(l) => KeyboardTarget::enter(l, seat, data, keys, serial),
-            FocusTarget::Popup(p) => KeyboardTarget::enter(p.wl_surface(), seat, data, keys, serial),
+            FocusTarget::Popup(p) => {
+                KeyboardTarget::enter(p.wl_surface(), seat, data, keys, serial)
+            }
         }
     }
-    fn leave(&self, seat: &Seat<AnvilState<Backend>>, data: &mut AnvilState<Backend>, serial: Serial) {
+    fn leave(
+        &self,
+        seat: &Seat<AnvilState<Backend>>,
+        data: &mut AnvilState<Backend>,
+        serial: Serial,
+    ) {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::leave(w, seat, data, serial),
             FocusTarget::LayerSurface(l) => KeyboardTarget::leave(l, seat, data, serial),
@@ -112,7 +139,9 @@ impl<Backend> KeyboardTarget<AnvilState<Backend>> for FocusTarget {
     ) {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::key(w, seat, data, key, state, serial, time),
-            FocusTarget::LayerSurface(l) => KeyboardTarget::key(l, seat, data, key, state, serial, time),
+            FocusTarget::LayerSurface(l) => {
+                KeyboardTarget::key(l, seat, data, key, state, serial, time)
+            }
             FocusTarget::Popup(p) => {
                 KeyboardTarget::key(p.wl_surface(), seat, data, key, state, serial, time)
             }
@@ -127,23 +156,27 @@ impl<Backend> KeyboardTarget<AnvilState<Backend>> for FocusTarget {
     ) {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::modifiers(w, seat, data, modifiers, serial),
-            FocusTarget::LayerSurface(l) => KeyboardTarget::modifiers(l, seat, data, modifiers, serial),
-            FocusTarget::Popup(p) => KeyboardTarget::modifiers(p.wl_surface(), seat, data, modifiers, serial),
+            FocusTarget::LayerSurface(l) => {
+                KeyboardTarget::modifiers(l, seat, data, modifiers, serial)
+            }
+            FocusTarget::Popup(p) => {
+                KeyboardTarget::modifiers(p.wl_surface(), seat, data, modifiers, serial)
+            }
         }
     }
 }
 
 impl WaylandFocus for FocusTarget {
     fn wl_surface(&self) -> Option<WlSurface> {
-        Some(match self {
-            FocusTarget::Window(w) => w.toplevel().wl_surface().clone(),
-            FocusTarget::LayerSurface(l) => l.wl_surface().clone(),
-            FocusTarget::Popup(p) => p.wl_surface().clone(),
-        })
+        match self {
+            FocusTarget::Window(w) => w.toplevel().wl_surface(),
+            FocusTarget::LayerSurface(l) => Some(l.wl_surface().clone()),
+            FocusTarget::Popup(p) => Some(p.wl_surface().clone()),
+        }
     }
     fn same_client_as(&self, object_id: &ObjectId) -> bool {
         match self {
-            FocusTarget::Window(w) => w.toplevel().wl_surface().id().same_client_as(object_id),
+            FocusTarget::Window(w) => w.same_client_as(object_id),
             FocusTarget::LayerSurface(l) => l.wl_surface().id().same_client_as(object_id),
             FocusTarget::Popup(p) => p.wl_surface().id().same_client_as(object_id),
         }
