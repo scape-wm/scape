@@ -37,8 +37,8 @@ use smithay::{
         },
         session::Session,
     },
+    input::pointer::RelativeMotionEvent,
     wayland::{
-        input::pointer::RelativeMotionEvent,
         seat::WaylandFocus,
         tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
@@ -114,7 +114,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             .space
             .element_under(self.pointer_location)
             .and_then(|(window, _)| {
-                let surface = window.toplevel().wl_surface()?;
+                let surface = window.wl_surface()?;
                 self.seat.keyboard_shortcuts_inhibitor_for_surface(&surface)
             })
             .map(|inhibitor| inhibitor.is_active())

@@ -51,14 +51,17 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
         handle.relative_motion(data, focus, event);
     }
 
-    fn relative_motion(
+    fn button(
         &mut self,
         data: &mut AnvilState<BackendData>,
         handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
-        focus: Option<(FocusTarget, Point<i32, Logical>)>,
-        event: &RelativeMotionEvent,
+        event: &ButtonEvent,
     ) {
-        handle.relative_motion(data, focus, event);
+        handle.button(data, event);
+        if handle.current_pressed().is_empty() {
+            // No more buttons are pressed, release the grab.
+            handle.unset_grab(data, event.serial, event.time);
+        }
     }
 
     fn axis(
@@ -223,8 +226,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
             max_size.h
         };
 
-        new_window_width = new_window_width.max(min_width).min(max_width);
-        new_window_height = new_window_height.max(min_height).min(max_height);
+        new_window_width = new_window_width.clamp(min_width, max_width);
+        new_window_height = new_window_height.clamp(min_height, max_height);
 
         self.last_window_size = (new_window_width, new_window_height).into();
 
@@ -370,4 +373,3 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
         &self.start_data
     }
 }
-

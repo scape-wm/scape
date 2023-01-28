@@ -20,7 +20,6 @@ use smithay::{
     desktop::{
         self,
         space::{constrain_space_element, ConstrainBehavior, ConstrainReference, Space},
-        Window,
     },
     output::Output,
     utils::{Physical, Point, Rectangle, Size},
@@ -31,6 +30,7 @@ smithay::backend::renderer::element::render_elements! {
         R: ImportAll + ImportMem;
     Pointer=PointerRenderElement<R>,
     Surface=WaylandSurfaceRenderElement<R>,
+    Window=WindowRenderElement<R>,
     #[cfg(feature = "debug")]
     // Note: We would like to borrow this element instead, but that would introduce
     // a feature-dependent lifetime, which introduces a lot more feature bounds
@@ -50,7 +50,7 @@ smithay::backend::renderer::element::render_elements! {
 #[allow(clippy::type_complexity)]
 pub fn render_output<'a, R>(
     output: &Output,
-    space: &'a Space<Window>,
+    space: &'a Space<WindowElement>,
     custom_elements: &'a [CustomRenderElements<R>],
     renderer: &mut R,
     damage_tracked_renderer: &mut DamageTrackedRenderer,
@@ -161,3 +161,4 @@ where
         )
     }
 }
+

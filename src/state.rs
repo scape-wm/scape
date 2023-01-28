@@ -1,20 +1,20 @@
 #[cfg(feature = "xwayland")]
 use crate::cursor::Cursor;
-use crate::focus::FocusTarget;
+use crate::{focus::FocusTarget, shell::WindowElement};
 use smithay::{
     backend::renderer::element::{default_primary_scanout_output_compare, RenderElementStates},
     delegate_compositor, delegate_data_device, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
-    delegate_output, delegate_presentation, delegate_primary_selection, delegate_seat,
-    delegate_shm, delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter,
-    delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
-    delegate_xdg_shell,
+    delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
+    delegate_seat, delegate_shm, delegate_tablet_manager, delegate_text_input_manager,
+    delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
+    delegate_xdg_decoration, delegate_xdg_shell,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
             update_surface_primary_scanout_output, OutputPresentationFeedback,
         },
-        PopupManager, Space, Window,
+        PopupManager, Space,
     },
     input::{keyboard::XkbConfig, pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
     output::Output,
@@ -48,12 +48,13 @@ use smithay::{
         output::OutputManagerState,
         presentation::PresentationState,
         primary_selection::{set_primary_focus, PrimarySelectionHandler, PrimarySelectionState},
+        relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         shell::{
             wlr_layer::WlrLayerShellState,
             xdg::{
                 decoration::{XdgDecorationHandler, XdgDecorationState},
-                ToplevelSurface, XdgShellState,
+                ToplevelSurface, XdgShellState, XdgToplevelSurfaceData,
             },
         },
         shm::{ShmHandler, ShmState},
@@ -66,7 +67,6 @@ use smithay::{
             XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
         },
     },
-    xwayland::X11Wm,
 };
 #[cfg(feature = "xwayland")]
 use smithay::{
@@ -102,7 +102,7 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub handle: LoopHandle<'static, CalloopData<BackendData>>,
 
     // desktop
-    pub space: Space<Window>,
+    pub space: Space<WindowElement>,
     pub popups: PopupManager,
 
     // smithay state
@@ -180,7 +180,7 @@ impl<BackendData: Backend> PrimarySelectionHandler for AnvilState<BackendData> {
         &self.primary_selection_state
     }
 }
-delegate_primary_selection!(@<BackendData: 'static> AnvilState<BackendData>);
+delegate_primary_selection!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
 impl<BackendData: Backend> ShmHandler for AnvilState<BackendData> {
     fn shm_state(&self) -> &ShmState {
@@ -253,13 +253,7 @@ impl<BackendData: Backend> XdgActivationHandler for AnvilState<BackendData> {
             let w = self
                 .space
                 .elements()
-                .find(|window| {
-                    window
-                        .toplevel()
-                        .wl_surface()
-                        .map(|s| s == surface)
-                        .unwrap_or(false)
-                })
+                .find(|window| window.wl_surface().map(|s| s == surface).unwrap_or(false))
                 .cloned();
             if let Some(window) = w {
                 self.space.raise_element(&window, true);
@@ -308,6 +302,7 @@ impl<BackendData: Backend> XdgDecorationHandler for AnvilState<BackendData> {
                     }
                 });
             });
+
             let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
                 states
                     .data_map
@@ -520,6 +515,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                         Point::from((image.xhot as u16, image.yhot as u16)),
                     )
                     .expect("Failed to set xwayland default cursor");
+                    data.state.xwm = Some(wm);
                 }
                 XWaylandEvent::Exited => {
                     let _ = data.state.xwm.take();
@@ -578,7 +574,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 pub fn post_repaint(
     output: &Output,
     render_element_states: &RenderElementStates,
-    space: &Space<Window>,
+    space: &Space<WindowElement>,
     time: impl Into<Duration>,
 ) {
     let time = time.into();
@@ -629,7 +625,7 @@ pub fn post_repaint(
 
 pub fn take_presentation_feedback(
     output: &Output,
-    space: &Space<Window>,
+    space: &Space<WindowElement>,
     render_element_states: &RenderElementStates,
 ) -> OutputPresentationFeedback {
     let mut output_presentation_feedback = OutputPresentationFeedback::new(output);
@@ -665,3 +661,4 @@ pub trait Backend {
     fn reset_buffers(&mut self, output: &Output);
     fn early_import(&mut self, surface: &WlSurface);
 }
+
