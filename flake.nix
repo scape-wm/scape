@@ -19,6 +19,7 @@
           pkgs.libinput
           pkgs.egl-wayland
           pkgs.libGL
+          pkgs.llvmPackages.bintools
         ];
       };
     };
