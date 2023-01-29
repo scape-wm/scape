@@ -419,4 +419,3 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         pointer.set_grab(self, grab, serial, Focus::Clear);
     }
 }
-

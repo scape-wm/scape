@@ -473,8 +473,15 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         let cursor_status = Arc::new(Mutex::new(CursorImageStatus::Default));
         seat.add_pointer();
-        seat.add_keyboard(XkbConfig::default(), 200, 25)
-            .expect("Failed to initialize the keyboard");
+        seat.add_keyboard(
+            XkbConfig {
+                layout: "de",
+                ..Default::default()
+            },
+            200,
+            25,
+        )
+        .expect("Failed to initialize the keyboard");
 
         let cursor_status2 = cursor_status.clone();
         seat.tablet_seat()
@@ -661,4 +668,3 @@ pub trait Backend {
     fn reset_buffers(&mut self, output: &Output);
     fn early_import(&mut self, surface: &WlSurface);
 }
-
