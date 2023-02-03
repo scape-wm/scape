@@ -33,10 +33,6 @@ version = "0.11.1"
 
 [build-dependencies]
 gl_generator = "0.14"
-system-deps = "6.0"
-
-[package.metadata.system-deps]
-egl = "1.0"
 
 [features]
 debug = ["fps_ticker", "image/png", "renderdoc"]
