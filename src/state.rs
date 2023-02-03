@@ -136,6 +136,8 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub xwayland: XWayland,
     #[cfg(feature = "xwayland")]
     pub xwm: Option<X11Wm>,
+    #[cfg(feature = "xwayland")]
+    pub xdisplay: Option<u32>,
 
     #[cfg(feature = "debug")]
     pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
@@ -504,7 +506,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                     connection,
                     client,
                     client_fd: _,
-                    display: _,
+                    display,
                 } => {
                     let mut wm = X11Wm::start_wm(
                         data.state.handle.clone(),
@@ -523,6 +525,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                     )
                     .expect("Failed to set xwayland default cursor");
                     data.state.xwm = Some(wm);
+                    data.state.xdisplay = Some(display);
                 }
                 XWaylandEvent::Exited => {
                     let _ = data.state.xwm.take();
@@ -571,6 +574,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             xwayland,
             #[cfg(feature = "xwayland")]
             xwm: None,
+            #[cfg(feature = "xwayland")]
+            xdisplay: None,
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,

@@ -22,7 +22,7 @@ renderdoc = { version = "0.10.1", optional = true }
 default-features = false
 features = ["desktop", "wayland_frontend", "slog-stdlog"]
 git = "https://github.com/smithay/smithay"
-rev = "85c9470"
+rev = "e9bdcb982f9c242dfe7d1c3629be6c0a18a4a1ee"
 # path = "../smithay"
 
 [dependencies.x11rb]
