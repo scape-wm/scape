@@ -50,6 +50,7 @@ use smithay::{
     input::pointer::{CursorImageAttributes, CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
+        ash::vk::ExtPhysicalDeviceDrmFn,
         calloop::{
             timer::{TimeoutAction, Timer},
             Dispatcher, EventLoop, LoopHandle, RegistrationToken,
@@ -298,34 +299,33 @@ pub fn run_udev(log: Logger) {
         state.device_added(&mut display, dev, path.into())
     }
 
-    if let Ok(instance) = Instance::new(Version::VERSION_1_2, None, log.clone()) {
-        if let Some(physical_device) =
-            PhysicalDevice::enumerate(&instance)
-                .ok()
-                .and_then(|devices| {
-                    devices
-                        .filter(|phd| {
-                            phd.has_device_extension(unsafe {
-                                CStr::from_bytes_with_nul_unchecked(b"VK_EXT_physical_device_drm\0")
-                            })
-                        })
-                        .find(|phd| {
-                            phd.primary_node().unwrap() == Some(primary_gpu)
-                                || phd.render_node().unwrap() == Some(primary_gpu)
-                        })
-                })
-        {
-            match VulkanAllocator::new(
-                &physical_device,
-                ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::SAMPLED,
-            ) {
-                Ok(allocator) => {
-                    state.backend_data.allocator = Some(Box::new(DmabufAllocator(allocator))
-                        as Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>);
-                }
-                Err(err) => {
-                    warn!(log, "Failed to create vulkan allocator: {}", err);
-                }
+    let skip_vulkan = std::env::var("ANVIL_NO_VULKAN")
+        .map(|x| {
+            x == "1" || x.to_lowercase() == "true" || x.to_lowercase() == "yes" || x.to_lowercase() == "y"
+        })
+        .unwrap_or(false);
+
+    if !skip_vulkan {
+        if let Ok(instance) = Instance::new(Version::VERSION_1_2, None, log.clone()) {
+            if let Some(physical_device) = PhysicalDevice::enumerate(&instance).ok().and_then(|devices| {
+                devices
+                    .filter(|phd| phd.has_device_extension(ExtPhysicalDeviceDrmFn::name()))
+                    .find(|phd| {
+                        phd.primary_node().unwrap() == Some(primary_gpu)
+                            || phd.render_node().unwrap() == Some(primary_gpu)
+                    })
+            }) {
+                match VulkanAllocator::new(
+                    &physical_device,
+                    ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::SAMPLED,
+                ) {
+                    Ok(allocator) => {
+                        state.backend_data.allocator = Some(Box::new(DmabufAllocator(allocator))
+                            as Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>);
+                    }
+                    Err(err) => {
+                        warn!(log, "Failed to create vulkan allocator: {}", err);
+                    }
             }
         }
     }
@@ -336,13 +336,13 @@ pub fn run_udev(log: Logger) {
             .backend_data
             .backends
             .get(&primary_gpu)
-            .unwrap()
-            .gbm
-            .clone();
-        state.backend_data.allocator = Some(Box::new(DmabufAllocator(GbmAllocator::new(
-            gbm,
-            GbmBufferFlags::RENDERING,
-        ))) as Box<_>);
+            // If the primary_gpu failed to initialize, we likely have a kmsro device
+            .or_else(|| state.backend_data.backends.values().next())
+            // Don't fail, if there is no allocator. There is a chance, that this a single gpu system and we don't need one.
+            .map(|backend| backend.gbm.clone());
+        state.backend_data.allocator = gbm.map(|gbm| {
+            Box::new(DmabufAllocator(GbmAllocator::new(gbm, GbmBufferFlags::RENDERING))) as Box<_>
+        });
     }
 
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
@@ -1053,7 +1053,13 @@ impl AnvilState<UdevData> {
                 self.backend_data.gpus.renderer(
                     &primary_gpu,
                     &node,
-                    self.backend_data.allocator.as_mut().unwrap().as_mut(),
+                    self.backend_data
+                        .allocator
+                        .as_mut()
+                        // TODO: We could build some kind of `GLAllocator` using Renderbuffers in theory for this case.
+                        //  That would work for memcpy's of offscreen contents.
+                        .expect("We need an allocator for multigpu systems")
+                        .as_mut(),
                     format,
                 )
             }
