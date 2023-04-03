@@ -196,7 +196,7 @@ pub fn run_udev() {
     let (session, notifier) = match LibSeatSession::new() {
         Ok(ret) => ret,
         Err(err) => {
-            crit!("Could not initialize a session: {}", err);
+            tracing::error!("Could not initialize a session: {}", err);
             return;
         }
     };
@@ -283,7 +283,7 @@ pub fn run_udev() {
             SessionEvent::PauseSession => {
                 libinput_context.suspend();
                 for backend in data.state.backend_data.backends.values() {
-                    backend.event_dispatcher.as_source_ref().pause();
+                    backend.drm.pause();
                 }
             }
             SessionEvent::ActivateSession => {
@@ -297,7 +297,7 @@ pub fn run_udev() {
                     .iter()
                     .map(|(handle, backend)| (*handle, backend))
                 {
-                    backend.event_dispatcher.as_source_ref().activate();
+                    backend.drm.activate();
                     let surfaces = backend.surfaces.borrow();
                     for surface in surfaces.values() {
                         if let Err(err) = surface.borrow().compositor.surface().reset_state() {
@@ -628,6 +628,7 @@ impl Drop for SurfaceData {
 struct BackendData {
     surfaces: Rc<RefCell<HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>>>>,
     gbm: GbmDevice<DrmDeviceFd>,
+    drm: DrmDevice,
     render_node: DrmNode,
     registration_token: RegistrationToken,
     event_dispatcher: Dispatcher<'static, DrmDevice, CalloopData<UdevData>>,
@@ -853,7 +854,7 @@ impl AnvilState<UdevData> {
             .map(|fd| (DrmDevice::new(fd.clone(), true), GbmDevice::new(fd)));
 
         // Report device open failures.
-        let (device, gbm) = match devices {
+        let ((drm, drm_notifier), gbm) = match devices {
             Some((Ok(drm), Ok(gbm))) => (drm, gbm),
             Some((Err(err), _)) => {
                 warn!(
@@ -882,7 +883,7 @@ impl AnvilState<UdevData> {
         };
         let backends = Rc::new(RefCell::new(scan_connectors(
             node,
-            &device,
+            &drm,
             &gbm,
             display,
             &mut self.space,
@@ -891,20 +892,19 @@ impl AnvilState<UdevData> {
             self.backend_data.debug_flags,
         )));
 
-        let event_dispatcher = Dispatcher::new(
-            device,
-            move |event, metadata, data: &mut CalloopData<_>| match event {
-                DrmEvent::VBlank(crtc) => {
-                    data.state.frame_finish(node, crtc, metadata);
-                }
-                DrmEvent::Error(error) => {
-                    tracing::error!("{:?}", error);
-                }
-            },
-        );
         let registration_token = self
             .handle
-            .register_dispatcher(event_dispatcher.clone())
+            .insert_source(
+                drm_notifier,
+                move |event, metadata, data: &mut CalloopData<_>| match event {
+                    DrmEvent::VBlank(crtc) => {
+                        data.state.frame_finish(node, crtc, metadata);
+                    }
+                    DrmEvent::Error(error) => {
+                        tracing::error!("{:?}", error);
+                    }
+                },
+            )
             .unwrap();
 
         let render_node = {
@@ -939,10 +939,10 @@ impl AnvilState<UdevData> {
             node,
             BackendData {
                 registration_token,
-                event_dispatcher,
+                gbm,
+                drm,
                 render_node,
                 surfaces: backends,
-                gbm,
             },
         );
     }
@@ -974,11 +974,10 @@ impl AnvilState<UdevData> {
                 self.space.unmap_output(&output);
             }
 
-            let source = backend_data.event_dispatcher.as_source_mut();
             let mut backends = backend_data.surfaces.borrow_mut();
             *backends = scan_connectors(
                 node,
-                &source,
+                &backend_data.drm,
                 &backend_data.gbm,
                 display,
                 &mut self.space,
@@ -1030,7 +1029,6 @@ impl AnvilState<UdevData> {
             crate::shell::fixup_positions(&mut self.space);
 
             self.handle.remove(backend_data.registration_token);
-            let _device = backend_data.event_dispatcher.into_source_inner();
 
             tracing::debug!("Dropping device");
         }
