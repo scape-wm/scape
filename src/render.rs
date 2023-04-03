@@ -211,7 +211,6 @@ pub fn render_output<'a, R>(
     damage_tracked_renderer: &mut DamageTrackedRenderer,
     age: usize,
     show_window_preview: bool,
-    log: &slog::Logger,
 ) -> Result<
     (Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates),
     DamageTrackedRendererError<R>,
@@ -227,5 +226,5 @@ where
         renderer,
         show_window_preview,
     );
-    damage_tracked_renderer.render_output(renderer, age, &elements, clear_color, log.clone())
+    damage_tracked_renderer.render_output(renderer, age, &elements, clear_color)
 }

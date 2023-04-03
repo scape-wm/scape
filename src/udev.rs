@@ -4,7 +4,6 @@ use crate::{
     shell::WindowElement,
     state::{post_repaint, take_presentation_feedback, AnvilState, Backend, CalloopData},
 };
-use slog::Logger;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
 #[cfg(feature = "egl")]
@@ -18,13 +17,12 @@ use smithay::{
         allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         allocator::{
             dmabuf::{AnyError, Dmabuf, DmabufAllocator},
-            gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
             vulkan::{ImageUsageFlags, VulkanAllocator},
             Allocator,
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmError, DrmEvent, DrmEventMetadata, DrmNode,
-            GbmBufferedSurface, NodeType,
+            compositor::DrmCompositor, DrmDevice, DrmDeviceFd, DrmError, DrmEvent,
+            DrmEventMetadata, DrmNode, GbmBufferedSurface, NodeType,
         },
         egl::{EGLContext, EGLDevice, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
@@ -33,7 +31,7 @@ use smithay::{
             element::{texture::TextureBuffer, AsRenderElements},
             gles2::{Gles2Renderbuffer, Gles2Renderer},
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
-            Bind, Frame, Renderer,
+            Bind, DebugFlags, Frame, Renderer,
         },
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
@@ -67,7 +65,7 @@ use smithay::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::{backend::GlobalId, protocol::wl_surface, Display, DisplayHandle},
     },
-    utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Rectangle, Scale, Transform},
+    utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Scale, Transform},
     wayland::{
         compositor,
         input_method::{InputMethodHandle, InputMethodSeat},
@@ -78,7 +76,6 @@ use std::{
     cell::RefCell,
     collections::hash_map::{Entry, HashMap},
     convert::TryInto,
-    ffi::CStr,
     ffi::OsString,
     os::unix::io::FromRawFd,
     path::PathBuf,
@@ -86,6 +83,7 @@ use std::{
     sync::{atomic::Ordering, Mutex},
     time::Duration,
 };
+use tracing::{info, trace, warn};
 
 type UdevRenderer<'a, 'b> = MultiRenderer<
     'a,
@@ -117,7 +115,6 @@ pub struct UdevData {
     fps_texture: Option<MultiTexture>,
     pointer_image: crate::cursor::Cursor,
     debug_flags: DebugFlags,
-    logger: slog::Logger,
 }
 
 impl UdevData {
@@ -184,22 +181,22 @@ impl Backend for UdevData {
             .gpus
             .early_import(Some(self.primary_gpu), self.primary_gpu, surface)
         {
-            warn!(self.logger, "Early buffer import failed: {}", err);
+            tracing::warn!("Early buffer import failed: {}", err);
         }
     }
 }
 
-pub fn run_udev(log: Logger) {
+pub fn run_udev() {
     let mut event_loop = EventLoop::try_new().unwrap();
     let mut display = Display::new().unwrap();
 
     /*
      * Initialize session
      */
-    let (session, notifier) = match LibSeatSession::new(log.clone()) {
+    let (session, notifier) = match LibSeatSession::new() {
         Ok(ret) => ret,
         Err(err) => {
-            crit!(log, "Could not initialize a session: {}", err);
+            crit!("Could not initialize a session: {}", err);
             return;
         }
     };
@@ -226,10 +223,10 @@ pub fn run_udev(log: Logger) {
                     .expect("No GPU!")
             })
     };
-    info!(log, "Using {} as primary gpu.", primary_gpu);
+    info!("Using {} as primary gpu.", primary_gpu);
 
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let gpus = GpuManager::new(GbmGlesBackend::default(), log.clone()).unwrap();
+    let gpus = GpuManager::new(GbmGlesBackend::default()).unwrap();
 
     let data = UdevData {
         dh: display.handle(),
@@ -240,23 +237,22 @@ pub fn run_udev(log: Logger) {
         gpus,
         allocator: None,
         backends: HashMap::new(),
-        pointer_image: crate::cursor::Cursor::load(&log),
+        pointer_image: crate::cursor::Cursor::load(),
         pointer_images: Vec::new(),
         pointer_element: PointerElement::default(),
         #[cfg(feature = "debug")]
         fps_texture: None,
         debug_flags: DebugFlags::empty(),
-        logger: log.clone(),
     };
-    let mut state = AnvilState::init(&mut display, event_loop.handle(), data, log.clone(), true);
+    let mut state = AnvilState::init(&mut display, event_loop.handle(), data, true);
 
     /*
      * Initialize the udev backend
      */
-    let udev_backend = match UdevBackend::new(&state.seat_name, log.clone()) {
+    let udev_backend = match UdevBackend::new(&state.seat_name) {
         Ok(ret) => ret,
         Err(err) => {
-            crit!(log, "Failed to initialize udev backend"; "error" => err);
+            tracing::error!(err, "Failed to initialize udev backend");
             return;
         }
     };
@@ -268,7 +264,7 @@ pub fn run_udev(log: Logger) {
         state.backend_data.session.clone().into(),
     );
     libinput_context.udev_assign_seat(&state.seat_name).unwrap();
-    let libinput_backend = LibinputInputBackend::new(libinput_context.clone(), log.clone());
+    let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
 
     /*
      * Bind all our objects that get driven by the event loop
@@ -281,7 +277,6 @@ pub fn run_udev(log: Logger) {
         })
         .unwrap();
     let handle = event_loop.handle();
-    let log2 = log.clone();
     event_loop
         .handle()
         .insert_source(notifier, move |event, &mut (), data| match event {
@@ -293,7 +288,7 @@ pub fn run_udev(log: Logger) {
             }
             SessionEvent::ActivateSession => {
                 if let Err(err) = libinput_context.resume() {
-                    slog::error!(log2, "Failed to resume libinput context: {:?}", err);
+                    tracing::error!("Failed to resume libinput context: {:?}", err);
                 }
                 for (node, backend) in data
                     .state
@@ -306,7 +301,7 @@ pub fn run_udev(log: Logger) {
                     let surfaces = backend.surfaces.borrow();
                     for surface in surfaces.values() {
                         if let Err(err) = surface.borrow().compositor.surface().reset_state() {
-                            slog::warn!(log2, "Failed to reset drm surface state: {}", err);
+                            warn!("Failed to reset drm surface state: {}", err);
                         }
                     }
                     handle.insert_idle(move |data| data.state.render(node, None));
@@ -328,7 +323,7 @@ pub fn run_udev(log: Logger) {
         .unwrap_or(false);
 
     if !skip_vulkan {
-        if let Ok(instance) = Instance::new(Version::VERSION_1_2, None, log.clone()) {
+        if let Ok(instance) = Instance::new(Version::VERSION_1_2, None) {
             if let Some(physical_device) =
                 PhysicalDevice::enumerate(&instance)
                     .ok()
@@ -350,14 +345,14 @@ pub fn run_udev(log: Logger) {
                             as Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>);
                     }
                     Err(err) => {
-                        warn!(log, "Failed to create vulkan allocator: {}", err);
+                        warn!("Failed to create vulkan allocator: {}", err);
                     }
                 }
             }
         }
 
         if state.backend_data.allocator.is_none() {
-            info!(log, "No vulkan allocator found, using GBM.");
+            info!("No vulkan allocator found, using GBM.");
             let gbm = state
                 .backend_data
                 .backends
@@ -411,19 +406,16 @@ pub fn run_udev(log: Logger) {
         #[cfg(feature = "egl")]
         {
             info!(
-                log,
-                "Trying to initialize EGL Hardware Acceleration via {:?}", primary_gpu
+                "Trying to initialize EGL Hardware Acceleration via {:?}",
+                primary_gpu
             );
 
             if renderer.bind_wl_display(&display.handle()).is_ok() {
-                info!(log, "EGL hardware-acceleration enabled");
+                info!("EGL hardware-acceleration enabled");
                 let dmabuf_formats = renderer.dmabuf_formats().cloned().collect::<Vec<_>>();
                 let mut dmabuf_state = DmabufState::new();
-                let global = dmabuf_state.create_global::<AnvilState<UdevData>, _>(
-                    &display.handle(),
-                    dmabuf_formats,
-                    log.clone(),
-                );
+                let global = dmabuf_state
+                    .create_global::<AnvilState<UdevData>, _>(&display.handle(), dmabuf_formats);
                 state.backend_data.dmabuf_state = Some((dmabuf_state, global));
             }
         };
@@ -451,7 +443,7 @@ pub fn run_udev(log: Logger) {
             std::iter::empty::<(OsString, OsString)>(),
             |_| {},
         ) {
-            error!(log, "Failed to start XWayland: {}", e);
+            tracing::error!("Failed to start XWayland: {}", e);
         }
 
         /*
@@ -547,7 +539,6 @@ impl SurfaceComposition {
         renderer: &mut R,
         elements: &'a [E],
         clear_color: [f32; 4],
-        log: Logger,
     ) -> Result<(bool, RenderElementStates), SwapBuffersError>
     where
         R: Renderer + Bind<Dmabuf> + Bind<Target> + Offscreen<Target> + ExportMem,
@@ -570,7 +561,7 @@ impl SurfaceComposition {
                 let current_debug_flags = renderer.debug_flags();
                 renderer.set_debug_flags(*debug_flags);
                 let res = dtr
-                    .render_output(renderer, age.into(), elements, clear_color, log)
+                    .render_output(renderer, age.into(), elements, clear_color)
                     .map(|(damage, states)| (damage.is_some(), states))
                     .map_err(|err| match err {
                         DamageTrackedRendererError::Rendering(err) => err.into(),
@@ -580,7 +571,7 @@ impl SurfaceComposition {
                 res
             }
             SurfaceComposition::Compositor(compositor) => compositor
-                .render_frame(renderer, elements, clear_color, log)
+                .render_frame(renderer, elements, clear_color)
                 .map(|render_frame_result| {
                     (
                         render_frame_result.damage.is_some(),
@@ -651,7 +642,6 @@ fn scan_connectors(
     space: &mut Space<WindowElement>,
     #[cfg(feature = "debug")] fps_texture: Option<&MultiTexture>,
     debug_flags: DebugFlags,
-    logger: &::slog::Logger,
 ) -> HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>> {
     // Get a set of all modesetting resource handles (excluding planes):
     let res_handles = device.resource_handles().unwrap();
@@ -662,13 +652,13 @@ fn scan_connectors(
         .iter()
         .map(|conn| device.get_connector(*conn, true).unwrap())
         .filter(|conn| conn.state() == ConnectorState::Connected)
-        .inspect(|conn| info!(logger, "Connected: {:?}", conn.interface()))
+        .inspect(|conn| info!("Connected: {:?}", conn.interface()))
         .collect();
 
     let mut backends = HashMap::new();
 
     let (render_node, formats) = {
-        let display = EGLDisplay::new(gbm.clone(), logger.clone()).unwrap();
+        let display = EGLDisplay::new(gbm.clone()).unwrap();
         let node = match EGLDevice::device_for_display(&display)
             .ok()
             .and_then(|x| x.try_get_render_node().ok().flatten())
@@ -676,7 +666,7 @@ fn scan_connectors(
             Some(node) => node,
             None => return HashMap::new(),
         };
-        let context = EGLContext::new(&display, logger.clone()).unwrap();
+        let context = EGLContext::new(&display).unwrap();
         (node, context.dmabuf_render_formats().clone())
     };
 
@@ -700,7 +690,6 @@ fn scan_connectors(
             };
 
             info!(
-                logger,
                 "Trying to setup connector {:?}-{} with crtc {:?}",
                 connector_info.interface(),
                 connector_info.interface_id(),
@@ -711,7 +700,7 @@ fn scan_connectors(
             let surface = match device.create_surface(crtc, mode, &[connector_info.handle()]) {
                 Ok(surface) => surface,
                 Err(err) => {
-                    warn!(logger, "Failed to create drm surface: {}", err);
+                    warn!("Failed to create drm surface: {}", err);
                     continue;
                 }
             };
@@ -745,7 +734,6 @@ fn scan_connectors(
                     make: "Smithay".into(),
                     model: "Generic DRM".into(),
                 },
-                None,
             );
             let global = output.create_global::<AnvilState<UdevData>>(&display.handle());
             let position = (
@@ -772,15 +760,11 @@ fn scan_connectors(
             );
 
             let compositor = if std::env::var("ANVIL_DISABLE_DRM_COMPOSITOR").is_ok() {
-                let gbm_surface = match GbmBufferedSurface::new(
-                    surface,
-                    allocator,
-                    formats.clone(),
-                    logger.clone(),
-                ) {
+                let gbm_surface = match GbmBufferedSurface::new(surface, allocator, formats.clone())
+                {
                     Ok(renderer) => renderer,
                     Err(err) => {
-                        warn!(logger, "Failed to create rendering surface: {}", err);
+                        warn!("Failed to create rendering surface: {}", err);
                         continue;
                     }
                 };
@@ -793,7 +777,7 @@ fn scan_connectors(
                 let driver = match device.get_driver() {
                     Ok(driver) => driver,
                     Err(err) => {
-                        warn!(logger, "Failed to query drm driver: {}", err);
+                        warn!("Failed to query drm driver: {}", err);
                         continue;
                     }
                 };
@@ -801,7 +785,7 @@ fn scan_connectors(
                 let mut planes = match surface.planes() {
                     Ok(planes) => planes,
                     Err(err) => {
-                        warn!(logger, "Failed to query surface planes: {}", err);
+                        warn!("Failed to query surface planes: {}", err);
                         continue;
                     }
                 };
@@ -829,11 +813,10 @@ fn scan_connectors(
                     formats.clone(),
                     device.cursor_size(),
                     Some(gbm.clone()),
-                    logger.clone(),
                 ) {
                     Ok(compositor) => compositor,
                     Err(err) => {
-                        warn!(logger, "Failed to create drm compositor: {}", err);
+                        warn!("Failed to create drm compositor: {}", err);
                         continue;
                     }
                 };
@@ -866,29 +849,24 @@ impl AnvilState<UdevData> {
         let open_flags = OFlag::O_RDWR | OFlag::O_CLOEXEC | OFlag::O_NOCTTY | OFlag::O_NONBLOCK;
         let device_fd = self.backend_data.session.open(&path, open_flags).ok();
         let devices = device_fd
-            .map(|fd| DrmDeviceFd::new(unsafe { DeviceFd::from_raw_fd(fd) }, self.log.clone()))
-            .map(|fd| {
-                (
-                    DrmDevice::new(fd.clone(), true, self.log.clone()),
-                    GbmDevice::new(fd),
-                )
-            });
+            .map(|fd| DrmDeviceFd::new(unsafe { DeviceFd::from_raw_fd(fd) }))
+            .map(|fd| (DrmDevice::new(fd.clone(), true), GbmDevice::new(fd)));
 
         // Report device open failures.
         let (device, gbm) = match devices {
             Some((Ok(drm), Ok(gbm))) => (drm, gbm),
             Some((Err(err), _)) => {
                 warn!(
-                    self.log,
-                    "Skipping device {:?}, because of drm error: {}", device_id, err
+                    "Skipping device {:?}, because of drm error: {}",
+                    device_id, err
                 );
                 return;
             }
             Some((_, Err(err))) => {
                 // TODO try DumbBuffer allocator in this case
                 warn!(
-                    self.log,
-                    "Skipping device {:?}, because of gbm error: {}", device_id, err
+                    "Skipping device {:?}, because of gbm error: {}",
+                    device_id, err
                 );
                 return;
             }
@@ -898,10 +876,7 @@ impl AnvilState<UdevData> {
         let node = match DrmNode::from_dev_id(device_id) {
             Ok(node) => node,
             Err(err) => {
-                warn!(
-                    self.log,
-                    "Failed to access drm node for {}: {}", device_id, err
-                );
+                warn!("Failed to access drm node for {}: {}", device_id, err);
                 return;
             }
         };
@@ -914,7 +889,6 @@ impl AnvilState<UdevData> {
             #[cfg(feature = "debug")]
             self.backend_data.fps_texture.as_ref(),
             self.backend_data.debug_flags,
-            &self.log,
         )));
 
         let event_dispatcher = Dispatcher::new(
@@ -924,7 +898,7 @@ impl AnvilState<UdevData> {
                     data.state.frame_finish(node, crtc, metadata);
                 }
                 DrmEvent::Error(error) => {
-                    error!(data.state.log, "{:?}", error);
+                    tracing::error!("{:?}", error);
                 }
             },
         );
@@ -934,7 +908,7 @@ impl AnvilState<UdevData> {
             .unwrap();
 
         let render_node = {
-            let display = EGLDisplay::new(gbm.clone(), self.log.clone()).unwrap();
+            let display = EGLDisplay::new(gbm.clone()).unwrap();
             match EGLDevice::device_for_display(&display)
                 .ok()
                 .and_then(|x| x.try_get_render_node().ok().flatten())
@@ -950,20 +924,15 @@ impl AnvilState<UdevData> {
             .add_node(render_node, gbm.clone())
         {
             warn!(
-                self.log,
-                "Failed to create renderer for GBM device {}: {}", device_id, err
+                "Failed to create renderer for GBM device {}: {}",
+                device_id, err
             );
             return;
         };
         for backend in backends.borrow_mut().values() {
             // render first frame
-            trace!(self.log, "Scheduling frame");
-            schedule_initial_render(
-                &mut self.backend_data.gpus,
-                backend.clone(),
-                &self.handle,
-                self.log.clone(),
-            );
+            trace!("Scheduling frame");
+            schedule_initial_render(&mut self.backend_data.gpus, backend.clone(), &self.handle);
         }
 
         self.backend_data.backends.insert(
@@ -986,7 +955,6 @@ impl AnvilState<UdevData> {
 
         //quick and dirty, just re-init all backends
         if let Some(ref mut backend_data) = self.backend_data.backends.get_mut(&node) {
-            let logger = self.log.clone();
             let loop_handle = self.handle.clone();
 
             // scan_connectors will recreate the outputs (and sadly also reset the scales)
@@ -1017,21 +985,14 @@ impl AnvilState<UdevData> {
                 #[cfg(feature = "debug")]
                 self.backend_data.fps_texture.as_ref(),
                 self.backend_data.debug_flags,
-                &logger,
             );
 
             // fixup window coordinates
             crate::shell::fixup_positions(&mut self.space);
 
             for surface in backends.values() {
-                let logger = logger.clone();
                 // render first frame
-                schedule_initial_render(
-                    &mut self.backend_data.gpus,
-                    surface.clone(),
-                    &loop_handle,
-                    logger,
-                );
+                schedule_initial_render(&mut self.backend_data.gpus, surface.clone(), &loop_handle);
             }
         }
     }
@@ -1049,7 +1010,7 @@ impl AnvilState<UdevData> {
                 .remove_node(&backend_data.render_node);
             // drop surfaces
             backend_data.surfaces.borrow_mut().clear();
-            debug!(self.log, "Surfaces dropped");
+            tracing::debug!("Surfaces dropped");
 
             for output in self
                 .space
@@ -1071,7 +1032,7 @@ impl AnvilState<UdevData> {
             self.handle.remove(backend_data.registration_token);
             let _device = backend_data.event_dispatcher.into_source_inner();
 
-            debug!(self.log, "Dropping device");
+            tracing::debug!("Dropping device");
         }
     }
 
@@ -1084,10 +1045,7 @@ impl AnvilState<UdevData> {
         let device_backend = match self.backend_data.backends.get_mut(&dev_id) {
             Some(backend) => backend,
             None => {
-                error!(
-                    self.log,
-                    "Trying to finish frame on non-existent backend {}", dev_id
-                );
+                tracing::error!("Trying to finish frame on non-existent backend {}", dev_id);
                 return;
             }
         };
@@ -1096,10 +1054,7 @@ impl AnvilState<UdevData> {
         let surface = match surfaces.get(&crtc) {
             Some(surface) => surface,
             None => {
-                error!(
-                    self.log,
-                    "Trying to finish frame on non-existent crtc {:?}", crtc
-                );
+                tracing::error!("Trying to finish frame on non-existent crtc {:?}", crtc);
                 return;
             }
         };
@@ -1160,7 +1115,7 @@ impl AnvilState<UdevData> {
                 true
             }
             Err(err) => {
-                warn!(self.log, "Error during rendering: {:?}", err);
+                warn!("Error during rendering: {:?}", err);
                 match err {
                     SwapBuffersError::AlreadySwapped => true,
                     SwapBuffersError::TemporaryFailure(err) => matches!(
@@ -1218,15 +1173,10 @@ impl AnvilState<UdevData> {
                 // However, if we need to do a copy, that might not be enough.
                 // (And without actual comparision to previous frames we cannot really know.)
                 // So lets ignore that in those cases to avoid thrashing performance.
-                trace!(
-                    self.log,
-                    "scheduling repaint timer immediately on {:?}",
-                    crtc
-                );
+                trace!("scheduling repaint timer immediately on {:?}", crtc);
                 Timer::immediate()
             } else {
                 trace!(
-                    self.log,
                     "scheduling repaint timer with delay {:?} on {:?}",
                     repaint_delay,
                     crtc
@@ -1248,10 +1198,7 @@ impl AnvilState<UdevData> {
         let device_backend = match self.backend_data.backends.get_mut(&dev_id) {
             Some(backend) => backend,
             None => {
-                error!(
-                    self.log,
-                    "Trying to render on non-existent backend {}", dev_id
-                );
+                tracing::error!("Trying to render on non-existent backend {}", dev_id);
                 return;
             }
         };
@@ -1348,12 +1295,11 @@ impl AnvilState<UdevData> {
                 &mut self.cursor_status.lock().unwrap(),
                 &self.clock,
                 self.show_window_preview,
-                &self.log,
             );
             let reschedule = match &result {
                 Ok(has_rendered) => !has_rendered,
                 Err(err) => {
-                    warn!(self.log, "Error during rendering: {:?}", err);
+                    warn!("Error during rendering: {:?}", err);
                     match err {
                         SwapBuffersError::AlreadySwapped => false,
                         SwapBuffersError::TemporaryFailure(err) => !matches!(
@@ -1382,7 +1328,6 @@ impl AnvilState<UdevData> {
                 let reschedule_duration =
                     Duration::from_millis((1_000_000f32 / output_refresh as f32) as u64);
                 trace!(
-                    self.log,
                     "reschedule repaint timer with delay {:?} on {:?}",
                     reschedule_duration,
                     crtc,
@@ -1413,7 +1358,6 @@ fn render_surface<'a, 'b>(
     cursor_status: &mut CursorImageStatus,
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
-    logger: &slog::Logger,
 ) -> Result<bool, SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1503,7 +1447,6 @@ fn render_surface<'a, 'b>(
         renderer,
         &elements,
         clear_color,
-        logger.clone(),
     )?;
 
     post_repaint(output, &states, space, clock.now());
@@ -1523,28 +1466,22 @@ fn schedule_initial_render(
     gpus: &mut GpuManager<GbmGlesBackend<Gles2Renderer>>,
     surface: Rc<RefCell<SurfaceData>>,
     evt_handle: &LoopHandle<'static, CalloopData<UdevData>>,
-    logger: ::slog::Logger,
 ) {
     let node = surface.borrow().render_node;
     let result = {
         let mut renderer = gpus.single_renderer(&node).unwrap();
         let mut surface = surface.borrow_mut();
-        initial_render(&mut surface, &mut renderer, &logger)
+        initial_render(&mut surface, &mut renderer)
     };
     if let Err(err) = result {
         match err {
             SwapBuffersError::AlreadySwapped => {}
             SwapBuffersError::TemporaryFailure(err) => {
                 // TODO dont reschedule after 3(?) retries
-                warn!(logger, "Failed to submit page_flip: {}", err);
+                warn!("Failed to submit page_flip: {}", err);
                 let handle = evt_handle.clone();
                 evt_handle.insert_idle(move |data| {
-                    schedule_initial_render(
-                        &mut data.state.backend_data.gpus,
-                        surface,
-                        &handle,
-                        logger,
-                    )
+                    schedule_initial_render(&mut data.state.backend_data.gpus, surface, &handle)
                 });
             }
             SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
@@ -1555,7 +1492,6 @@ fn schedule_initial_render(
 fn initial_render(
     surface: &mut SurfaceData,
     renderer: &mut UdevRenderer<'_, '_>,
-    logger: &::slog::Logger,
 ) -> Result<(), SwapBuffersError> {
     surface
         .compositor
@@ -1563,7 +1499,6 @@ fn initial_render(
             renderer,
             &[],
             CLEAR_COLOR,
-            logger.clone(),
         )?;
     surface.compositor.queue_frame(None)?;
     surface.compositor.reset_buffers();

@@ -8,11 +8,8 @@ bitflags = "1.2.1"
 fps_ticker = { version = "1.0.0", optional = true }
 image = { version = "0.24.0", default-features = false, optional = true }
 rand = "0.8"
-slog = { version = "2.1.1" }
-slog-async = "2.2"
-slog-scope = "4.4.0"
-slog-stdlog = "4.1.0"
-slog-term = "2.8"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 thiserror = "1"
 xcursor = { version = "0.3.3", optional = true }
 xkbcommon = "0.5.0"
@@ -21,7 +18,7 @@ clap = { version = "4.2.1", features = ["derive"] }
 
 [dependencies.smithay]
 default-features = false
-features = ["desktop", "wayland_frontend", "slog-stdlog"]
+features = ["desktop", "wayland_frontend"]
 git = "https://github.com/smithay/smithay"
 rev = "e29afe4989b4510c9b9eb7726414955583086361"
 # path = "../smithay"

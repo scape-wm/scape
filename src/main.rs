@@ -1,5 +1,4 @@
 use clap::Parser;
-use slog::{o, Drain};
 
 /// A Wayland compositor for efficient workflows
 #[derive(Parser, Debug)]
@@ -11,23 +10,24 @@ struct Args {
 }
 
 fn main() {
-    let log = slog::Logger::root(
-        slog_async::Async::default(slog_term::term_full().fuse()).fuse(),
-        o!(),
-    );
-
-    let _guard = slog_scope::set_global_logger(log.clone());
-    slog_stdlog::init().expect("Could not setup log backend");
+    if let Ok(env_filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        tracing_subscriber::fmt()
+            .compact()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        tracing_subscriber::fmt().compact().init();
+    }
 
     let args = Args::parse();
 
     if args.winit_backend {
-        slog::info!(log, "Starting with winit backend");
+        tracing::info!("Starting with winit backend");
         #[cfg(feature = "winit")]
-        scape::winit::run_winit(log);
+        scape::winit::run_winit();
     } else {
-        slog::info!(log, "Starting on a tty using udev");
+        tracing::info!("Starting on a tty using udev");
         #[cfg(feature = "udev")]
-        scape::udev::run_udev(log);
+        scape::udev::run_udev();
     }
 }

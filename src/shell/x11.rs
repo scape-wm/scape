@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -10,6 +8,8 @@ use smithay::{
         X11Surface, X11Wm, XwmHandler,
     },
 };
+use std::cell::RefCell;
+use tracing::trace;
 
 use crate::{state::Backend, AnvilState, CalloopData};
 
@@ -162,7 +162,7 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
                 .get::<FullscreenSurface>()
                 .unwrap()
                 .set(elem.clone());
-            slog::trace!(self.state.log, "Fullscreening: {:?}", elem);
+            trace!("Fullscreening: {:?}", elem);
         }
     }
 
@@ -182,7 +182,7 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
                     .map(|w| &w == elem)
                     .unwrap_or(false)
             }) {
-                slog::trace!(self.state.log, "Unfullscreening: {:?}", elem);
+                trace!("Unfullscreening: {:?}", elem);
                 output
                     .user_data()
                     .get::<FullscreenSurface>()

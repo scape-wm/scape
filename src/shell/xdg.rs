@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use smithay::{
     desktop::{
         find_popup_root_surface, layer_map_for_output, space::SpaceElement, PopupKeyboardGrab,
@@ -24,6 +22,8 @@ use smithay::{
         },
     },
 };
+use std::cell::RefCell;
+use tracing::{trace, warn};
 
 use crate::{
     focus::FocusTarget,
@@ -62,7 +62,7 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
             state.geometry = positioner.get_geometry();
         });
         if let Err(err) = self.popups.track_popup(PopupKind::from(surface)) {
-            slog::warn!(self.log, "Failed to track popup: {}", err);
+            warn!("Failed to track popup: {}", err);
         }
     }
 
@@ -248,7 +248,7 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
                 .get::<FullscreenSurface>()
                 .unwrap()
                 .set(window.clone());
-            slog::trace!(self.log, "Fullscreening: {:?}", window);
+            trace!("Fullscreening: {:?}", window);
         }
     }
 
@@ -261,7 +261,7 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
         if let Some(output) = ret {
             let output = Output::from_resource(&output).unwrap();
             if let Some(fullscreen) = output.user_data().get::<FullscreenSurface>() {
-                slog::trace!(self.log, "Unfullscreening: {:?}", fullscreen.get());
+                trace!("Unfullscreening: {:?}", fullscreen.get());
                 fullscreen.clear();
                 self.backend_data.reset_buffers(&output);
             }
