@@ -9,10 +9,7 @@ use slog::Logger;
 use smithay::backend::renderer::ImportMem;
 #[cfg(feature = "egl")]
 use smithay::{
-    backend::{
-        allocator::dmabuf::Dmabuf,
-        renderer::{ImportDma, ImportEgl},
-    },
+    backend::renderer::{ImportDma, ImportEgl},
     delegate_dmabuf,
     wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportError},
 };
@@ -20,7 +17,7 @@ use smithay::{
     backend::{
         allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         allocator::{
-            dmabuf::{AnyError, DmabufAllocator},
+            dmabuf::{AnyError, Dmabuf, DmabufAllocator},
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
             vulkan::{ImageUsageFlags, VulkanAllocator},
             Allocator,
@@ -63,6 +60,7 @@ use smithay::{
                 encoder::Info as EncoderInfo,
                 Device as ControlDevice,
             },
+            Device,
         },
         input::Libinput,
         nix::{fcntl::OFlag, sys::stat::dev_t},
@@ -118,7 +116,27 @@ pub struct UdevData {
     #[cfg(feature = "debug")]
     fps_texture: Option<MultiTexture>,
     pointer_image: crate::cursor::Cursor,
+    debug_flags: DebugFlags,
     logger: slog::Logger,
+}
+
+impl UdevData {
+    pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        if self.debug_flags != flags {
+            self.debug_flags = flags;
+
+            for (_, backend) in self.backends.iter_mut() {
+                let surfaces = backend.surfaces.borrow();
+                for (_, surface) in surfaces.iter() {
+                    surface.borrow_mut().compositor.set_debug_flags(flags);
+                }
+            }
+        }
+    }
+
+    pub fn debug_flags(&self) -> DebugFlags {
+        self.debug_flags
+    }
 }
 
 #[cfg(feature = "egl")]
@@ -155,7 +173,7 @@ impl Backend for UdevData {
             if let Some(gpu) = self.backends.get(&id.device_id) {
                 let surfaces = gpu.surfaces.borrow();
                 if let Some(surface) = surfaces.get(&id.crtc) {
-                    surface.borrow_mut().surface.reset_buffers();
+                    surface.borrow_mut().compositor.reset_buffers();
                 }
             }
         }
@@ -227,6 +245,7 @@ pub fn run_udev(log: Logger) {
         pointer_element: PointerElement::default(),
         #[cfg(feature = "debug")]
         fps_texture: None,
+        debug_flags: DebugFlags::empty(),
         logger: log.clone(),
     };
     let mut state = AnvilState::init(&mut display, event_loop.handle(), data, log.clone(), true);
@@ -286,7 +305,7 @@ pub fn run_udev(log: Logger) {
                     backend.event_dispatcher.as_source_ref().activate();
                     let surfaces = backend.surfaces.borrow();
                     for surface in surfaces.values() {
-                        if let Err(err) = surface.borrow().surface.surface().reset_state() {
+                        if let Err(err) = surface.borrow().compositor.surface().reset_state() {
                             slog::warn!(log2, "Failed to reset drm surface state: {}", err);
                         }
                     }
@@ -301,20 +320,27 @@ pub fn run_udev(log: Logger) {
 
     let skip_vulkan = std::env::var("ANVIL_NO_VULKAN")
         .map(|x| {
-            x == "1" || x.to_lowercase() == "true" || x.to_lowercase() == "yes" || x.to_lowercase() == "y"
+            x == "1"
+                || x.to_lowercase() == "true"
+                || x.to_lowercase() == "yes"
+                || x.to_lowercase() == "y"
         })
         .unwrap_or(false);
 
     if !skip_vulkan {
         if let Ok(instance) = Instance::new(Version::VERSION_1_2, None, log.clone()) {
-            if let Some(physical_device) = PhysicalDevice::enumerate(&instance).ok().and_then(|devices| {
-                devices
-                    .filter(|phd| phd.has_device_extension(ExtPhysicalDeviceDrmFn::name()))
-                    .find(|phd| {
-                        phd.primary_node().unwrap() == Some(primary_gpu)
-                            || phd.render_node().unwrap() == Some(primary_gpu)
+            if let Some(physical_device) =
+                PhysicalDevice::enumerate(&instance)
+                    .ok()
+                    .and_then(|devices| {
+                        devices
+                            .filter(|phd| phd.has_device_extension(ExtPhysicalDeviceDrmFn::name()))
+                            .find(|phd| {
+                                phd.primary_node().unwrap() == Some(primary_gpu)
+                                    || phd.render_node().unwrap() == Some(primary_gpu)
+                            })
                     })
-            }) {
+            {
                 match VulkanAllocator::new(
                     &physical_device,
                     ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::SAMPLED,
@@ -326,120 +352,124 @@ pub fn run_udev(log: Logger) {
                     Err(err) => {
                         warn!(log, "Failed to create vulkan allocator: {}", err);
                     }
+                }
             }
         }
-    }
 
-    if state.backend_data.allocator.is_none() {
-        info!(log, "No vulkan allocator found, using GBM.");
-        let gbm = state
+        if state.backend_data.allocator.is_none() {
+            info!(log, "No vulkan allocator found, using GBM.");
+            let gbm = state
+                .backend_data
+                .backends
+                .get(&primary_gpu)
+                // If the primary_gpu failed to initialize, we likely have a kmsro device
+                .or_else(|| state.backend_data.backends.values().next())
+                // Don't fail, if there is no allocator. There is a chance, that this a single gpu system and we don't need one.
+                .map(|backend| backend.gbm.clone());
+            state.backend_data.allocator = gbm.map(|gbm| {
+                Box::new(DmabufAllocator(GbmAllocator::new(
+                    gbm,
+                    GbmBufferFlags::RENDERING,
+                ))) as Box<_>
+            });
+        }
+
+        #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
+        #[cfg(any(feature = "egl", feature = "debug"))]
+        let mut renderer = state
             .backend_data
-            .backends
-            .get(&primary_gpu)
-            // If the primary_gpu failed to initialize, we likely have a kmsro device
-            .or_else(|| state.backend_data.backends.values().next())
-            // Don't fail, if there is no allocator. There is a chance, that this a single gpu system and we don't need one.
-            .map(|backend| backend.gbm.clone());
-        state.backend_data.allocator = gbm.map(|gbm| {
-            Box::new(DmabufAllocator(GbmAllocator::new(gbm, GbmBufferFlags::RENDERING))) as Box<_>
-        });
-    }
+            .gpus
+            .single_renderer(&primary_gpu)
+            .unwrap();
 
-    #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    #[cfg(any(feature = "egl", feature = "debug"))]
-    let mut renderer = state
-        .backend_data
-        .gpus
-        .single_renderer(&primary_gpu)
-        .unwrap();
-
-    #[cfg(feature = "debug")]
-    {
-        let fps_image = image::io::Reader::with_format(
-            std::io::Cursor::new(FPS_NUMBERS_PNG),
-            image::ImageFormat::Png,
-        )
-        .decode()
-        .unwrap();
-        let fps_texture = renderer
-            .import_memory(
-                &fps_image.to_rgba8(),
-                (fps_image.width() as i32, fps_image.height() as i32).into(),
-                false,
+        #[cfg(feature = "debug")]
+        {
+            let fps_image = image::io::Reader::with_format(
+                std::io::Cursor::new(FPS_NUMBERS_PNG),
+                image::ImageFormat::Png,
             )
-            .expect("Unable to upload FPS texture");
+            .decode()
+            .unwrap();
+            let fps_texture = renderer
+                .import_memory(
+                    &fps_image.to_rgba8(),
+                    (fps_image.width() as i32, fps_image.height() as i32).into(),
+                    false,
+                )
+                .expect("Unable to upload FPS texture");
 
-        for backend in state.backend_data.backends.values_mut() {
-            for surface in backend.surfaces.borrow_mut().values_mut() {
-                surface.borrow_mut().fps_element = Some(FpsElement::new(fps_texture.clone()));
+            for backend in state.backend_data.backends.values_mut() {
+                for surface in backend.surfaces.borrow_mut().values_mut() {
+                    surface.borrow_mut().fps_element = Some(FpsElement::new(fps_texture.clone()));
+                }
             }
+            state.backend_data.fps_texture = Some(fps_texture);
         }
-        state.backend_data.fps_texture = Some(fps_texture);
-    }
 
-    // init dmabuf support with format list from our primary gpu
-    // TODO: This does not necessarily depend on egl, but mesa makes no use of it without wl_drm right now
-    #[cfg(feature = "egl")]
-    {
-        info!(
-            log,
-            "Trying to initialize EGL Hardware Acceleration via {:?}", primary_gpu
-        );
-
-        if renderer.bind_wl_display(&display.handle()).is_ok() {
-            info!(log, "EGL hardware-acceleration enabled");
-            let dmabuf_formats = renderer.dmabuf_formats().cloned().collect::<Vec<_>>();
-            let mut dmabuf_state = DmabufState::new();
-            let global = dmabuf_state.create_global::<AnvilState<UdevData>, _>(
-                &display.handle(),
-                dmabuf_formats,
-                log.clone(),
+        // init dmabuf support with format list from our primary gpu
+        // TODO: This does not necessarily depend on egl, but mesa makes no use of it without wl_drm right now
+        #[cfg(feature = "egl")]
+        {
+            info!(
+                log,
+                "Trying to initialize EGL Hardware Acceleration via {:?}", primary_gpu
             );
-            state.backend_data.dmabuf_state = Some((dmabuf_state, global));
+
+            if renderer.bind_wl_display(&display.handle()).is_ok() {
+                info!(log, "EGL hardware-acceleration enabled");
+                let dmabuf_formats = renderer.dmabuf_formats().cloned().collect::<Vec<_>>();
+                let mut dmabuf_state = DmabufState::new();
+                let global = dmabuf_state.create_global::<AnvilState<UdevData>, _>(
+                    &display.handle(),
+                    dmabuf_formats,
+                    log.clone(),
+                );
+                state.backend_data.dmabuf_state = Some((dmabuf_state, global));
+            }
+        };
+
+        event_loop
+            .handle()
+            .insert_source(udev_backend, move |event, _, data| match event {
+                UdevEvent::Added { device_id, path } => {
+                    data.state.device_added(&mut data.display, device_id, path)
+                }
+                UdevEvent::Changed { device_id } => {
+                    data.state.device_changed(&mut data.display, device_id)
+                }
+                UdevEvent::Removed { device_id } => data.state.device_removed(device_id),
+            })
+            .unwrap();
+
+        /*
+         * Start XWayland if supported
+         */
+        #[cfg(feature = "xwayland")]
+        if let Err(e) = state.xwayland.start(
+            state.handle.clone(),
+            None,
+            std::iter::empty::<(OsString, OsString)>(),
+            |_| {},
+        ) {
+            error!(log, "Failed to start XWayland: {}", e);
         }
-    };
 
-    event_loop
-        .handle()
-        .insert_source(udev_backend, move |event, _, data| match event {
-            UdevEvent::Added { device_id, path } => {
-                data.state.device_added(&mut data.display, device_id, path)
+        /*
+         * And run our loop
+         */
+
+        while state.running.load(Ordering::SeqCst) {
+            let mut calloop_data = CalloopData { state, display };
+            let result = event_loop.dispatch(Some(Duration::from_millis(16)), &mut calloop_data);
+            CalloopData { state, display } = calloop_data;
+
+            if result.is_err() {
+                state.running.store(false, Ordering::SeqCst);
+            } else {
+                state.space.refresh();
+                state.popups.cleanup();
+                display.flush_clients().unwrap();
             }
-            UdevEvent::Changed { device_id } => {
-                data.state.device_changed(&mut data.display, device_id)
-            }
-            UdevEvent::Removed { device_id } => data.state.device_removed(device_id),
-        })
-        .unwrap();
-
-    /*
-     * Start XWayland if supported
-     */
-    #[cfg(feature = "xwayland")]
-    if let Err(e) = state.xwayland.start(
-        state.handle.clone(),
-        None,
-        std::iter::empty::<(OsString, OsString)>(),
-        |_| {},
-    ) {
-        error!(log, "Failed to start XWayland: {}", e);
-    }
-
-    /*
-     * And run our loop
-     */
-
-    while state.running.load(Ordering::SeqCst) {
-        let mut calloop_data = CalloopData { state, display };
-        let result = event_loop.dispatch(Some(Duration::from_millis(16)), &mut calloop_data);
-        CalloopData { state, display } = calloop_data;
-
-        if result.is_err() {
-            state.running.store(false, Ordering::SeqCst);
-        } else {
-            state.space.refresh();
-            state.popups.cleanup();
-            display.flush_clients().unwrap();
         }
     }
 }
@@ -447,13 +477,149 @@ pub fn run_udev(log: Logger) {
 pub type RenderSurface =
     GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, Option<OutputPresentationFeedback>>;
 
+pub type GbmDrmCompositor = DrmCompositor<
+    GbmAllocator<DrmDeviceFd>,
+    GbmDevice<DrmDeviceFd>,
+    Option<OutputPresentationFeedback>,
+    DrmDeviceFd,
+>;
+
+enum SurfaceComposition {
+    Surface {
+        surface: RenderSurface,
+        dtr: DamageTrackedRenderer,
+        debug_flags: DebugFlags,
+    },
+    Compositor(GbmDrmCompositor),
+}
+
+impl SurfaceComposition {
+    fn frame_submitted(
+        &mut self,
+    ) -> Result<Option<Option<OutputPresentationFeedback>>, SwapBuffersError> {
+        match self {
+            SurfaceComposition::Compositor(c) => {
+                c.frame_submitted().map_err(Into::<SwapBuffersError>::into)
+            }
+            SurfaceComposition::Surface { surface, .. } => surface
+                .frame_submitted()
+                .map_err(Into::<SwapBuffersError>::into),
+        }
+    }
+
+    fn format(&self) -> smithay::reexports::gbm::Format {
+        match self {
+            SurfaceComposition::Compositor(c) => c.format(),
+            SurfaceComposition::Surface { surface, .. } => surface.format(),
+        }
+    }
+
+    fn surface(&self) -> &DrmSurface {
+        match self {
+            SurfaceComposition::Compositor(c) => c.surface(),
+            SurfaceComposition::Surface { surface, .. } => surface.surface(),
+        }
+    }
+
+    fn reset_buffers(&mut self) {
+        match self {
+            SurfaceComposition::Compositor(c) => c.reset_buffers(),
+            SurfaceComposition::Surface { surface, .. } => surface.reset_buffers(),
+        }
+    }
+
+    fn queue_frame(
+        &mut self,
+        user_data: Option<OutputPresentationFeedback>,
+    ) -> Result<(), SwapBuffersError> {
+        match self {
+            SurfaceComposition::Surface { surface, .. } => surface
+                .queue_buffer(None, user_data)
+                .map_err(Into::<SwapBuffersError>::into),
+            SurfaceComposition::Compositor(c) => c
+                .queue_frame(user_data)
+                .map_err(Into::<SwapBuffersError>::into),
+        }
+    }
+
+    fn render_frame<'a, R, E, Target>(
+        &mut self,
+        renderer: &mut R,
+        elements: &'a [E],
+        clear_color: [f32; 4],
+        log: Logger,
+    ) -> Result<(bool, RenderElementStates), SwapBuffersError>
+    where
+        R: Renderer + Bind<Dmabuf> + Bind<Target> + Offscreen<Target> + ExportMem,
+        <R as Renderer>::TextureId: 'static,
+        <R as Renderer>::Error: Into<SwapBuffersError>,
+        E: RenderElement<R>,
+    {
+        match self {
+            SurfaceComposition::Surface {
+                surface,
+                dtr,
+                debug_flags,
+            } => {
+                let (dmabuf, age) = surface
+                    .next_buffer()
+                    .map_err(Into::<SwapBuffersError>::into)?;
+                renderer
+                    .bind(dmabuf)
+                    .map_err(Into::<SwapBuffersError>::into)?;
+                let current_debug_flags = renderer.debug_flags();
+                renderer.set_debug_flags(*debug_flags);
+                let res = dtr
+                    .render_output(renderer, age.into(), elements, clear_color, log)
+                    .map(|(damage, states)| (damage.is_some(), states))
+                    .map_err(|err| match err {
+                        DamageTrackedRendererError::Rendering(err) => err.into(),
+                        _ => unreachable!(),
+                    });
+                renderer.set_debug_flags(current_debug_flags);
+                res
+            }
+            SurfaceComposition::Compositor(compositor) => compositor
+                .render_frame(renderer, elements, clear_color, log)
+                .map(|render_frame_result| {
+                    (
+                        render_frame_result.damage.is_some(),
+                        render_frame_result.states,
+                    )
+                })
+                .map_err(|err| match err {
+                    smithay::backend::drm::compositor::RenderFrameError::PrepareFrame(err) => {
+                        err.into()
+                    }
+                    smithay::backend::drm::compositor::RenderFrameError::RenderFrame(
+                        DamageTrackedRendererError::Rendering(err),
+                    ) => err.into(),
+                    _ => unreachable!(),
+                }),
+        }
+    }
+
+    fn set_debug_flags(&mut self, flags: DebugFlags) {
+        match self {
+            SurfaceComposition::Surface {
+                surface,
+                debug_flags,
+                ..
+            } => {
+                *debug_flags = flags;
+                surface.reset_buffers();
+            }
+            SurfaceComposition::Compositor(c) => c.set_debug_flags(flags),
+        }
+    }
+}
+
 struct SurfaceData {
     dh: DisplayHandle,
     device_id: DrmNode,
     render_node: DrmNode,
-    surface: RenderSurface,
     global: Option<GlobalId>,
-    damage_tracked_renderer: DamageTrackedRenderer,
+    compositor: SurfaceComposition,
     #[cfg(feature = "debug")]
     fps: fps_ticker::Fps,
     #[cfg(feature = "debug")]
@@ -484,6 +650,7 @@ fn scan_connectors(
     display: &mut Display<AnvilState<UdevData>>,
     space: &mut Space<WindowElement>,
     #[cfg(feature = "debug")] fps_texture: Option<&MultiTexture>,
+    debug_flags: DebugFlags,
     logger: &::slog::Logger,
 ) -> HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>> {
     // Get a set of all modesetting resource handles (excluding planes):
@@ -549,22 +716,6 @@ fn scan_connectors(
                 }
             };
 
-            let gbm_surface = match GbmBufferedSurface::new(
-                surface,
-                GbmAllocator::new(
-                    gbm.clone(),
-                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-                ),
-                formats.clone(),
-                logger.clone(),
-            ) {
-                Ok(renderer) => renderer,
-                Err(err) => {
-                    warn!(logger, "Failed to create rendering surface: {}", err);
-                    continue;
-                }
-            };
-
             let size = mode.size();
             let mode = Mode {
                 size: (size.0 as i32, size.1 as i32).into(),
@@ -612,17 +763,90 @@ fn scan_connectors(
                 .user_data()
                 .insert_if_missing(|| UdevOutputId { crtc, device_id });
 
-            let damage_tracked_renderer = DamageTrackedRenderer::from_output(&output);
             #[cfg(feature = "debug")]
-            let fps_element = fps_texture.cloned().map(FpsElement::new));
+            let fps_element = fps_texture.cloned().map(FpsElement::new);
+
+            let allocator = GbmAllocator::new(
+                gbm.clone(),
+                GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+            );
+
+            let compositor = if std::env::var("ANVIL_DISABLE_DRM_COMPOSITOR").is_ok() {
+                let gbm_surface = match GbmBufferedSurface::new(
+                    surface,
+                    allocator,
+                    formats.clone(),
+                    logger.clone(),
+                ) {
+                    Ok(renderer) => renderer,
+                    Err(err) => {
+                        warn!(logger, "Failed to create rendering surface: {}", err);
+                        continue;
+                    }
+                };
+                SurfaceComposition::Surface {
+                    surface: gbm_surface,
+                    dtr: DamageTrackedRenderer::from_output(&output),
+                    debug_flags,
+                }
+            } else {
+                let driver = match device.get_driver() {
+                    Ok(driver) => driver,
+                    Err(err) => {
+                        warn!(logger, "Failed to query drm driver: {}", err);
+                        continue;
+                    }
+                };
+
+                let mut planes = match surface.planes() {
+                    Ok(planes) => planes,
+                    Err(err) => {
+                        warn!(logger, "Failed to query surface planes: {}", err);
+                        continue;
+                    }
+                };
+
+                // Using an overlay plane on a nvidia card breaks
+                if driver
+                    .name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains("nvidia")
+                    || driver
+                        .description()
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .contains("nvidia")
+                {
+                    planes.overlay = vec![];
+                }
+                let mut compositor = match DrmCompositor::new(
+                    &output,
+                    surface,
+                    Some(planes),
+                    allocator,
+                    gbm.clone(),
+                    formats.clone(),
+                    device.cursor_size(),
+                    Some(gbm.clone()),
+                    logger.clone(),
+                ) {
+                    Ok(compositor) => compositor,
+                    Err(err) => {
+                        warn!(logger, "Failed to create drm compositor: {}", err);
+                        continue;
+                    }
+                };
+                compositor.set_debug_flags(debug_flags);
+                SurfaceComposition::Compositor(compositor)
+            };
 
             entry.insert(Rc::new(RefCell::new(SurfaceData {
                 dh: display.handle(),
                 device_id,
                 render_node,
-                surface: gbm_surface,
                 global: Some(global),
-                damage_tracked_renderer,
+                compositor,
                 #[cfg(feature = "debug")]
                 fps: fps_ticker::Fps::default(),
                 #[cfg(feature = "debug")]
@@ -689,6 +913,7 @@ impl AnvilState<UdevData> {
             &mut self.space,
             #[cfg(feature = "debug")]
             self.backend_data.fps_texture.as_ref(),
+            self.backend_data.debug_flags,
             &self.log,
         )));
 
@@ -718,7 +943,12 @@ impl AnvilState<UdevData> {
                 None => node,
             }
         };
-        if let Err(err) = self.backend_data.gpus.as_mut().add_node(render_node, gbm.clone()) {
+        if let Err(err) = self
+            .backend_data
+            .gpus
+            .as_mut()
+            .add_node(render_node, gbm.clone())
+        {
             warn!(
                 self.log,
                 "Failed to create renderer for GBM device {}: {}", device_id, err
@@ -786,6 +1016,7 @@ impl AnvilState<UdevData> {
                 &mut self.space,
                 #[cfg(feature = "debug")]
                 self.backend_data.fps_texture.as_ref(),
+                self.backend_data.debug_flags,
                 &logger,
             );
 
@@ -889,7 +1120,7 @@ impl AnvilState<UdevData> {
         };
 
         let schedule_render = match surface
-            .surface
+            .compositor
             .frame_submitted()
             .map_err(Into::<SwapBuffersError>::into)
         {
@@ -940,7 +1171,9 @@ impl AnvilState<UdevData> {
                                 ..
                             })
                     ),
-                    SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
+                    SwapBuffersError::ContextLost(err) => {
+                        panic!("Rendering loop lost: {}", err)
+                    }
                 }
             }
         };
@@ -1049,7 +1282,7 @@ impl AnvilState<UdevData> {
             let mut renderer = if primary_gpu == node {
                 self.backend_data.gpus.single_renderer(&node)
             } else {
-                let format = surface.borrow().surface.format();
+                let format = surface.borrow().compositor.format();
                 self.backend_data.gpus.renderer(
                     &primary_gpu,
                     &node,
@@ -1185,10 +1418,7 @@ fn render_surface<'a, 'b>(
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
 
-    let (dmabuf, age) = surface.surface.next_buffer()?;
-    renderer.bind(dmabuf)?;
-
-    let mut elements: Vec<CustomRenderElements<_>> = Vec::new();
+    let mut custom_elements: Vec<CustomRenderElements<_>> = Vec::new();
     // draw input method surface if any
     let rectangle = input_method.coordinates();
     let position = Point::from((
@@ -1196,7 +1426,7 @@ fn render_surface<'a, 'b>(
         rectangle.loc.y + rectangle.size.h,
     ));
     input_method.with_surface(|surface| {
-        elements.extend(AsRenderElements::<UdevRenderer<'a, 'b>>::render_elements(
+        custom_elements.extend(AsRenderElements::<UdevRenderer<'a, 'b>>::render_elements(
             &SurfaceTree::from_surface(surface),
             renderer,
             position.to_physical_precise_round(scale),
@@ -1238,7 +1468,7 @@ fn render_surface<'a, 'b>(
             pointer_element.set_status(cursor_status.clone());
         }
 
-        elements.extend(pointer_element.render_elements(renderer, cursor_pos_scaled, scale));
+        custom_elements.extend(pointer_element.render_elements(renderer, cursor_pos_scaled, scale));
 
         // draw the dnd icon if applicable
         {
@@ -1259,33 +1489,30 @@ fn render_surface<'a, 'b>(
     if let Some(element) = surface.fps_element.as_mut() {
         element.update_fps(surface.fps.avg().round() as u32);
         surface.fps.tick();
-        elements.push(CustomRenderElements::Fps(element.clone()));
+        custom_elements.push(CustomRenderElements::Fps(element.clone()));
     }
 
-    // and draw to our buffer
-    let (rendered, states) = render_output(
+    let (elements, clear_color) = output_elements(
         output,
         space,
-        &elements,
+        custom_elements,
         renderer,
-        &mut surface.damage_tracked_renderer,
-        age.into(),
         show_window_preview,
-        logger,
-    )
-    .map(|(damage, states)| (damage.is_some(), states))
-    .map_err(|err| match err {
-        DamageTrackedRendererError::Rendering(err) => SwapBuffersError::from(err),
-        _ => unreachable!(),
-    })?;
+    );
+    let (rendered, states) = surface.compositor.render_frame::<_, _, Gles2Renderbuffer>(
+        renderer,
+        &elements,
+        clear_color,
+        logger.clone(),
+    )?;
 
     post_repaint(output, &states, space, clock.now());
 
     if rendered {
         let output_presentation_feedback = take_presentation_feedback(output, space, &states);
         surface
-            .surface
-            .queue_buffer(Some(output_presentation_feedback))
+            .compositor
+            .queue_frame(Some(output_presentation_feedback))
             .map_err(Into::<SwapBuffersError>::into)?;
     }
 
@@ -1302,7 +1529,7 @@ fn schedule_initial_render(
     let result = {
         let mut renderer = gpus.single_renderer(&node).unwrap();
         let mut surface = surface.borrow_mut();
-        initial_render(&mut surface.surface, &mut renderer)
+        initial_render(&mut surface, &mut renderer, &logger)
     };
     if let Err(err) = result {
         match err {
@@ -1326,18 +1553,20 @@ fn schedule_initial_render(
 }
 
 fn initial_render(
-    surface: &mut RenderSurface,
+    surface: &mut SurfaceData,
     renderer: &mut UdevRenderer<'_, '_>,
+    logger: &::slog::Logger,
 ) -> Result<(), SwapBuffersError> {
-    let (dmabuf, _) = surface.next_buffer()?;
-    renderer.bind(dmabuf)?;
-    // Does not matter if we render an empty frame
-    let mut frame = renderer
-        .render((1, 1).into(), Transform::Normal)
-        .map_err(Into::<SwapBuffersError>::into)?;
-    frame.clear(CLEAR_COLOR, &[Rectangle::from_loc_and_size((0, 0), (1, 1))])?;
-    frame.finish().map_err(Into::<SwapBuffersError>::into)?;
-    surface.queue_buffer(None)?;
-    surface.reset_buffers();
+    surface
+        .compositor
+        .render_frame::<_, CustomRenderElements<_>, Gles2Renderbuffer>(
+            renderer,
+            &[],
+            CLEAR_COLOR,
+            logger.clone(),
+        )?;
+    surface.compositor.queue_frame(None)?;
+    surface.compositor.reset_buffers();
+
     Ok(())
 }
