@@ -1,3 +1,3 @@
 # Scape
 
-A wayland compositor with configurable window zones
+A wayland compositor with configurable window zones. 

@@ -1,42 +1,33 @@
-use slog::{crit, o, Drain};
+use clap::Parser;
+use slog::{o, Drain};
+
+/// A Wayland compositor for efficient workflows
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Use winit as render backend instead of udev
+    #[arg(short, long)]
+    winit_backend: bool,
+}
 
 fn main() {
-    let log = if std::env::var("SCAPE_MUTEX_LOG").is_ok() {
-        slog::Logger::root(
-            std::sync::Mutex::new(slog_term::term_full().fuse()).fuse(),
-            o!(),
-        )
-    } else {
-        slog::Logger::root(
-            slog_async::Async::default(slog_term::term_full().fuse()).fuse(),
-            o!(),
-        )
-    };
+    let log = slog::Logger::root(
+        slog_async::Async::default(slog_term::term_full().fuse()).fuse(),
+        o!(),
+    );
 
     let _guard = slog_scope::set_global_logger(log.clone());
     slog_stdlog::init().expect("Could not setup log backend");
 
-    let arg = ::std::env::args().nth(1);
-    match arg.as_ref().map(|s| &s[..]) {
+    let args = Args::parse();
+
+    if args.winit_backend {
+        slog::info!(log, "Starting with winit backend");
         #[cfg(feature = "winit")]
-        Some("--winit") => {
-            slog::info!(log, "Starting anvil with winit backend");
-            scape::winit::run_winit(log);
-        }
+        scape::winit::run_winit(log);
+    } else {
+        slog::info!(log, "Starting on a tty using udev");
         #[cfg(feature = "udev")]
-        Some("--tty-udev") => {
-            slog::info!(log, "Starting anvil on a tty using udev");
-            scape::udev::run_udev(log);
-        }
-        Some(arg) => {
-            crit!(log, "Unknown arg: {}", arg);
-        }
-        None => {
-            #[cfg(feature = "udev")]
-            {
-                slog::info!(log, "Starting anvil on a tty using udev");
-                scape::udev::run_udev(log);
-            }
-        }
+        scape::udev::run_udev(log);
     }
 }
