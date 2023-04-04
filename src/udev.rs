@@ -126,8 +126,8 @@ impl UdevData {
             self.debug_flags = flags;
 
             for (_, backend) in self.backends.iter_mut() {
-                for (_, surface) in backend.surfaces.iter() {
-                    surface.borrow_mut().compositor.set_debug_flags(flags);
+                for (_, surface) in backend.surfaces.iter_mut() {
+                    surface.compositor.set_debug_flags(flags);
                 }
             }
         }
@@ -169,9 +169,9 @@ impl Backend for UdevData {
 
     fn reset_buffers(&mut self, output: &Output) {
         if let Some(id) = output.user_data().get::<UdevOutputId>() {
-            if let Some(gpu) = self.backends.get(&id.device_id) {
-                if let Some(surface) = gpu.surfaces.get(&id.crtc) {
-                    surface.borrow_mut().compositor.reset_buffers();
+            if let Some(gpu) = self.backends.get_mut(&id.device_id) {
+                if let Some(surface) = gpu.surfaces.get_mut(&id.crtc) {
+                    surface.compositor.reset_buffers();
                 }
             }
         }
@@ -300,7 +300,7 @@ pub fn run_udev() {
                 {
                     backend.drm.activate();
                     for surface in backend.surfaces.values() {
-                        if let Err(err) = surface.borrow().compositor.surface().reset_state() {
+                        if let Err(err) = surface.compositor.surface().reset_state() {
                             warn!("Failed to reset drm surface state: {}", err);
                         }
                     }
@@ -396,8 +396,8 @@ pub fn run_udev() {
                 .expect("Unable to upload FPS texture");
 
             for backend in state.backend_data.backends.values_mut() {
-                for surface in backend.surfaces.borrow_mut().values_mut() {
-                    surface.borrow_mut().fps_element = Some(FpsElement::new(fps_texture.clone()));
+                for surface in backend.surfaces.values_mut() {
+                    surface.fps_element = Some(FpsElement::new(fps_texture.clone()));
                 }
             }
             state.backend_data.fps_texture = Some(fps_texture);
@@ -628,7 +628,7 @@ impl Drop for SurfaceData {
 }
 
 struct BackendData {
-    surfaces: HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>>,
+    surfaces: HashMap<crtc::Handle, SurfaceData>,
     gbm: GbmDevice<DrmDeviceFd>,
     drm: DrmDevice,
     render_node: DrmNode,
@@ -645,7 +645,7 @@ fn scan_connectors(
     space: &mut Space<WindowElement>,
     #[cfg(feature = "debug")] fps_texture: Option<&MultiTexture>,
     debug_flags: DebugFlags,
-) -> HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>> {
+) -> HashMap<crtc::Handle, SurfaceData> {
     // Get a set of all modesetting resource handles (excluding planes):
     let res_handles = device.resource_handles().unwrap();
 
@@ -827,7 +827,7 @@ fn scan_connectors(
                 SurfaceComposition::Compositor(compositor)
             };
 
-            entry.insert(Rc::new(RefCell::new(SurfaceData {
+            entry.insert(SurfaceData {
                 dh: dh.clone(),
                 device_id,
                 render_node,
@@ -837,7 +837,7 @@ fn scan_connectors(
                 fps: fps_ticker::Fps::default(),
                 #[cfg(feature = "debug")]
                 fps_element,
-            })));
+            });
 
             break;
         }
@@ -986,6 +986,7 @@ impl AnvilState<UdevData> {
         // fixup window coordinates
         crate::shell::fixup_positions(&mut self.space);
 
+        let crtcs: Vec<_> = device.surfaces.keys().copied().collect();
         for crtc in crtcs {
             // render first frame
             self.schedule_initial_render(node, crtc, self.handle.clone());
@@ -1045,15 +1046,13 @@ impl AnvilState<UdevData> {
             }
         };
 
-        let surface = match device_backend.surfaces.get(&crtc) {
+        let surface = match device_backend.surfaces.get_mut(&crtc) {
             Some(surface) => surface,
             None => {
                 tracing::error!("Trying to finish frame on non-existent crtc {:?}", crtc);
                 return;
             }
         };
-
-        let mut surface = surface.borrow_mut();
 
         let output = if let Some(output) = self.space.outputs().find(|o| {
             o.user_data().get::<UdevOutputId>()
@@ -1188,154 +1187,158 @@ impl AnvilState<UdevData> {
     }
 
     // If crtc is `Some()`, render it, else render all crtcs
-    fn render(&mut self, dev_id: DrmNode, crtc: Option<crtc::Handle>) {
-        let device_backend = match self.backend_data.backends.get_mut(&dev_id) {
+    fn render(&mut self, node: DrmNode, crtc: Option<crtc::Handle>) {
+        let device_backend = match self.backend_data.backends.get_mut(&node) {
             Some(backend) => backend,
             None => {
-                tracing::error!("Trying to render on non-existent backend {}", dev_id);
+                tracing::error!("Trying to render on non-existent backend {}", node);
                 return;
             }
         };
-        // setup two iterators on the stack, one over all surfaces for this backend, and
-        // one containing only the one given as argument.
-        // They make a trait-object to dynamically choose between the two
-        let mut surfaces_iter = device_backend.surfaces.iter();
-        let mut option_iter = crtc.iter().flat_map(|crtc| {
-            device_backend
-                .surfaces
-                .get(crtc)
-                .map(|surface| (crtc, surface))
-        });
 
-        let to_render_iter: &mut dyn Iterator<Item = (&crtc::Handle, &Rc<RefCell<SurfaceData>>)> =
-            if crtc.is_some() {
-                &mut option_iter
-            } else {
-                &mut surfaces_iter
-            };
-
-        for (&crtc, surface) in to_render_iter {
-            // TODO get scale from the rendersurface when supporting HiDPI
-            let frame = self
-                .backend_data
-                .pointer_image
-                .get_image(1 /*scale*/, self.clock.now().try_into().unwrap());
-            let node = surface.borrow().render_node;
-            let primary_gpu = self.backend_data.primary_gpu;
-            let mut renderer = if primary_gpu == node {
-                self.backend_data.gpus.single_renderer(&node)
-            } else {
-                let format = surface.borrow().compositor.format();
-                self.backend_data.gpus.renderer(
-                    &primary_gpu,
-                    &node,
-                    self.backend_data
-                        .allocator
-                        .as_mut()
-                        // TODO: We could build some kind of `GLAllocator` using Renderbuffers in theory for this case.
-                        //  That would work for memcpy's of offscreen contents.
-                        .expect("We need an allocator for multigpu systems")
-                        .as_mut(),
-                    format,
-                )
+        if let Some(crtc) = crtc {
+            self.render_surface(node, crtc);
+        } else {
+            let crtcs: Vec<_> = device_backend.surfaces.keys().copied().collect();
+            for crtc in crtcs {
+                self.render_surface(node, crtc);
             }
-            .unwrap();
-            let pointer_images = &mut self.backend_data.pointer_images;
-            let pointer_image = pointer_images
-                .iter()
-                .find_map(|(image, texture)| {
-                    if image == &frame {
-                        Some(texture.clone())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| {
-                    let texture = TextureBuffer::from_memory(
-                        &mut renderer,
-                        &frame.pixels_rgba,
-                        (frame.width as i32, frame.height as i32),
-                        false,
-                        1,
-                        Transform::Normal,
-                        None,
-                    )
-                    .expect("Failed to import cursor bitmap");
-                    pointer_images.push((frame, texture.clone()));
-                    texture
-                });
+        };
+    }
 
-            let output = if let Some(output) = self.space.outputs().find(|o| {
-                o.user_data().get::<UdevOutputId>()
-                    == Some(&UdevOutputId {
-                        device_id: surface.borrow().device_id,
-                        crtc,
-                    })
-            }) {
-                output.clone()
-            } else {
-                // somehow we got called with an invalid output
-                continue;
-            };
+    fn render_surface(&mut self, node: DrmNode, crtc: crtc::Handle) {
+        let device = if let Some(device) = self.backend_data.backends.get_mut(&node) {
+            device
+        } else {
+            return;
+        };
 
-            let result = render_surface(
-                &mut surface.borrow_mut(),
-                &mut renderer,
-                &self.space,
-                &output,
-                self.seat.input_method().unwrap(),
-                self.pointer_location,
-                &pointer_image,
-                &mut self.backend_data.pointer_element,
-                &self.dnd_icon,
-                &mut self.cursor_status.lock().unwrap(),
-                &self.clock,
-                self.show_window_preview,
-            );
-            let reschedule = match &result {
-                Ok(has_rendered) => !has_rendered,
-                Err(err) => {
-                    warn!("Error during rendering: {:?}", err);
-                    match err {
-                        SwapBuffersError::AlreadySwapped => false,
-                        SwapBuffersError::TemporaryFailure(err) => !matches!(
-                            err.downcast_ref::<DrmError>(),
-                            Some(&DrmError::DeviceInactive)
-                                | Some(&DrmError::Access {
-                                    source: drm::SystemError::PermissionDenied,
-                                    ..
-                                })
-                        ),
-                        SwapBuffersError::ContextLost(err) => {
-                            panic!("Rendering loop lost: {}", err)
-                        }
-                    }
+        let surface = if let Some(surface) = device.surfaces.get_mut(&crtc) {
+            surface
+        } else {
+            return;
+        };
+
+        // TODO get scale from the rendersurface when supporting HiDPI
+        let frame = self
+            .backend_data
+            .pointer_image
+            .get_image(1 /*scale*/, self.clock.now().try_into().unwrap());
+
+        let render_node = surface.render_node;
+        let primary_gpu = self.backend_data.primary_gpu;
+        let mut renderer = if primary_gpu == render_node {
+            self.backend_data.gpus.single_renderer(&render_node)
+        } else {
+            let format = surface.compositor.format();
+            self.backend_data.gpus.renderer(
+                &primary_gpu,
+                &render_node,
+                self.backend_data
+                    .allocator
+                    .as_mut()
+                    // TODO: We could build some kind of `GLAllocator` using Renderbuffers in theory for this case.
+                    //  That would work for memcpy's of offscreen contents.
+                    .expect("We need an allocator for multigpu systems")
+                    .as_mut(),
+                format,
+            )
+        }
+        .unwrap();
+
+        let pointer_images = &mut self.backend_data.pointer_images;
+        let pointer_image = pointer_images
+            .iter()
+            .find_map(|(image, texture)| {
+                if image == &frame {
+                    Some(texture.clone())
+                } else {
+                    None
                 }
-            };
+            })
+            .unwrap_or_else(|| {
+                let texture = TextureBuffer::from_memory(
+                    &mut renderer,
+                    &frame.pixels_rgba,
+                    (frame.width as i32, frame.height as i32),
+                    false,
+                    1,
+                    Transform::Normal,
+                    None,
+                )
+                .expect("Failed to import cursor bitmap");
+                pointer_images.push((frame, texture.clone()));
+                texture
+            });
 
-            if reschedule {
-                let output_refresh = match output.current_mode() {
-                    Some(mode) => mode.refresh,
-                    None => return,
-                };
-                // If reschedule is true we either hit a temporary failure or more likely rendering
-                // did not cause any damage on the output. In this case we just re-schedule a repaint
-                // after approx. one frame to re-test for damage.
-                let reschedule_duration =
-                    Duration::from_millis((1_000_000f32 / output_refresh as f32) as u64);
-                trace!(
-                    "reschedule repaint timer with delay {:?} on {:?}",
-                    reschedule_duration,
+        let output = if let Some(output) = self.space.outputs().find(|o| {
+            o.user_data().get::<UdevOutputId>()
+                == Some(&UdevOutputId {
+                    device_id: surface.device_id,
                     crtc,
-                );
-                let timer = Timer::from_duration(reschedule_duration);
-                self.handle
-                    .insert_source(timer, move |_, _, data| {
-                        data.state.render(dev_id, Some(crtc));
-                        TimeoutAction::Drop
-                    })
-                    .expect("failed to schedule frame timer");
+                })
+        }) {
+            output.clone()
+        } else {
+            // somehow we got called with an invalid output
+            return;
+        };
+
+        let result = render_surface(
+            surface,
+            &mut renderer,
+            &self.space,
+            &output,
+            self.seat.input_method().unwrap(),
+            self.pointer_location,
+            &pointer_image,
+            &mut self.backend_data.pointer_element,
+            &self.dnd_icon,
+            &mut self.cursor_status.lock().unwrap(),
+            &self.clock,
+            self.show_window_preview,
+        );
+        let reschedule = match &result {
+            Ok(has_rendered) => !has_rendered,
+            Err(err) => {
+                warn!("Error during rendering: {:?}", err);
+                match err {
+                    SwapBuffersError::AlreadySwapped => false,
+                    SwapBuffersError::TemporaryFailure(err) => !matches!(
+                        err.downcast_ref::<DrmError>(),
+                        Some(&DrmError::DeviceInactive)
+                            | Some(&DrmError::Access {
+                                source: drm::SystemError::PermissionDenied,
+                                ..
+                            })
+                    ),
+                    SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
+                }
             }
+        };
+
+        if reschedule {
+            let output_refresh = match output.current_mode() {
+                Some(mode) => mode.refresh,
+                None => return,
+            };
+            // If reschedule is true we either hit a temporary failure or more likely rendering
+            // did not cause any damage on the output. In this case we just re-schedule a repaint
+            // after approx. one frame to re-test for damage.
+            let reschedule_duration =
+                Duration::from_millis((1_000_000f32 / output_refresh as f32) as u64);
+            trace!(
+                "reschedule repaint timer with delay {:?} on {:?}",
+                reschedule_duration,
+                crtc,
+            );
+            let timer = Timer::from_duration(reschedule_duration);
+            self.handle
+                .insert_source(timer, move |_, _, data| {
+                    data.state.render(node, Some(crtc));
+                    TimeoutAction::Drop
+                })
+                .expect("failed to schedule frame timer");
         }
     }
 
@@ -1357,11 +1360,10 @@ impl AnvilState<UdevData> {
             return;
         };
 
-        let node = surface.borrow().render_node;
+        let node = surface.render_node;
         let result = {
             let mut renderer = self.backend_data.gpus.single_renderer(&node).unwrap();
-            let mut surface = surface.borrow_mut();
-            initial_render(&mut surface, &mut renderer)
+            initial_render(surface, &mut renderer)
         };
 
         if let Err(err) = result {
