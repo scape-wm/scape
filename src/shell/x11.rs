@@ -152,7 +152,7 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             let geometry = self.state.space.output_geometry(output).unwrap();
 
             window.set_fullscreen(true).unwrap();
-            window.set_ssd(false);
+            elem.set_ssd(false);
             window.configure(geometry).unwrap();
             output
                 .user_data()

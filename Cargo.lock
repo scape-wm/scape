@@ -402,6 +402,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "edid-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ab5fa33485cd85ac354df485819a63360fefa312fe04cffe65e6f175be1522c"
+
+[[package]]
 name = "encoding"
 version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1323,6 +1329,7 @@ dependencies = [
  "rand",
  "renderdoc",
  "smithay",
+ "smithay-drm-extras",
  "thiserror",
  "tracing",
  "tracing-subscriber",
@@ -1442,6 +1449,15 @@ dependencies = [
  "wayland-client",
  "wayland-cursor",
  "wayland-protocols 0.29.5",
+]
+
+[[package]]
+name = "smithay-drm-extras"
+version = "0.1.0"
+source = "git+https://github.com/smithay/smithay?rev=e29afe4989b4510c9b9eb7726414955583086361#e29afe4989b4510c9b9eb7726414955583086361"
+dependencies = [
+ "drm",
+ "edid-rs",
 ]
 
 [[package]]

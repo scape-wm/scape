@@ -41,7 +41,7 @@ use smithay::{
         },
         dmabuf::DmabufFeedback,
         fractional_scale::{
-            with_fractional_scale, FractionScaleHandler, FractionalScaleManagerState,
+            with_fractional_scale, FractionalScaleHandler, FractionalScaleManagerState,
         },
         input_method::{InputMethodManagerState, InputMethodSeat},
         keyboard_shortcuts_inhibit::{
@@ -354,7 +354,7 @@ delegate_xdg_shell!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 delegate_layer_shell!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 delegate_presentation!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
-impl<BackendData: Backend> FractionScaleHandler for AnvilState<BackendData> {
+impl<BackendData: Backend> FractionalScaleHandler for AnvilState<BackendData> {
     fn new_fractional_scale(
         &mut self,
         surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -449,19 +449,19 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         // init globals
         let dh = display.handle();
-        let compositor_state = CompositorState::new::<Self, _>(&dh);
-        let data_device_state = DataDeviceState::new::<Self, _>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self, _>(&dh);
+        let compositor_state = CompositorState::new::<Self>(&dh);
+        let data_device_state = DataDeviceState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
-        let primary_selection_state = PrimarySelectionState::new::<Self, _>(&dh);
+        let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
         let mut seat_state = SeatState::new();
-        let shm_state = ShmState::new::<Self, _>(&dh, vec![]);
-        let viewporter_state = ViewporterState::new::<Self, _>(&dh);
-        let xdg_activation_state = XdgActivationState::new::<Self, _>(&dh);
-        let xdg_decoration_state = XdgDecorationState::new::<Self, _>(&dh);
-        let xdg_shell_state = XdgShellState::new::<Self, _>(&dh);
+        let shm_state = ShmState::new::<Self>(&dh, vec![]);
+        let viewporter_state = ViewporterState::new::<Self>(&dh);
+        let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
+        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
-        let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self, _>(&dh);
+        let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self>(&dh);
         TextInputManagerState::new::<Self>(&dh);
         InputMethodManagerState::new::<Self>(&dh);
         VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
@@ -541,8 +541,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             socket_name,
             running: Arc::new(AtomicBool::new(true)),
             handle,
-            space: Space::new(),
-            popups: PopupManager::new(),
+            space: Space::default(),
+            popups: PopupManager::default(),
             compositor_state,
             data_device_state,
             layer_shell_state,

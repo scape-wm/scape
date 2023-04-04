@@ -6,7 +6,7 @@ use crate::{
 };
 use smithay::{
     backend::renderer::{
-        damage::{DamageTrackedRenderer, DamageTrackedRendererError, DamageTrackedRendererMode},
+        damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
         element::{
             surface::WaylandSurfaceRenderElement,
             utils::{
@@ -17,9 +17,8 @@ use smithay::{
         },
         ImportAll, ImportMem, Renderer,
     },
-    desktop::{
-        self,
-        space::{constrain_space_element, ConstrainBehavior, ConstrainReference, Space},
+    desktop::space::{
+        constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
     },
     output::Output,
     utils::{Physical, Point, Rectangle, Size},
@@ -166,9 +165,6 @@ where
         let window_render_elements: Vec<WindowRenderElement<R>> =
             AsRenderElements::<R>::render_elements(&window, renderer, (0, 0).into(), scale);
 
-        let window_render_elements =
-            AsRenderElements::<R>::render_elements(&window, renderer, (0, 0).into(), output_scale);
-
         let elements = custom_elements
             .into_iter()
             .map(OutputRenderElements::from)
@@ -208,13 +204,10 @@ pub fn render_output<'a, R>(
     space: &'a Space<WindowElement>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
-    damage_tracked_renderer: &mut DamageTrackedRenderer,
+    damage_tracker: &mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
-) -> Result<
-    (Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates),
-    DamageTrackedRendererError<R>,
->
+) -> Result<(Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates), OutputDamageTrackerError<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
@@ -226,5 +219,5 @@ where
         renderer,
         show_window_preview,
     );
-    damage_tracked_renderer.render_output(renderer, age, &elements, clear_color)
+    damage_tracker.render_output(renderer, age, &elements, clear_color)
 }

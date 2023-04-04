@@ -23,6 +23,13 @@ git = "https://github.com/smithay/smithay"
 rev = "e29afe4989b4510c9b9eb7726414955583086361"
 # path = "../smithay"
 
+[dependencies.smithay-drm-extras]
+default-features = false
+optional = true
+git = "https://github.com/smithay/smithay"
+rev = "e29afe4989b4510c9b9eb7726414955583086361"
+# path = "../smithay-drm-extras"
+
 [dependencies.x11rb]
 default-features = false
 features = ["composite"]
@@ -38,6 +45,7 @@ default = ["egl", "winit", "udev", "xwayland"]
 egl = ["smithay/use_system_lib", "smithay/backend_egl"]
 test_all_features = ["default", "debug"]
 udev = [
+    "smithay-drm-extras",
     "smithay/backend_libinput",
     "smithay/backend_udev",
     "smithay/backend_drm",
