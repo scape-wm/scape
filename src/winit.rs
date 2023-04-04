@@ -1,24 +1,20 @@
+#[cfg(feature = "egl")]
+use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
-#[cfg(feature = "egl")]
 use smithay::{
-    backend::{
-        allocator::dmabuf::Dmabuf,
-        renderer::{ImportDma, ImportEgl},
-    },
-    delegate_dmabuf,
-    wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportError},
-};
-use smithay::{
+    backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     backend::{
         renderer::{
             damage::{DamageTrackedRenderer, DamageTrackedRendererError},
             element::AsRenderElements,
             gles2::{Gles2Renderer, Gles2Texture},
+            ImportDma,
         },
         winit::{self, WinitEvent, WinitGraphicsBackend},
         SwapBuffersError,
     },
+    delegate_dmabuf,
     input::pointer::{CursorImageAttributes, CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
@@ -27,7 +23,15 @@ use smithay::{
         wayland_server::{protocol::wl_surface, Display},
     },
     utils::{IsAlive, Point, Scale, Transform},
-    wayland::{compositor, input_method::InputMethodSeat},
+    wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportError},
+    wayland::{
+        compositor,
+        dmabuf::{
+            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
+            ImportError,
+        },
+        input_method::InputMethodSeat,
+    },
 };
 use std::{
     ffi::OsString,
@@ -44,8 +48,7 @@ pub const OUTPUT_NAME: &str = "winit";
 pub struct WinitData {
     backend: WinitGraphicsBackend<Gles2Renderer>,
     damage_tracked_renderer: DamageTrackedRenderer,
-    #[cfg(feature = "egl")]
-    dmabuf_state: Option<(DmabufState, DmabufGlobal)>,
+    dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
     full_redraw: u8,
     #[cfg(feature = "debug")]
     pub fps: fps_ticker::Fps,
@@ -54,7 +57,7 @@ pub struct WinitData {
 #[cfg(feature = "egl")]
 impl DmabufHandler for AnvilState<WinitData> {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
-        &mut self.backend_data.dmabuf_state.as_mut().unwrap().0
+        &mut self.backend_data.dmabuf_state.0
     }
 
     fn dmabuf_imported(
@@ -70,7 +73,6 @@ impl DmabufHandler for AnvilState<WinitData> {
             .map_err(|_| ImportError::Failed)
     }
 }
-#[cfg(feature = "egl")]
 delegate_dmabuf!(AnvilState<WinitData>);
 
 impl Backend for WinitData {
@@ -138,27 +140,63 @@ pub fn run_winit() {
     #[cfg(feature = "debug")]
     let mut fps_element = FpsElement::new(fps_texture);
 
-    let data = {
-        #[cfg(feature = "egl")]
-        let dmabuf_state = if backend
-            .renderer()
-            .bind_wl_display(&display.handle())
-            .is_ok()
-        {
-            info!("EGL hardware-acceleration enabled");
+    let render_node = EGLDevice::device_for_display(backend.renderer().egl_context().display())
+        .and_then(|device| device.try_get_render_node());
+
+    let dmabuf_default_feedback = match render_node {
+        Ok(Some(node)) => {
             let dmabuf_formats = backend
                 .renderer()
                 .dmabuf_formats()
                 .cloned()
                 .collect::<Vec<_>>();
-            let mut state = DmabufState::new();
-            let global =
-                state.create_global::<AnvilState<WinitData>, _>(&display.handle(), dmabuf_formats);
-            Some((state, global))
-        } else {
+            let dmabuf_default_feedback = DmabufFeedbackBuilder::new(node.dev_id(), dmabuf_formats)
+                .build()
+                .unwrap();
+            Some(dmabuf_default_feedback)
+        }
+        Ok(None) => {
+            warn!("failed to query render node, dmabuf will use v3");
             None
-        };
+        }
+        Err(err) => {
+            warn!(?err, "failed to egl device for display, dmabuf will use v3");
+            None
+        }
+    };
 
+    // if we failed to build dmabuf feedback we fall back to dmabuf v3
+    // Note: egl on Mesa requires either v4 or wl_drm (initialized with bind_wl_display)
+    let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
+        let mut dmabuf_state = DmabufState::new();
+        let dmabuf_global = dmabuf_state
+            .create_global_with_default_feedback::<AnvilState<WinitData>>(
+                &display.handle(),
+                &default_feedback,
+            );
+        (dmabuf_state, dmabuf_global, Some(default_feedback))
+    } else {
+        let dmabuf_formats = backend
+            .renderer()
+            .dmabuf_formats()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut dmabuf_state = DmabufState::new();
+        let dmabuf_global =
+            dmabuf_state.create_global::<AnvilState<WinitData>>(&display.handle(), dmabuf_formats);
+        (dmabuf_state, dmabuf_global, None)
+    };
+
+    #[cfg(feature = "egl")]
+    if backend
+        .renderer()
+        .bind_wl_display(&display.handle())
+        .is_ok()
+    {
+        info!("EGL hardware-acceleration enabled");
+    };
+
+    let data = {
         let damage_tracked_renderer = DamageTrackedRenderer::from_output(&output);
 
         WinitData {
@@ -337,7 +375,7 @@ pub fn run_winit() {
 
                     // Send frame events so that client start drawing their next frame
                     let time = state.clock.now();
-                    post_repaint(&output, &states, &state.space, time);
+                    post_repaint(&output, &states, &state.space, None, time);
 
                     if has_rendered {
                         let mut output_presentation_feedback =

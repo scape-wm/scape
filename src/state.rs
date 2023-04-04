@@ -2,7 +2,9 @@
 use crate::cursor::Cursor;
 use crate::{focus::FocusTarget, shell::WindowElement};
 use smithay::{
-    backend::renderer::element::{default_primary_scanout_output_compare, RenderElementStates},
+    backend::renderer::element::{
+        default_primary_scanout_output_compare, utils::select_dmabuf_feedback, RenderElementStates,
+    },
     delegate_compositor, delegate_data_device, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
     delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
@@ -37,6 +39,7 @@ use smithay::{
             set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
             ServerDndGrabHandler,
         },
+        dmabuf::DmabufFeedback,
         fractional_scale::{
             with_fractional_scale, FractionScaleHandler, FractionalScaleManagerState,
         },
@@ -574,10 +577,17 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct SurfaceDmabufFeedback<'a> {
+    pub render_feedback: &'a DmabufFeedback,
+    pub scanout_feedback: &'a DmabufFeedback,
+}
+
 pub fn post_repaint(
     output: &Output,
     render_element_states: &RenderElementStates,
     space: &Space<WindowElement>,
+    dmabuf_feedback: Option<SurfaceDmabufFeedback<'_>>,
     time: impl Into<Duration>,
 ) {
     let time = time.into();
@@ -602,6 +612,20 @@ pub fn post_repaint(
 
         if space.outputs_for_element(window).contains(output) {
             window.send_frame(output, time, throttle, surface_primary_scanout_output);
+            if let Some(dmabuf_feedback) = dmabuf_feedback {
+                window.send_dmabuf_feedback(
+                    output,
+                    surface_primary_scanout_output,
+                    |surface, _| {
+                        select_dmabuf_feedback(
+                            surface,
+                            render_element_states,
+                            dmabuf_feedback.render_feedback,
+                            dmabuf_feedback.scanout_feedback,
+                        )
+                    },
+                );
+            }
         }
     });
     let map = smithay::desktop::layer_map_for_output(output);
@@ -623,6 +647,20 @@ pub fn post_repaint(
         });
 
         layer_surface.send_frame(output, time, throttle, surface_primary_scanout_output);
+        if let Some(dmabuf_feedback) = dmabuf_feedback {
+            layer_surface.send_dmabuf_feedback(
+                output,
+                surface_primary_scanout_output,
+                |surface, _| {
+                    select_dmabuf_feedback(
+                        surface,
+                        render_element_states,
+                        dmabuf_feedback.render_feedback,
+                        dmabuf_feedback.scanout_feedback,
+                    )
+                },
+            );
+        }
     }
 }
 

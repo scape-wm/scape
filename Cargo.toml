@@ -50,5 +50,5 @@ udev = [
     "smithay/renderer_multi",
     "xcursor"
 ]
-winit = ["smithay/backend_winit"]
-xwayland = ["smithay/xwayland", "x11rb", "smithay/x11rb_event_source"]
+winit = ["smithay/backend_winit", "smithay/backend_drm"]
+xwayland = ["smithay/xwayland", "x11rb", "smithay/x11rb_event_source", "xcursor"]
