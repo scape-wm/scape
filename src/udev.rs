@@ -21,10 +21,10 @@ use smithay::{
             Allocator,
         },
         drm::{
-            compositor::DrmCompositor, DrmDevice, DrmDeviceFd, DrmError, DrmEvent,
-            DrmEventMetadata, DrmNode, GbmBufferedSurface, NodeType,
+            compositor::DrmCompositor, CreateDrmNodeError, DrmDevice, DrmDeviceFd, DrmError,
+            DrmEvent, DrmEventMetadata, DrmNode, GbmBufferedSurface, NodeType,
         },
-        egl::{EGLContext, EGLDevice, EGLDisplay},
+        egl::{self, EGLContext, EGLDevice, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             damage::{DamageTrackedRenderer, DamageTrackedRendererError},
@@ -33,7 +33,10 @@ use smithay::{
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
             Bind, DebugFlags, Frame, Renderer,
         },
-        session::{libseat::LibSeatSession, Event as SessionEvent, Session},
+        session::{
+            libseat::{self, LibSeatSession},
+            Event as SessionEvent, Session,
+        },
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
         vulkan::{version::Version, Instance, PhysicalDevice},
         SwapBuffersError,
@@ -78,7 +81,7 @@ use std::{
     convert::TryInto,
     ffi::OsString,
     os::unix::io::FromRawFd,
-    path::PathBuf,
+    path::Path,
     rc::Rc,
     sync::{atomic::Ordering, Mutex},
     time::Duration,
@@ -123,8 +126,7 @@ impl UdevData {
             self.debug_flags = flags;
 
             for (_, backend) in self.backends.iter_mut() {
-                let surfaces = backend.surfaces.borrow();
-                for (_, surface) in surfaces.iter() {
+                for (_, surface) in backend.surfaces.iter() {
                     surface.borrow_mut().compositor.set_debug_flags(flags);
                 }
             }
@@ -168,8 +170,7 @@ impl Backend for UdevData {
     fn reset_buffers(&mut self, output: &Output) {
         if let Some(id) = output.user_data().get::<UdevOutputId>() {
             if let Some(gpu) = self.backends.get(&id.device_id) {
-                let surfaces = gpu.surfaces.borrow();
-                if let Some(surface) = surfaces.get(&id.crtc) {
+                if let Some(surface) = gpu.surfaces.get(&id.crtc) {
                     surface.borrow_mut().compositor.reset_buffers();
                 }
             }
@@ -298,8 +299,7 @@ pub fn run_udev() {
                     .map(|(handle, backend)| (*handle, backend))
                 {
                     backend.drm.activate();
-                    let surfaces = backend.surfaces.borrow();
-                    for surface in surfaces.values() {
+                    for surface in backend.surfaces.values() {
                         if let Err(err) = surface.borrow().compositor.surface().reset_state() {
                             warn!("Failed to reset drm surface state: {}", err);
                         }
@@ -309,8 +309,10 @@ pub fn run_udev() {
             }
         })
         .unwrap();
-    for (dev, path) in udev_backend.device_list() {
-        state.device_added(&mut display, dev, path.into())
+    for (device_id, path) in udev_backend.device_list() {
+        if let Err(err) = state.device_added(device_id, path) {
+            tracing::error!("Skipping device {device_id}: {err}");
+        }
     }
 
     let skip_vulkan = std::env::var("ANVIL_NO_VULKAN")
@@ -424,11 +426,11 @@ pub fn run_udev() {
             .handle()
             .insert_source(udev_backend, move |event, _, data| match event {
                 UdevEvent::Added { device_id, path } => {
-                    data.state.device_added(&mut data.display, device_id, path)
+                    if let Err(err) = data.state.device_added(device_id, &path) {
+                        tracing::error!("Skipping device {device_id}: {err}");
+                    }
                 }
-                UdevEvent::Changed { device_id } => {
-                    data.state.device_changed(&mut data.display, device_id)
-                }
+                UdevEvent::Changed { device_id } => data.state.device_changed(device_id),
                 UdevEvent::Removed { device_id } => data.state.device_removed(device_id),
             })
             .unwrap();
@@ -626,7 +628,7 @@ impl Drop for SurfaceData {
 }
 
 struct BackendData {
-    surfaces: Rc<RefCell<HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>>>>,
+    surfaces: HashMap<crtc::Handle, Rc<RefCell<SurfaceData>>>,
     gbm: GbmDevice<DrmDeviceFd>,
     drm: DrmDevice,
     render_node: DrmNode,
@@ -639,7 +641,7 @@ fn scan_connectors(
     device_id: DrmNode,
     device: &DrmDevice,
     gbm: &GbmDevice<DrmDeviceFd>,
-    display: &mut Display<AnvilState<UdevData>>,
+    dh: DisplayHandle,
     space: &mut Space<WindowElement>,
     #[cfg(feature = "debug")] fps_texture: Option<&MultiTexture>,
     debug_flags: DebugFlags,
@@ -736,7 +738,7 @@ fn scan_connectors(
                     model: "Generic DRM".into(),
                 },
             );
-            let global = output.create_global::<AnvilState<UdevData>>(&display.handle());
+            let global = output.create_global::<AnvilState<UdevData>>(&dh);
             let position = (
                 space
                     .outputs()
@@ -826,7 +828,7 @@ fn scan_connectors(
             };
 
             entry.insert(Rc::new(RefCell::new(SurfaceData {
-                dh: display.handle(),
+                dh: dh.clone(),
                 device_id,
                 render_node,
                 global: Some(global),
@@ -844,58 +846,55 @@ fn scan_connectors(
     backends
 }
 
+#[derive(Debug, thiserror::Error)]
+enum DeviceAddError {
+    #[error("Failed to open device using libseat: {0}")]
+    DeviceOpen(libseat::Error),
+    #[error("Failed to initialize drm device: {0}")]
+    DrmDevice(DrmError),
+    #[error("Failed to initialize gbm device: {0}")]
+    GbmDevice(std::io::Error),
+    #[error("Failed to access drm node: {0}")]
+    DrmNode(CreateDrmNodeError),
+    #[error("Failed to add device to GpuManager: {0}")]
+    AddNode(egl::Error),
+}
+
 impl AnvilState<UdevData> {
-    fn device_added(&mut self, display: &mut Display<Self>, device_id: dev_t, path: PathBuf) {
+    fn device_added(&mut self, device_id: dev_t, path: &Path) -> Result<(), DeviceAddError> {
+        let node = DrmNode::from_dev_id(device_id).map_err(DeviceAddError::DrmNode)?;
+
         // Try to open the device
-        let open_flags = OFlag::O_RDWR | OFlag::O_CLOEXEC | OFlag::O_NOCTTY | OFlag::O_NONBLOCK;
-        let device_fd = self.backend_data.session.open(&path, open_flags).ok();
-        let devices = device_fd
-            .map(|fd| DrmDeviceFd::new(unsafe { DeviceFd::from_raw_fd(fd) }))
-            .map(|fd| (DrmDevice::new(fd.clone(), true), GbmDevice::new(fd)));
+        let fd = self
+            .backend_data
+            .session
+            .open(
+                path,
+                OFlag::O_RDWR | OFlag::O_CLOEXEC | OFlag::O_NOCTTY | OFlag::O_NONBLOCK,
+            )
+            .map_err(DeviceAddError::DeviceOpen)?;
 
-        // Report device open failures.
-        let ((drm, drm_notifier), gbm) = match devices {
-            Some((Ok(drm), Ok(gbm))) => (drm, gbm),
-            Some((Err(err), _)) => {
-                warn!(
-                    "Skipping device {:?}, because of drm error: {}",
-                    device_id, err
-                );
-                return;
-            }
-            Some((_, Err(err))) => {
-                // TODO try DumbBuffer allocator in this case
-                warn!(
-                    "Skipping device {:?}, because of gbm error: {}",
-                    device_id, err
-                );
-                return;
-            }
-            None => return,
-        };
+        let fd = DrmDeviceFd::new(unsafe { DeviceFd::from_raw_fd(fd) });
 
-        let node = match DrmNode::from_dev_id(device_id) {
-            Ok(node) => node,
-            Err(err) => {
-                warn!("Failed to access drm node for {}: {}", device_id, err);
-                return;
-            }
-        };
-        let backends = Rc::new(RefCell::new(scan_connectors(
+        let (drm, notifier) =
+            DrmDevice::new(fd.clone(), true).map_err(DeviceAddError::DrmDevice)?;
+        let gbm = GbmDevice::new(fd).map_err(DeviceAddError::GbmDevice)?;
+
+        let surfaces = scan_connectors(
             node,
             &drm,
             &gbm,
-            display,
+            self.display_handle.clone(),
             &mut self.space,
             #[cfg(feature = "debug")]
             self.backend_data.fps_texture.as_ref(),
             self.backend_data.debug_flags,
-        )));
+        );
 
         let registration_token = self
             .handle
             .insert_source(
-                drm_notifier,
+                notifier,
                 move |event, metadata, data: &mut CalloopData<_>| match event {
                     DrmEvent::VBlank(crtc) => {
                         data.state.frame_finish(node, crtc, metadata);
@@ -907,33 +906,18 @@ impl AnvilState<UdevData> {
             )
             .unwrap();
 
-        let render_node = {
-            let display = EGLDisplay::new(gbm.clone()).unwrap();
-            match EGLDevice::device_for_display(&display)
-                .ok()
-                .and_then(|x| x.try_get_render_node().ok().flatten())
-            {
-                Some(node) => node,
-                None => node,
-            }
-        };
-        if let Err(err) = self
-            .backend_data
+        let render_node = EGLDevice::device_for_display(&EGLDisplay::new(gbm.clone()).unwrap())
+            .ok()
+            .and_then(|x| x.try_get_render_node().ok().flatten())
+            .unwrap_or(node);
+
+        self.backend_data
             .gpus
             .as_mut()
             .add_node(render_node, gbm.clone())
-        {
-            warn!(
-                "Failed to create renderer for GBM device {}: {}",
-                device_id, err
-            );
-            return;
-        };
-        for backend in backends.borrow_mut().values() {
-            // render first frame
-            trace!("Scheduling frame");
-            schedule_initial_render(&mut self.backend_data.gpus, backend.clone(), &self.handle);
-        }
+            .map_err(DeviceAddError::AddNode)?;
+
+        let crtcs: Vec<_> = surfaces.keys().copied().collect();
 
         self.backend_data.backends.insert(
             node,
@@ -942,57 +926,69 @@ impl AnvilState<UdevData> {
                 gbm,
                 drm,
                 render_node,
-                surfaces: backends,
+                surfaces,
             },
         );
+
+        // render first frame
+        trace!("Scheduling frames");
+        for crtc in crtcs {
+            self.schedule_initial_render(node, crtc, self.handle.clone());
+        }
+
+        Ok(())
     }
 
-    fn device_changed(&mut self, display: &mut Display<Self>, device: dev_t) {
+    fn device_changed(&mut self, device: dev_t) {
         let node = match DrmNode::from_dev_id(device).ok() {
             Some(node) => node,
             None => return, // we already logged a warning on device_added
         };
 
-        //quick and dirty, just re-init all backends
-        if let Some(ref mut backend_data) = self.backend_data.backends.get_mut(&node) {
-            let loop_handle = self.handle.clone();
+        let device = if let Some(device) = self.backend_data.backends.get_mut(&node) {
+            device
+        } else {
+            return;
+        };
 
-            // scan_connectors will recreate the outputs (and sadly also reset the scales)
-            for output in self
-                .space
-                .outputs()
-                .filter(|o| {
-                    o.user_data()
-                        .get::<UdevOutputId>()
-                        .map(|id| id.device_id == node)
-                        .unwrap_or(false)
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-                .into_iter()
-            {
-                self.space.unmap_output(&output);
-            }
+        // quick and dirty, just re-init all backends
 
-            let mut backends = backend_data.surfaces.borrow_mut();
-            *backends = scan_connectors(
-                node,
-                &backend_data.drm,
-                &backend_data.gbm,
-                display,
-                &mut self.space,
-                #[cfg(feature = "debug")]
-                self.backend_data.fps_texture.as_ref(),
-                self.backend_data.debug_flags,
-            );
+        // scan_connectors will recreate the outputs (and sadly also reset the scales)
+        for output in self
+            .space
+            .outputs()
+            .filter(|o| {
+                o.user_data()
+                    .get::<UdevOutputId>()
+                    .map(|id| id.device_id == node)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+        {
+            self.space.unmap_output(&output);
+        }
 
-            // fixup window coordinates
-            crate::shell::fixup_positions(&mut self.space);
+        device.surfaces = scan_connectors(
+            node,
+            &device.drm,
+            &device.gbm,
+            self.display_handle.clone(),
+            &mut self.space,
+            #[cfg(feature = "debug")]
+            self.backend_data.fps_texture.as_ref(),
+            self.backend_data.debug_flags,
+        );
 
-            for surface in backends.values() {
-                // render first frame
-                schedule_initial_render(&mut self.backend_data.gpus, surface.clone(), &loop_handle);
-            }
+        let crtcs: Vec<_> = device.surfaces.keys().copied().collect();
+
+        // fixup window coordinates
+        crate::shell::fixup_positions(&mut self.space);
+
+        for crtc in crtcs {
+            // render first frame
+            self.schedule_initial_render(node, crtc, self.handle.clone());
         }
     }
 
@@ -1001,14 +997,15 @@ impl AnvilState<UdevData> {
             Some(node) => node,
             None => return, // we already logged a warning on device_added
         };
+
         // drop the backends on this side
-        if let Some(backend_data) = self.backend_data.backends.remove(&node) {
+        if let Some(mut backend_data) = self.backend_data.backends.remove(&node) {
             self.backend_data
                 .gpus
                 .as_mut()
                 .remove_node(&backend_data.render_node);
             // drop surfaces
-            backend_data.surfaces.borrow_mut().clear();
+            backend_data.surfaces.clear();
             tracing::debug!("Surfaces dropped");
 
             for output in self
@@ -1048,8 +1045,7 @@ impl AnvilState<UdevData> {
             }
         };
 
-        let surfaces = device_backend.surfaces.borrow();
-        let surface = match surfaces.get(&crtc) {
+        let surface = match device_backend.surfaces.get(&crtc) {
             Some(surface) => surface,
             None => {
                 tracing::error!("Trying to finish frame on non-existent crtc {:?}", crtc);
@@ -1203,11 +1199,13 @@ impl AnvilState<UdevData> {
         // setup two iterators on the stack, one over all surfaces for this backend, and
         // one containing only the one given as argument.
         // They make a trait-object to dynamically choose between the two
-        let surfaces = device_backend.surfaces.borrow();
-        let mut surfaces_iter = surfaces.iter();
-        let mut option_iter = crtc
-            .iter()
-            .flat_map(|crtc| surfaces.get(crtc).map(|surface| (crtc, surface)));
+        let mut surfaces_iter = device_backend.surfaces.iter();
+        let mut option_iter = crtc.iter().flat_map(|crtc| {
+            device_backend
+                .surfaces
+                .get(crtc)
+                .map(|surface| (crtc, surface))
+        });
 
         let to_render_iter: &mut dyn Iterator<Item = (&crtc::Handle, &Rc<RefCell<SurfaceData>>)> =
             if crtc.is_some() {
@@ -1340,6 +1338,47 @@ impl AnvilState<UdevData> {
             }
         }
     }
+
+    fn schedule_initial_render(
+        &mut self,
+        node: DrmNode,
+        crtc: crtc::Handle,
+        evt_handle: LoopHandle<'static, CalloopData<UdevData>>,
+    ) {
+        let device = if let Some(device) = self.backend_data.backends.get_mut(&node) {
+            device
+        } else {
+            return;
+        };
+
+        let surface = if let Some(surface) = device.surfaces.get_mut(&crtc) {
+            surface
+        } else {
+            return;
+        };
+
+        let node = surface.borrow().render_node;
+        let result = {
+            let mut renderer = self.backend_data.gpus.single_renderer(&node).unwrap();
+            let mut surface = surface.borrow_mut();
+            initial_render(&mut surface, &mut renderer)
+        };
+
+        if let Err(err) = result {
+            match err {
+                SwapBuffersError::AlreadySwapped => {}
+                SwapBuffersError::TemporaryFailure(err) => {
+                    // TODO dont reschedule after 3(?) retries
+                    warn!("Failed to submit page_flip: {}", err);
+                    let handle = evt_handle.clone();
+                    evt_handle.insert_idle(move |data| {
+                        data.state.schedule_initial_render(node, crtc, handle)
+                    });
+                }
+                SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1458,33 +1497,6 @@ fn render_surface<'a, 'b>(
     }
 
     Ok(rendered)
-}
-
-fn schedule_initial_render(
-    gpus: &mut GpuManager<GbmGlesBackend<Gles2Renderer>>,
-    surface: Rc<RefCell<SurfaceData>>,
-    evt_handle: &LoopHandle<'static, CalloopData<UdevData>>,
-) {
-    let node = surface.borrow().render_node;
-    let result = {
-        let mut renderer = gpus.single_renderer(&node).unwrap();
-        let mut surface = surface.borrow_mut();
-        initial_render(&mut surface, &mut renderer)
-    };
-    if let Err(err) = result {
-        match err {
-            SwapBuffersError::AlreadySwapped => {}
-            SwapBuffersError::TemporaryFailure(err) => {
-                // TODO dont reschedule after 3(?) retries
-                warn!("Failed to submit page_flip: {}", err);
-                let handle = evt_handle.clone();
-                evt_handle.insert_idle(move |data| {
-                    schedule_initial_render(&mut data.state.backend_data.gpus, surface, &handle)
-                });
-            }
-            SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
-        }
-    }
 }
 
 fn initial_render(
