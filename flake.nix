@@ -22,6 +22,11 @@
         ];
         LD_LIBRARY_PATH = with pkgs; lib.strings.makeLibraryPath [
           libglvnd
+          /* needed for winit */
+          xorg.libX11
+          xorg.libXcursor
+          xorg.libXrandr
+          xorg.libXi
         ];
       };
     };
