@@ -1,3 +1,7 @@
+//! Wayland compositor for efficient workflows
+
+#![warn(missing_docs)]
+
 use clap::Parser;
 
 /// A Wayland compositor for efficient workflows
