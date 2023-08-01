@@ -438,7 +438,7 @@ impl<Backend: crate::state::Backend> AnvilState<Backend> {
                         None,
                     );
 
-                    crate::shell::fixup_positions(&mut self.space);
+                    crate::shell::fixup_positions(&mut self.pointer_location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -459,7 +459,7 @@ impl<Backend: crate::state::Backend> AnvilState<Backend> {
                         None,
                     );
 
-                    crate::shell::fixup_positions(&mut self.space);
+                    crate::shell::fixup_positions(&mut self.pointer_location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -480,7 +480,7 @@ impl<Backend: crate::state::Backend> AnvilState<Backend> {
                         _ => Transform::Normal,
                     };
                     output.change_current_state(None, Some(new_transform), None, None);
-                    crate::shell::fixup_positions(&mut self.space);
+                    crate::shell::fixup_positions(&mut self.pointer_location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -595,7 +595,7 @@ impl AnvilState<UdevData> {
                         pointer_output_location.y *= rescale;
                         self.pointer_location = output_location + pointer_output_location;
 
-                        crate::shell::fixup_positions(&mut self.space);
+                        crate::shell::fixup_positions(&mut self.pointer_location);
                         let under = self.surface_under();
                         if let Some(ptr) = self.seat.get_pointer() {
                             ptr.motion(
@@ -639,7 +639,7 @@ impl AnvilState<UdevData> {
                         pointer_output_location.y *= rescale;
                         self.pointer_location = output_location + pointer_output_location;
 
-                        crate::shell::fixup_positions(&mut self.space);
+                        crate::shell::fixup_positions(&mut self.pointer_location);
                         let under = self.surface_under();
                         if let Some(ptr) = self.seat.get_pointer() {
                             ptr.motion(
@@ -673,7 +673,7 @@ impl AnvilState<UdevData> {
                             _ => Transform::Normal,
                         };
                         output.change_current_state(None, Some(new_transform), None, None);
-                        crate::shell::fixup_positions(&mut self.space);
+                        crate::shell::fixup_positions(&mut self.pointer_location);
                         self.backend_data.reset_buffers(&output);
                     }
                 }
