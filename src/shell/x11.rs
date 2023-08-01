@@ -53,7 +53,7 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
         let window = WindowElement::X11(window);
         place_new_window(
             &mut self.state.space,
-            self.state.pointer_location,
+            self.state.pointer.current_location(),
             &window,
             true,
         );
@@ -218,9 +218,8 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
         _button: u32,
         edges: X11ResizeEdge,
     ) {
-        let seat = &self.state.seat; // luckily anvil only supports one seat anyway...
-        let pointer = seat.get_pointer().unwrap();
-        let start_data = pointer.grab_start_data().unwrap();
+        // luckily anvil only supports one seat anyway...
+        let start_data = self.state.pointer.grab_start_data().unwrap();
 
         let Some(element) = self
             .state
@@ -254,6 +253,7 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             last_window_size: initial_window_size,
         };
 
+        let pointer = self.state.pointer.clone();
         pointer.set_grab(
             &mut self.state,
             grab,
@@ -372,9 +372,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
     }
 
     pub fn move_request_x11(&mut self, window: &X11Surface) {
-        let seat = &self.seat; // luckily anvil only supports one seat anyway...
-        let pointer = seat.get_pointer().unwrap();
-        let Some(start_data) = pointer.grab_start_data() else { return };
+        // luckily anvil only supports one seat anyway...
+        let Some(start_data) = self.pointer.grab_start_data() else {
+            return;
+        };
 
         let Some(element) = self
             .space
@@ -386,7 +387,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         // If surface is maximized then unmaximize it
         if window.is_maximized() {
             window.set_maximized(false).unwrap();
-            let pos = pointer.current_location();
+            let pos = self.pointer.current_location();
             initial_window_location = (pos.x as i32, pos.y as i32).into();
             if let Some(old_geo) = window
                 .user_data()
@@ -408,6 +409,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             initial_window_location,
         };
 
+        let pointer = self.pointer.clone();
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 }

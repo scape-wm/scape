@@ -79,6 +79,7 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
 }
 
 bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct ResizeEdge: u32 {
         const NONE = 0;
         const TOP = 1;

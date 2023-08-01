@@ -13,7 +13,7 @@ use smithay::{
                 ConstrainAlign, ConstrainScaleBehavior, CropRenderElement, RelocateRenderElement,
                 RescaleRenderElement,
             },
-            AsRenderElements, RenderElement, RenderElementStates, Wrap,
+            AsRenderElements, RenderElement, Wrap,
         },
         ImportAll, ImportMem, Renderer,
     },
@@ -21,7 +21,7 @@ use smithay::{
         constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
     },
     output::Output,
-    utils::{Physical, Point, Rectangle, Size},
+    utils::{Point, Rectangle, Size},
 };
 
 smithay::backend::renderer::element::render_elements! {
@@ -58,7 +58,7 @@ smithay::backend::renderer::element::render_elements! {
     Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>,
 }
 
-impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R>> std::fmt::Debug
+impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug> std::fmt::Debug
     for OutputRenderElements<R, E>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
