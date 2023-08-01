@@ -4,22 +4,22 @@ name = "scape"
 version = "0.0.1"
 
 [dependencies]
-bitflags = "1.2.1"
+bitflags = "2.3.3"
 fps_ticker = { version = "1.0.0", optional = true }
-image = { version = "0.24.0", default-features = false, optional = true }
+image = { version = "0.24.6", default-features = false, optional = true }
 rand = "0.8"
 tracing = { version = "0.1.37", features = [
     "max_level_trace",
     "release_max_level_debug",
 ] }
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 thiserror = "1"
-xcursor = { version = "0.3.3", optional = true }
-xkbcommon = "0.5.0"
-renderdoc = { version = "0.10.1", optional = true }
-clap = { version = "4.2.1", features = ["derive"] }
-rlua = "0.19.4"
-anyhow = "1.0.70"
+xcursor = { version = "0.3.4", optional = true }
+xkbcommon = "0.5.1"
+renderdoc = { version = "0.11.0", optional = true }
+clap = { version = "4.3.19", features = ["derive"] }
+rlua = "0.19.7"
+anyhow = "1.0.72"
 
 [dependencies.smithay]
 default-features = false
@@ -39,7 +39,7 @@ rev = "ac511cd93d89e7a0c49f21bd25ca117de4abc8cd"
 default-features = false
 features = ["composite"]
 optional = true
-version = "0.11.1"
+version = "0.12.0"
 
 [build-dependencies]
 gl_generator = "0.14"
