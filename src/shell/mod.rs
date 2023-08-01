@@ -1,6 +1,9 @@
-use crate::state::{AnvilState, Backend};
 #[cfg(feature = "xwayland")]
 use crate::CalloopData;
+use crate::{
+    state::{AnvilState, Backend},
+    ClientState,
+};
 #[cfg(feature = "xwayland")]
 use smithay::xwayland::X11Wm;
 use smithay::{
@@ -10,14 +13,22 @@ use smithay::{
         WindowSurfaceType,
     },
     output::Output,
-    reexports::wayland_server::protocol::{wl_buffer::WlBuffer, wl_output, wl_surface::WlSurface},
+    reexports::{
+        calloop::Interest,
+        wayland_server::{
+            protocol::{wl_buffer::WlBuffer, wl_output, wl_surface::WlSurface},
+            Client, Resource,
+        },
+    },
     utils::{Logical, Point, Rectangle, Size},
     wayland::{
         buffer::BufferHandler,
         compositor::{
-            get_parent, is_sync_subsurface, with_states, with_surface_tree_upward,
-            CompositorHandler, CompositorState, TraversalAction,
+            add_blocker, add_pre_commit_hook, get_parent, is_sync_subsurface, with_states,
+            with_surface_tree_upward, BufferAssignment, CompositorClientState, CompositorHandler,
+            CompositorState, SurfaceAttributes, TraversalAction,
         },
+        dmabuf::get_dmabuf,
         shell::{
             wlr_layer::{
                 Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
@@ -26,6 +37,7 @@ use smithay::{
             xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData},
         },
     },
+    xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
 
@@ -91,6 +103,48 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self.compositor_state
     }
+
+    fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
+        #[cfg(feature = "xwayland")]
+        if let Some(state) = client.get_data::<XWaylandClientData>() {
+            return &state.compositor_state;
+        }
+        if let Some(state) = client.get_data::<ClientState>() {
+            return &state.compositor_state;
+        }
+        panic!("Unknown client data type")
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        add_pre_commit_hook::<Self, _>(surface, move |state, _dh, surface| {
+            let maybe_dmabuf = with_states(surface, |surface_data| {
+                surface_data
+                    .cached_state
+                    .pending::<SurfaceAttributes>()
+                    .buffer
+                    .as_ref()
+                    .and_then(|assignment| match assignment {
+                        BufferAssignment::NewBuffer(buffer) => get_dmabuf(buffer).ok(),
+                        _ => None,
+                    })
+            });
+            if let Some(dmabuf) = maybe_dmabuf {
+                if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
+                    let client = surface.client().unwrap();
+                    let res = state.handle.insert_source(source, move |_, _, data| {
+                        data.state
+                            .client_compositor_state(&client)
+                            .blocker_cleared(&mut data.state, &data.display.handle());
+                        Ok(())
+                    });
+                    if res.is_ok() {
+                        add_blocker(surface, blocker);
+                    }
+                }
+            }
+        })
+    }
+
     fn commit(&mut self, surface: &WlSurface) {
         #[cfg(feature = "xwayland")]
         X11Wm::commit_hook::<CalloopData<BackendData>>(surface);
