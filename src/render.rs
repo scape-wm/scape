@@ -6,7 +6,7 @@ use crate::{
 };
 use smithay::{
     backend::renderer::{
-        damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
+        damage::{Error as OutputDamageTrackerError, OutputDamageTracker, RenderOutputResult},
         element::{
             surface::WaylandSurfaceRenderElement,
             utils::{
@@ -209,7 +209,7 @@ pub fn render_output<'a, R>(
     damage_tracker: &mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
-) -> Result<(Option<Vec<Rectangle<i32, Physical>>>, RenderElementStates), OutputDamageTrackerError<R>>
+) -> Result<RenderOutputResult, OutputDamageTrackerError<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
