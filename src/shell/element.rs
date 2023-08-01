@@ -530,6 +530,7 @@ where
         renderer: &mut R,
         mut location: Point<i32, Physical>,
         scale: Scale<f64>,
+        alpha: f32,
     ) -> Vec<C> {
         let window_bbox = match self {
             WindowElement::Wayland(w) => SpaceElement::bbox(w),
@@ -552,30 +553,35 @@ where
                 renderer,
                 location,
                 scale,
+                alpha,
             );
 
             location.y += (scale.y * HEADER_BAR_HEIGHT as f64) as i32;
 
             let window_elements = match self {
-                WindowElement::Wayland(xdg) => AsRenderElements::<R>::render_elements::<
-                    WindowRenderElement<R>,
-                >(xdg, renderer, location, scale),
+                WindowElement::Wayland(xdg) => {
+                    AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                        xdg, renderer, location, scale, alpha,
+                    )
+                }
                 #[cfg(feature = "xwayland")]
                 WindowElement::X11(x11) => AsRenderElements::<R>::render_elements::<
                     WindowRenderElement<R>,
-                >(x11, renderer, location, scale),
+                >(x11, renderer, location, scale, alpha),
             };
             vec.extend(window_elements);
             vec.into_iter().map(C::from).collect()
         } else {
             match self {
-                WindowElement::Wayland(xdg) => AsRenderElements::<R>::render_elements::<
-                    WindowRenderElement<R>,
-                >(xdg, renderer, location, scale),
+                WindowElement::Wayland(xdg) => {
+                    AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                        xdg, renderer, location, scale, alpha,
+                    )
+                }
                 #[cfg(feature = "xwayland")]
                 WindowElement::X11(x11) => AsRenderElements::<R>::render_elements::<
                     WindowRenderElement<R>,
-                >(x11, renderer, location, scale),
+                >(x11, renderer, location, scale, alpha),
             }
             .into_iter()
             .map(C::from)

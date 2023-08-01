@@ -7,7 +7,7 @@ use smithay::{
         renderer::{
             damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
             element::AsRenderElements,
-            gles2::{GlesRenderer, GlesTexture},
+            gles::{GlesRenderer, GlesTexture},
         },
         winit::{self, WinitEvent, WinitGraphicsBackend},
         SwapBuffersError,
@@ -325,6 +325,7 @@ pub fn run_winit() {
                     renderer,
                     cursor_pos_scaled,
                     scale,
+                    1.0,
                 ));
 
                 // draw input method surface if any
@@ -339,6 +340,7 @@ pub fn run_winit() {
                         renderer,
                         position.to_physical_precise_round(scale),
                         scale,
+                        1.0,
                     ));
                 });
 
@@ -350,6 +352,7 @@ pub fn run_winit() {
                             renderer,
                             cursor_pos_scaled,
                             scale,
+                            1.0,
                         ));
                     }
                 }
