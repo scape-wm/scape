@@ -154,9 +154,12 @@ pub struct AnvilState<BackendData: Backend + 'static> {
 delegate_compositor!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
 impl<BackendData: Backend> DataDeviceHandler for AnvilState<BackendData> {
+    type SelectionUserData = ();
+
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
     }
+
     fn send_selection(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
         unreachable!("Anvil doesn't do server-side selections");
     }
@@ -170,6 +173,7 @@ impl<BackendData: Backend> ClientDndGrabHandler for AnvilState<BackendData> {
     ) {
         self.dnd_icon = icon;
     }
+
     fn dropped(&mut self, _seat: Seat<Self>) {
         self.dnd_icon = None;
     }
@@ -184,6 +188,8 @@ delegate_data_device!(@<BackendData: Backend + 'static> AnvilState<BackendData>)
 delegate_output!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
 impl<BackendData: Backend> PrimarySelectionHandler for AnvilState<BackendData> {
+    type SelectionUserData = ();
+
     fn primary_selection_state(&self) -> &PrimarySelectionState {
         &self.primary_selection_state
     }
