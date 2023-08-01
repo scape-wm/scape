@@ -43,7 +43,7 @@ use smithay::{
         fractional_scale::{
             with_fractional_scale, FractionalScaleHandler, FractionalScaleManagerState,
         },
-        input_method::{InputMethodManagerState, InputMethodSeat},
+        input_method::InputMethodManagerState,
         keyboard_shortcuts_inhibit::{
             KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState,
             KeyboardShortcutsInhibitor,
@@ -476,8 +476,6 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                 // TODO: tablet tools should have their own cursors
                 *cursor_status2.lock().unwrap() = new_status;
             });
-
-        seat.add_input_method(XkbConfig::default(), 200, 25);
 
         let dh = display.handle();
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
