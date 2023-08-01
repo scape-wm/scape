@@ -4,6 +4,11 @@
 
 use clap::Parser;
 
+#[cfg(feature = "profile-with-tracy")]
+#[global_allocator]
+static GLOBAL: profiling::tracy_client::ProfiledAllocator<std::alloc::System> =
+    profiling::tracy_client::ProfiledAllocator::new(std::alloc::System, 10);
+
 /// A Wayland compositor for efficient workflows
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -22,6 +27,17 @@ fn main() {
     } else {
         tracing_subscriber::fmt().compact().init();
     }
+
+    #[cfg(feature = "profile-with-tracy")]
+    profiling::tracy_client::Client::start();
+
+    profiling::register_thread!("Main Thread");
+
+    #[cfg(feature = "profile-with-puffin")]
+    let _server =
+        puffin_http::Server::new(&format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT)).unwrap();
+    #[cfg(feature = "profile-with-puffin")]
+    profiling::puffin::set_scopes_on(true);
 
     let args = Args::parse();
 

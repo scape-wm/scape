@@ -136,9 +136,10 @@ where
         })
 }
 
-pub fn output_elements<'a, R>(
+#[profiling::function]
+pub fn output_elements<R>(
     output: &Output,
-    space: &'a Space<WindowElement>,
+    space: &Space<WindowElement>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
