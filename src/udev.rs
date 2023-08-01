@@ -30,7 +30,7 @@ use smithay::{
         renderer::{
             damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
             element::{texture::TextureBuffer, AsRenderElements},
-            gles::{GlesRenderbuffer, GlesRenderer},
+            gles::{GlesRenderer, GlesTexture},
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
             Bind, DebugFlags, ImportDma, Renderer,
         },
@@ -1591,11 +1591,10 @@ fn render_surface<'a, 'b>(
         renderer,
         show_window_preview,
     );
-    let (rendered, states) = surface.compositor.render_frame::<_, _, GlesRenderbuffer>(
-        renderer,
-        &elements,
-        clear_color,
-    )?;
+    let (rendered, states) =
+        surface
+            .compositor
+            .render_frame::<_, _, GlesTexture>(renderer, &elements, clear_color)?;
 
     post_repaint(
         output,
@@ -1628,7 +1627,7 @@ fn initial_render(
 ) -> Result<(), SwapBuffersError> {
     surface
         .compositor
-        .render_frame::<_, CustomRenderElements<_>, GlesRenderbuffer>(renderer, &[], CLEAR_COLOR)?;
+        .render_frame::<_, CustomRenderElements<_>, GlesTexture>(renderer, &[], CLEAR_COLOR)?;
     surface.compositor.queue_frame(None)?;
     surface.compositor.reset_buffers();
 

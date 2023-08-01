@@ -154,7 +154,7 @@ impl<BackendData: Backend> DataDeviceHandler for AnvilState<BackendData> {
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
     }
-    fn send_selection(&mut self, _mime_type: String, _fd: OwnedFd) {
+    fn send_selection(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
         unreachable!("Anvil doesn't do server-side selections");
     }
 }
@@ -172,7 +172,7 @@ impl<BackendData: Backend> ClientDndGrabHandler for AnvilState<BackendData> {
     }
 }
 impl<BackendData: Backend> ServerDndGrabHandler for AnvilState<BackendData> {
-    fn send(&mut self, _mime_type: String, _fd: OwnedFd) {
+    fn send(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
         unreachable!("Anvil doesn't do server-side grabs");
     }
 }
