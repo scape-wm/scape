@@ -309,7 +309,7 @@ impl<BackendData: Backend> XdgDecorationHandler for AnvilState<BackendData> {
                 .initial_configure_sent
         });
         if initial_configure_sent {
-            toplevel.send_configure();
+            toplevel.send_pending_configure();
         }
     }
 
@@ -328,7 +328,7 @@ impl<BackendData: Backend> XdgDecorationHandler for AnvilState<BackendData> {
                 .initial_configure_sent
         });
         if initial_configure_sent {
-            toplevel.send_configure();
+            toplevel.send_pending_configure();
         }
     }
 }
