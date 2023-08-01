@@ -220,4 +220,3 @@ impl From<PopupKind> for FocusTarget {
         FocusTarget::Popup(p)
     }
 }
-

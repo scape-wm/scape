@@ -8,7 +8,10 @@ bitflags = "1.2.1"
 fps_ticker = { version = "1.0.0", optional = true }
 image = { version = "0.24.0", default-features = false, optional = true }
 rand = "0.8"
-tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_debug"] }
+tracing = { version = "0.1.37", features = [
+    "max_level_trace",
+    "release_max_level_debug",
+] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 thiserror = "1"
 xcursor = { version = "0.3.3", optional = true }
@@ -22,14 +25,14 @@ anyhow = "1.0.70"
 default-features = false
 features = ["desktop", "wayland_frontend"]
 git = "https://github.com/smithay/smithay"
-rev = "e29afe4989b4510c9b9eb7726414955583086361"
+rev = "ac511cd93d89e7a0c49f21bd25ca117de4abc8cd"
 # path = "../smithay"
 
 [dependencies.smithay-drm-extras]
 default-features = false
 optional = true
 git = "https://github.com/smithay/smithay"
-rev = "e29afe4989b4510c9b9eb7726414955583086361"
+rev = "ac511cd93d89e7a0c49f21bd25ca117de4abc8cd"
 # path = "../smithay-drm-extras"
 
 [dependencies.x11rb]
@@ -46,6 +49,24 @@ debug = ["fps_ticker", "image/png", "renderdoc"]
 default = ["egl", "winit", "udev", "xwayland"]
 egl = ["smithay/use_system_lib", "smithay/backend_egl"]
 test_all_features = ["default", "debug"]
-udev = ["smithay-drm-extras", "smithay/backend_libinput", "smithay/backend_udev", "smithay/backend_drm", "smithay/backend_gbm", "smithay/backend_vulkan", "smithay/backend_egl", "smithay/backend_session_libseat", "image", "smithay/renderer_gl", "smithay/renderer_multi", "xcursor"]
+udev = [
+    "smithay-drm-extras",
+    "smithay/backend_libinput",
+    "smithay/backend_udev",
+    "smithay/backend_drm",
+    "smithay/backend_gbm",
+    "smithay/backend_vulkan",
+    "smithay/backend_egl",
+    "smithay/backend_session_libseat",
+    "image",
+    "smithay/renderer_gl",
+    "smithay/renderer_multi",
+    "xcursor",
+]
 winit = ["smithay/backend_winit", "smithay/backend_drm"]
-xwayland = ["smithay/xwayland", "x11rb", "smithay/x11rb_event_source", "xcursor"]
+xwayland = [
+    "smithay/xwayland",
+    "x11rb",
+    "smithay/x11rb_event_source",
+    "xcursor",
+]

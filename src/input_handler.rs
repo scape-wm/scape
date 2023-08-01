@@ -21,13 +21,19 @@ use smithay::{
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
     output::Scale,
-    reexports::wayland_server::{protocol::wl_pointer, DisplayHandle},
+    reexports::{
+        wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1,
+        wayland_server::{protocol::wl_pointer, DisplayHandle},
+    },
     utils::{Logical, Point, Serial, Transform, SERIAL_COUNTER as SCOUNTER},
     wayland::{
         compositor::with_states,
         input_method::InputMethodSeat,
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat,
-        shell::wlr_layer::{KeyboardInteractivity, Layer as WlrLayer, LayerSurfaceCachedState},
+        shell::{
+            wlr_layer::{KeyboardInteractivity, Layer as WlrLayer, LayerSurfaceCachedState},
+            xdg::XdgToplevelSurfaceData,
+        },
     },
 };
 #[cfg(feature = "udev")]
@@ -82,6 +88,42 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
             KeyAction::TogglePreview => {
                 self.show_window_preview = !self.show_window_preview;
+            }
+
+            KeyAction::ToggleDecorations => {
+                for element in self.space.elements() {
+                    #[allow(irrefutable_let_patterns)]
+                    if let WindowElement::Wayland(window) = element {
+                        let toplevel = window.toplevel();
+                        let mode_changed = toplevel.with_pending_state(|state| {
+                            if let Some(current_mode) = state.decoration_mode {
+                                let new_mode = if current_mode
+                                    == zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                {
+                                    zxdg_toplevel_decoration_v1::Mode::ServerSide
+                                } else {
+                                    zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                };
+                                state.decoration_mode = Some(new_mode);
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
+                            states
+                                .data_map
+                                .get::<XdgToplevelSurfaceData>()
+                                .unwrap()
+                                .lock()
+                                .unwrap()
+                                .initial_configure_sent
+                        });
+                        if mode_changed && initial_configure_sent {
+                            toplevel.send_configure();
+                        }
+                    }
+                }
             }
 
             _ => unreachable!(
@@ -928,6 +970,7 @@ enum KeyAction {
     TogglePreview,
     RotateOutput,
     ToggleTint,
+    ToggleDecorations,
     /// Do nothing more
     None,
 }

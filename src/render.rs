@@ -29,11 +29,11 @@ smithay::backend::renderer::element::render_elements! {
         R: ImportAll + ImportMem;
     Pointer=PointerRenderElement<R>,
     Surface=WaylandSurfaceRenderElement<R>,
-    #[cfg(feature = "debug")]
     // Note: We would like to borrow this element instead, but that would introduce
     // a feature-dependent lifetime, which introduces a lot more feature bounds
     // as the whole type changes and we can't have an unused lifetime (for when "debug" is disabled)
     // in the declaration.
+    #[cfg(feature = "debug")]
     Fps=FpsElement<<R as Renderer>::TextureId>,
 }
 

@@ -6,6 +6,7 @@ use smithay::{
     input::{pointer::Focus, Seat},
     output::Output,
     reexports::{
+        wayland_protocols::xdg::decoration as xdg_decoration,
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
             protocol::{wl_output, wl_seat, wl_surface::WlSurface},
@@ -197,6 +198,19 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
                         }
                     });
                 }
+            }
+            let window = self
+                .space
+                .elements()
+                .find(|element| element.wl_surface().as_ref() == Some(&surface));
+            if let Some(window) = window {
+                use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
+                let is_ssd = configure
+                    .state
+                    .decoration_mode
+                    .map(|mode| mode == Mode::ServerSide)
+                    .unwrap_or(false);
+                window.set_ssd(is_ssd);
             }
         }
     }
