@@ -508,6 +508,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                     Mode::Level,
                 ),
                 |_, _, data| {
+                    #[cfg(feature = "profiling")]
                     profiling::scope!("dispatch_clients");
                     data.display.dispatch_clients(&mut data.state).unwrap();
                     Ok(PostAction::Continue)
@@ -649,7 +650,7 @@ pub struct SurfaceDmabufFeedback<'a> {
     pub scanout_feedback: &'a DmabufFeedback,
 }
 
-#[profiling::function]
+#[cfg_attr(feature = "profiling", profiling::function)]
 pub fn post_repaint(
     output: &Output,
     render_element_states: &RenderElementStates,
@@ -731,7 +732,7 @@ pub fn post_repaint(
     }
 }
 
-#[profiling::function]
+#[cfg_attr(feature = "profiling", profiling::function)]
 pub fn take_presentation_feedback(
     output: &Output,
     space: &Space<WindowElement>,

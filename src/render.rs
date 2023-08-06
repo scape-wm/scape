@@ -136,7 +136,7 @@ where
         })
 }
 
-#[profiling::function]
+#[cfg_attr(feature = "profiling", profiling::function)]
 pub fn output_elements<R>(
     output: &Output,
     space: &Space<WindowElement>,

@@ -3,6 +3,8 @@
     allow(dead_code, unused_imports)
 )]
 
+pub mod args;
+pub mod command;
 pub mod config;
 #[cfg(any(feature = "udev", feature = "xwayland"))]
 pub mod cursor;

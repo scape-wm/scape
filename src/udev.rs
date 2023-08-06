@@ -508,7 +508,7 @@ pub fn run_udev() {
         if let Err(e) = state.xwayland.start(
             state.handle.clone(),
             None,
-            std::iter::empty::<(OsString, OsString)>(),
+            std::iter::empty::<(OsString, OsString)>(), // TODO: Add configuration option
             true,
             |_| {},
         ) {
@@ -596,7 +596,7 @@ impl SurfaceComposition {
         }
     }
 
-    #[profiling::function]
+    #[cfg_attr(feature = "profiling", profiling::function)]
     fn queue_frame(
         &mut self,
         sync: Option<SyncPoint>,
@@ -613,7 +613,7 @@ impl SurfaceComposition {
         }
     }
 
-    #[profiling::function]
+    #[cfg_attr(feature = "profiling", profiling::function)]
     fn render_frame<'a, R, E, Target>(
         &mut self,
         renderer: &mut R,
@@ -1348,6 +1348,7 @@ impl AnvilState<UdevData> {
     }
 
     fn render_surface(&mut self, node: DrmNode, crtc: crtc::Handle) {
+        #[cfg(feature = "profiling")]
         profiling::scope!(
             "render_surface",
             &format!("{:?}:{crtc:?}", node.dev_path().unwrap())
@@ -1492,6 +1493,7 @@ impl AnvilState<UdevData> {
             tracing::trace!(?elapsed, "rendered surface");
         }
 
+        #[cfg(feature = "profiling")]
         profiling::finish_frame!();
     }
 
@@ -1537,7 +1539,7 @@ impl AnvilState<UdevData> {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[profiling::function]
+#[cfg_attr(feature = "profiling", profiling::function)]
 fn render_surface<'a, 'b>(
     surface: &'a mut SurfaceData,
     renderer: &mut UdevRenderer<'a, 'b>,
