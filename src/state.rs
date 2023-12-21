@@ -1,11 +1,21 @@
-#[cfg(feature = "xwayland")]
-use crate::cursor::Cursor;
-use crate::{focus::FocusTarget, shell::WindowElement};
+use crate::{
+    cursor::Cursor, focus::FocusTarget, shell::WindowElement, udev::UdevData, winit::WinitData,
+};
+use anyhow::{anyhow, Result};
+use calloop::{EventLoop, LoopSignal};
 use smithay::{
-    backend::renderer::element::{
-        default_primary_scanout_output_compare, utils::select_dmabuf_feedback, RenderElementStates,
+    backend::{
+        allocator::dmabuf::Dmabuf,
+        renderer::{
+            element::{
+                default_primary_scanout_output_compare, utils::select_dmabuf_feedback,
+                RenderElementStates,
+            },
+            DebugFlags,
+        },
+        session::Session,
     },
-    delegate_compositor, delegate_data_device, delegate_fractional_scale,
+    delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
     delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
     delegate_seat, delegate_shm, delegate_tablet_manager, delegate_text_input_manager,
@@ -18,28 +28,38 @@ use smithay::{
         },
         PopupManager, Space,
     },
-    input::{keyboard::XkbConfig, pointer::{CursorImageStatus, PointerHandle}, Seat, SeatHandler, SeatState},
+    input::{
+        keyboard::XkbConfig,
+        pointer::{CursorImageStatus, PointerHandle},
+        Seat, SeatHandler, SeatState,
+    },
     output::Output,
     reexports::{
         calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction},
-        wayland_protocols::xdg::decoration::{
-            self as xdg_decoration,
-            zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
+        wayland_protocols::{
+            wp::primary_selection::zv1::server::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1,
+            xdg::decoration::{
+                self as xdg_decoration,
+                zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
+            },
         },
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
-            protocol::{wl_data_source::WlDataSource, wl_surface::WlSurface},
+            protocol::{
+                wl_data_source::WlDataSource,
+                wl_surface::{self, WlSurface},
+            },
             Display, DisplayHandle, Resource,
         },
     },
-    utils::{Clock, Monotonic, Point},
+    utils::{Clock, Monotonic, Point, Size},
     wayland::{
         compositor::{get_parent, with_states, CompositorClientState, CompositorState},
         data_device::{
-            set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
-            ServerDndGrabHandler,
+            set_data_device_focus, with_source_metadata as with_data_device_source_metadata,
+            ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
         },
-        dmabuf::DmabufFeedback,
+        dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, DmabufState, ImportError},
         fractional_scale::{
             with_fractional_scale, FractionalScaleHandler, FractionalScaleManagerState,
         },
@@ -50,7 +70,10 @@ use smithay::{
         },
         output::OutputManagerState,
         presentation::PresentationState,
-        primary_selection::{set_primary_focus, PrimarySelectionHandler, PrimarySelectionState},
+        primary_selection::{
+            set_primary_focus, with_source_metadata as with_primary_source_metadata,
+            PrimarySelectionHandler, PrimarySelectionState,
+        },
         relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         shell::{
@@ -70,28 +93,18 @@ use smithay::{
             XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
         },
     },
-};
-#[cfg(feature = "xwayland")]
-use smithay::{
-    utils::Size,
     xwayland::{X11Wm, XWayland, XWaylandEvent},
-    wayland::{
-        data_device::with_source_metadata as with_data_device_source_metadata,
-        primary_selection::with_source_metadata as with_primary_source_metadata,
-    },
 };
-#[cfg(feature = "xwayland")]
-use smithay::reexports::wayland_protocols::wp::primary_selection::zv1::server::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1;
 use std::{
     os::unix::io::{AsRawFd, OwnedFd},
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tracing::{info, warn};
 
-pub struct CalloopData<BackendData: Backend + 'static> {
-    pub state: AnvilState<BackendData>,
-    pub display: Display<AnvilState<BackendData>>,
+pub struct CalloopData {
+    pub state: ScapeState,
+    pub display: Display<ScapeState>,
 }
 
 #[derive(Debug, Default)]
@@ -107,12 +120,13 @@ impl ClientData for ClientState {
 }
 
 #[derive(Debug)]
-pub struct AnvilState<BackendData: Backend + 'static> {
-    pub backend_data: BackendData,
-    pub socket_name: Option<String>,
+pub struct ScapeState {
+    pub socket_name: String,
     pub display_handle: DisplayHandle,
-    pub running: Arc<AtomicBool>,
-    pub handle: LoopHandle<'static, CalloopData<BackendData>>,
+    pub loop_handle: LoopHandle<'static, CalloopData>,
+    pub loop_signal: LoopSignal,
+
+    pub backend_data: BackendData,
 
     // desktop
     pub space: Space<WindowElement>,
@@ -124,7 +138,7 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub layer_shell_state: WlrLayerShellState,
     pub output_manager_state: OutputManagerState,
     pub primary_selection_state: PrimarySelectionState,
-    pub seat_state: SeatState<AnvilState<BackendData>>,
+    pub seat_state: SeatState<ScapeState>,
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     pub shm_state: ShmState,
     pub viewporter_state: ViewporterState,
@@ -140,15 +154,12 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub suppressed_keys: Vec<u32>,
     pub cursor_status: Arc<Mutex<CursorImageStatus>>,
     pub seat_name: String,
-    pub seat: Seat<AnvilState<BackendData>>,
+    pub seat: Seat<ScapeState>,
     pub clock: Clock<Monotonic>,
-    pub pointer: PointerHandle<AnvilState<BackendData>>,
+    pub pointer: PointerHandle<ScapeState>,
 
-    #[cfg(feature = "xwayland")]
     pub xwayland: XWayland,
-    #[cfg(feature = "xwayland")]
     pub xwm: Option<X11Wm>,
-    #[cfg(feature = "xwayland")]
     pub xdisplay: Option<u32>,
 
     #[cfg(feature = "debug")]
@@ -157,16 +168,15 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub show_window_preview: bool,
 }
 
-delegate_compositor!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_compositor!(ScapeState);
 
-impl<BackendData: Backend> DataDeviceHandler for AnvilState<BackendData> {
+impl DataDeviceHandler for ScapeState {
     type SelectionUserData = ();
 
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
     }
 
-    #[cfg(feature = "xwayland")]
     fn new_selection(&mut self, source: Option<WlDataSource>, _seat: Seat<Self>) {
         use smithay::xwayland::xwm::SelectionType;
 
@@ -183,7 +193,6 @@ impl<BackendData: Backend> DataDeviceHandler for AnvilState<BackendData> {
         }
     }
 
-    #[cfg(feature = "xwayland")]
     fn send_selection(
         &mut self,
         mime_type: String,
@@ -194,15 +203,18 @@ impl<BackendData: Backend> DataDeviceHandler for AnvilState<BackendData> {
         use smithay::xwayland::xwm::SelectionType;
 
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) =
-                xwm.send_selection(SelectionType::Clipboard, mime_type, fd, self.handle.clone())
-            {
+            if let Err(err) = xwm.send_selection(
+                SelectionType::Clipboard,
+                mime_type,
+                fd,
+                self.loop_handle.clone(),
+            ) {
                 warn!(?err, "Failed to send clipboard (X11 -> Wayland)");
             }
         }
     }
 }
-impl<BackendData: Backend> ClientDndGrabHandler for AnvilState<BackendData> {
+impl ClientDndGrabHandler for ScapeState {
     fn started(
         &mut self,
         _source: Option<WlDataSource>,
@@ -216,23 +228,22 @@ impl<BackendData: Backend> ClientDndGrabHandler for AnvilState<BackendData> {
         self.dnd_icon = None;
     }
 }
-impl<BackendData: Backend> ServerDndGrabHandler for AnvilState<BackendData> {
+impl ServerDndGrabHandler for ScapeState {
     fn send(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
         unreachable!("Anvil doesn't do server-side grabs");
     }
 }
-delegate_data_device!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_data_device!(ScapeState);
 
-delegate_output!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_output!(ScapeState);
 
-impl<BackendData: Backend> PrimarySelectionHandler for AnvilState<BackendData> {
+impl PrimarySelectionHandler for ScapeState {
     type SelectionUserData = ();
 
     fn primary_selection_state(&self) -> &PrimarySelectionState {
         &self.primary_selection_state
     }
 
-    #[cfg(feature = "xwayland")]
     fn new_selection(&mut self, source: Option<ZwpPrimarySelectionSourceV1>, _seat: Seat<Self>) {
         use smithay::xwayland::xwm::SelectionType;
 
@@ -249,7 +260,6 @@ impl<BackendData: Backend> PrimarySelectionHandler for AnvilState<BackendData> {
         }
     }
 
-    #[cfg(feature = "xwayland")]
     fn send_selection(
         &mut self,
         mime_type: String,
@@ -260,28 +270,31 @@ impl<BackendData: Backend> PrimarySelectionHandler for AnvilState<BackendData> {
         use smithay::xwayland::xwm::SelectionType;
 
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) =
-                xwm.send_selection(SelectionType::Primary, mime_type, fd, self.handle.clone())
-            {
+            if let Err(err) = xwm.send_selection(
+                SelectionType::Primary,
+                mime_type,
+                fd,
+                self.loop_handle.clone(),
+            ) {
                 warn!(?err, "Failed to send primary (X11 -> Wayland)");
             }
         }
     }
 }
-delegate_primary_selection!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_primary_selection!(ScapeState);
 
-impl<BackendData: Backend> ShmHandler for AnvilState<BackendData> {
+impl ShmHandler for ScapeState {
     fn shm_state(&self) -> &ShmState {
         &self.shm_state
     }
 }
-delegate_shm!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_shm!(ScapeState);
 
-impl<BackendData: Backend> SeatHandler for AnvilState<BackendData> {
+impl SeatHandler for ScapeState {
     type KeyboardFocus = FocusTarget;
     type PointerFocus = FocusTarget;
 
-    fn seat_state(&mut self) -> &mut SeatState<AnvilState<BackendData>> {
+    fn seat_state(&mut self) -> &mut SeatState<ScapeState> {
         &mut self.seat_state
     }
 
@@ -298,15 +311,15 @@ impl<BackendData: Backend> SeatHandler for AnvilState<BackendData> {
         *self.cursor_status.lock().unwrap() = image;
     }
 }
-delegate_seat!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_seat!(ScapeState);
 
-delegate_tablet_manager!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_tablet_manager!(ScapeState);
 
-delegate_text_input_manager!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_text_input_manager!(ScapeState);
 
-delegate_input_method_manager!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_input_method_manager!(ScapeState);
 
-impl<BackendData: Backend> KeyboardShortcutsInhibitHandler for AnvilState<BackendData> {
+impl KeyboardShortcutsInhibitHandler for ScapeState {
     fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
         &mut self.keyboard_shortcuts_inhibit_state
     }
@@ -317,15 +330,15 @@ impl<BackendData: Backend> KeyboardShortcutsInhibitHandler for AnvilState<Backen
     }
 }
 
-delegate_keyboard_shortcuts_inhibit!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_keyboard_shortcuts_inhibit!(ScapeState);
 
-delegate_virtual_keyboard_manager!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_virtual_keyboard_manager!(ScapeState);
 
-delegate_relative_pointer!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_relative_pointer!(ScapeState);
 
-delegate_viewporter!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_viewporter!(ScapeState);
 
-impl<BackendData: Backend> XdgActivationHandler for AnvilState<BackendData> {
+impl XdgActivationHandler for ScapeState {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
     }
@@ -361,9 +374,9 @@ impl<BackendData: Backend> XdgActivationHandler for AnvilState<BackendData> {
         // The request is cancelled
     }
 }
-delegate_xdg_activation!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_xdg_activation!(ScapeState);
 
-impl<BackendData: Backend> XdgDecorationHandler for AnvilState<BackendData> {
+impl XdgDecorationHandler for ScapeState {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
         toplevel.with_pending_state(|state| {
@@ -415,13 +428,13 @@ impl<BackendData: Backend> XdgDecorationHandler for AnvilState<BackendData> {
         }
     }
 }
-delegate_xdg_decoration!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_xdg_decoration!(ScapeState);
 
-delegate_xdg_shell!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
-delegate_layer_shell!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
-delegate_presentation!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_xdg_shell!(ScapeState);
+delegate_layer_shell!(ScapeState);
+delegate_presentation!(ScapeState);
 
-impl<BackendData: Backend> FractionalScaleHandler for AnvilState<BackendData> {
+impl FractionalScaleHandler for ScapeState {
     fn new_fractional_scale(
         &mut self,
         surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -468,39 +481,36 @@ impl<BackendData: Backend> FractionalScaleHandler for AnvilState<BackendData> {
         });
     }
 }
-delegate_fractional_scale!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
+delegate_fractional_scale!(ScapeState);
 
-impl<BackendData: Backend + 'static> AnvilState<BackendData> {
+impl ScapeState {
     pub fn init(
-        display: &mut Display<AnvilState<BackendData>>,
-        handle: LoopHandle<'static, CalloopData<BackendData>>,
+        display: &mut Display<ScapeState>,
         backend_data: BackendData,
-        listen_on_socket: bool,
-    ) -> AnvilState<BackendData> {
-        let clock = Clock::new().expect("failed to initialize clock");
+        event_loop: &mut EventLoop<'static, CalloopData>,
+    ) -> anyhow::Result<ScapeState> {
+        info!("Initializing state");
+        let clock = Clock::new()?;
+        let loop_handle = event_loop.handle();
 
         // init wayland clients
-        let socket_name = if listen_on_socket {
-            let source = ListeningSocketSource::new_auto().unwrap();
-            let socket_name = source.socket_name().to_string_lossy().into_owned();
-            handle
-                .insert_source(source, |client_stream, _, data| {
-                    if let Err(err) = data
-                        .display
-                        .handle()
-                        .insert_client(client_stream, Arc::new(ClientState::default()))
-                    {
-                        warn!("Error adding wayland client: {}", err);
-                    };
-                })
-                .expect("Failed to init wayland socket source");
-            info!(name = socket_name, "Listening on wayland socket");
-            ::std::env::set_var("WAYLAND_DISPLAY", &socket_name);
-            Some(socket_name)
-        } else {
-            None
-        };
-        handle
+        let source = ListeningSocketSource::new_auto()?;
+        let socket_name = source.socket_name().to_string_lossy().into_owned();
+        loop_handle
+            .insert_source(source, |client_stream, _, data| {
+                if let Err(err) = data
+                    .display
+                    .handle()
+                    .insert_client(client_stream, Arc::new(ClientState::default()))
+                {
+                    warn!("Error adding wayland client: {}", err);
+                };
+            })
+            .expect("Failed to init wayland socket source");
+        info!(socket_name, "Listening on wayland socket");
+        ::std::env::set_var("WAYLAND_DISPLAY", &socket_name);
+
+        loop_handle
             .insert_source(
                 Generic::new(
                     display.backend().poll_fd().as_raw_fd(),
@@ -531,16 +541,17 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
         let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self>(&dh);
-        TextInputManagerState::new::<Self>(&dh);
-        InputMethodManagerState::new::<Self>(&dh);
-        VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
-        // Expose global only if backend supports relative motion events
-        if BackendData::HAS_RELATIVE_MOTION {
-            RelativePointerManagerState::new::<Self>(&dh);
-        }
+        let text_input_manager_state = TextInputManagerState::new::<Self>(&dh);
+        let input_method_manager_state = InputMethodManagerState::new::<Self>(&dh);
+        let virtual_keyboard_manager_state =
+            VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
+        let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
 
         // init input
-        let seat_name = backend_data.seat_name();
+        let seat_name = match &backend_data {
+            BackendData::Udev(udev_data) => udev_data.seat_name(),
+            BackendData::Winit(winit_data) => winit_data.seat_name(),
+        };
         let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
 
         let cursor_status = Arc::new(Mutex::new(CursorImageStatus::Default));
@@ -565,19 +576,22 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let dh = display.handle();
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
-        #[cfg(feature = "xwayland")]
         let xwayland = {
             let (xwayland, channel) = XWayland::new(&dh);
-            let ret = handle.insert_source(channel, move |event, _, data| match event {
+            let ret = loop_handle.insert_source(channel, move |event, _, data| match event {
                 XWaylandEvent::Ready {
                     connection,
                     client,
                     client_fd: _,
                     display,
                 } => {
-                    let mut wm =
-                        X11Wm::start_wm(data.state.handle.clone(), dh.clone(), connection, client)
-                            .expect("Failed to attach X11 Window Manager");
+                    let mut wm = X11Wm::start_wm(
+                        data.state.loop_handle.clone(),
+                        dh.clone(),
+                        connection,
+                        client,
+                    )
+                    .expect("Failed to attach X11 Window Manager");
                     let cursor = Cursor::load();
                     let image = cursor.get_image(1, Duration::ZERO);
                     wm.set_cursor(
@@ -602,12 +616,14 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             xwayland
         };
 
-        AnvilState {
-            backend_data,
+        let loop_signal = event_loop.get_signal();
+
+        Ok(ScapeState {
             display_handle: display.handle(),
+            loop_handle,
+            loop_signal,
+            backend_data,
             socket_name,
-            running: Arc::new(AtomicBool::new(true)),
-            handle,
             space: Space::default(),
             popups: PopupManager::default(),
             compositor_state,
@@ -631,16 +647,13 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             seat,
             pointer,
             clock,
-            #[cfg(feature = "xwayland")]
             xwayland,
-            #[cfg(feature = "xwayland")]
             xwm: None,
-            #[cfg(feature = "xwayland")]
             xdisplay: None,
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
-        }
+        })
     }
 }
 
@@ -765,9 +778,116 @@ pub fn take_presentation_feedback(
     output_presentation_feedback
 }
 
-pub trait Backend {
-    const HAS_RELATIVE_MOTION: bool = false;
-    fn seat_name(&self) -> String;
-    fn reset_buffers(&mut self, output: &Output);
-    fn early_import(&mut self, surface: &WlSurface);
+#[derive(Debug)]
+pub enum BackendData {
+    Udev(UdevData),
+    Winit(WinitData),
 }
+
+impl BackendData {
+    pub fn udev(&self) -> &UdevData {
+        match self {
+            BackendData::Udev(udev_data) => udev_data,
+            _ => panic!("Requeted udev_data, but is not udev backend data"),
+        }
+    }
+
+    pub fn udev_mut(&mut self) -> &mut UdevData {
+        match self {
+            BackendData::Udev(udev_data) => udev_data,
+            _ => panic!("Requeted mut udev_data, but is not udev backend data"),
+        }
+    }
+
+    pub fn winit(&self) -> &WinitData {
+        match self {
+            BackendData::Winit(winit_data) => winit_data,
+            _ => panic!("Requeted winit_data, but is not winit backend data"),
+        }
+    }
+
+    pub fn winit_mut(&mut self) -> &mut WinitData {
+        match self {
+            BackendData::Winit(winit_data) => winit_data,
+            _ => panic!("Requeted mut winit_data, but is not udev backend data"),
+        }
+    }
+
+    pub fn seat_name(&self) -> String {
+        match self {
+            BackendData::Udev(ref udev_data) => udev_data.seat_name(),
+            BackendData::Winit(ref winit_data) => winit_data.seat_name(),
+        }
+    }
+
+    pub fn reset_buffers(&mut self, output: &Output) {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.reset_buffers(output),
+            BackendData::Winit(ref mut winit_data) => winit_data.reset_buffers(output),
+        }
+    }
+
+    pub fn early_import(&mut self, surface: &wl_surface::WlSurface) {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.early_import(surface),
+            BackendData::Winit(ref mut winit_data) => winit_data.early_import(surface),
+        }
+    }
+
+    pub fn dmabuf_state(&mut self) -> &mut DmabufState {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.dmabuf_state(),
+            BackendData::Winit(ref mut winit_data) => winit_data.dmabuf_state(),
+        }
+    }
+
+    pub fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+    ) -> Result<(), ImportError> {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.dmabuf_imported(&dmabuf),
+            BackendData::Winit(ref mut winit_data) => winit_data.dmabuf_imported(&dmabuf),
+        }
+    }
+
+    pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.set_debug_flags(flags),
+            BackendData::Winit(_) => (),
+        }
+    }
+
+    pub fn debug_flags(&self) -> DebugFlags {
+        match self {
+            BackendData::Udev(ref udev_data) => udev_data.debug_flags(),
+            BackendData::Winit(_) => DebugFlags::empty(),
+        }
+    }
+
+    pub fn switch_vt(&mut self, vt: i32) -> Result<()> {
+        match self {
+            BackendData::Udev(ref mut udev_data) => {
+                udev_data.session.change_vt(vt).map_err(|e| anyhow!(e))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+impl DmabufHandler for ScapeState {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        self.backend_data.dmabuf_state()
+    }
+
+    fn dmabuf_imported(
+        &mut self,
+        global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+    ) -> Result<(), ImportError> {
+        self.backend_data.dmabuf_imported(global, dmabuf)
+    }
+}
+
+delegate_dmabuf!(ScapeState);

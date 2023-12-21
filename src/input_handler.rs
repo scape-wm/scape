@@ -1,26 +1,25 @@
-#[cfg(feature = "xwayland")]
-use crate::shell::WindowElement;
-use crate::state::Backend;
-#[cfg(feature = "udev")]
-use crate::udev::UdevData;
-use crate::{focus::FocusTarget, shell::FullscreenSurface, AnvilState};
-#[cfg(any(feature = "winit", feature = "x11", feature = "udev"))]
-use smithay::backend::input::AbsolutePositionEvent;
-#[cfg(feature = "udev")]
-use smithay::backend::renderer::DebugFlags;
-#[cfg(any(feature = "winit", feature = "x11"))]
-use smithay::output::Output;
+use crate::{
+    focus::FocusTarget,
+    shell::{FullscreenSurface, WindowElement},
+    ScapeState,
+};
 use smithay::{
-    backend::input::{
-        self, Axis, AxisSource, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent,
+    backend::{
+        input::{
+            self, AbsolutePositionEvent, Axis, AxisSource, Device, DeviceCapability, Event,
+            InputBackend, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
+            PointerButtonEvent, PointerMotionEvent, ProximityState, TabletToolButtonEvent,
+            TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState,
+        },
+        renderer::DebugFlags,
+        session::Session,
     },
     desktop::{layer_map_for_output, WindowSurfaceType},
     input::{
         keyboard::{keysyms as xkb, FilterResult, Keysym, ModifiersState},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent},
     },
-    output::Scale,
+    output::{Output, Scale},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1,
         wayland_server::{protocol::wl_pointer, DisplayHandle},
@@ -30,38 +29,25 @@ use smithay::{
         compositor::with_states,
         input_method::InputMethodSeat,
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat,
+        seat::WaylandFocus,
         shell::{
             wlr_layer::{KeyboardInteractivity, Layer as WlrLayer, LayerSurfaceCachedState},
             xdg::XdgToplevelSurfaceData,
         },
-    },
-};
-#[cfg(feature = "udev")]
-use smithay::{
-    backend::{
-        input::{
-            Device, DeviceCapability, PointerMotionEvent, ProximityState, TabletToolButtonEvent,
-            TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState,
-        },
-        session::Session,
-    },
-    input::pointer::RelativeMotionEvent,
-    wayland::{
-        seat::WaylandFocus,
         tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
 };
 use std::{convert::TryInto, process::Command, sync::atomic::Ordering};
 use tracing::{debug, error, info};
 
-impl<BackendData: Backend> AnvilState<BackendData> {
+impl ScapeState {
     fn process_common_key_action(&mut self, action: KeyAction) {
         match action {
             KeyAction::None => (),
 
             KeyAction::Quit => {
                 info!("Quitting.");
-                self.running.store(false, Ordering::SeqCst);
+                self.loop_signal.stop();
             }
 
             KeyAction::Run(cmd) => {
@@ -69,16 +55,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                 if let Err(e) = Command::new(&cmd)
                     .envs(
-                        self.socket_name
-                            .clone()
+                        Some(self.socket_name.clone())
                             .map(|v| ("WAYLAND_DISPLAY", v))
                             .into_iter()
-                            .chain(
-                                #[cfg(feature = "xwayland")]
-                                self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v))),
-                                #[cfg(not(feature = "xwayland"))]
-                                None,
-                            ),
+                            .chain(self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v)))),
                     )
                     .spawn()
                 {
@@ -278,7 +258,6 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                         WindowSurfaceType::ALL,
                     ) {
                         input_method.set_point(&point);
-                        #[cfg(feature = "xwayland")]
                         if let WindowElement::X11(surf) = &window {
                             self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
                         }
@@ -416,8 +395,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
     }
 }
 
-#[cfg(any(feature = "winit", feature = "x11"))]
-impl<Backend: crate::state::Backend> AnvilState<Backend> {
+impl ScapeState {
     pub fn process_input_event_windowed<B: InputBackend>(
         &mut self,
         dh: &DisplayHandle,
@@ -543,8 +521,7 @@ impl<Backend: crate::state::Backend> AnvilState<Backend> {
     }
 }
 
-#[cfg(feature = "udev")]
-impl AnvilState<UdevData> {
+impl ScapeState {
     pub fn process_input_event<B: InputBackend>(
         &mut self,
         dh: &DisplayHandle,
@@ -555,7 +532,7 @@ impl AnvilState<UdevData> {
                 #[cfg(feature = "udev")]
                 KeyAction::VtSwitch(vt) => {
                     info!(to = vt, "Trying to switch vt");
-                    if let Err(err) = self.backend_data.session.change_vt(vt) {
+                    if let Err(err) = self.backend_data.switch_vt(vt) {
                         error!(vt, "Error switching vt: {}", err);
                     }
                 }

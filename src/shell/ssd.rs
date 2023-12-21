@@ -1,5 +1,5 @@
 use super::WindowElement;
-use crate::AnvilState;
+use crate::ScapeState;
 use smithay::{
     backend::renderer::{
         element::{
@@ -50,10 +50,10 @@ impl HeaderBar {
         self.pointer_loc = None;
     }
 
-    pub fn clicked<B: crate::state::Backend>(
+    pub fn clicked(
         &mut self,
-        seat: &Seat<AnvilState<B>>,
-        state: &mut AnvilState<B>,
+        seat: &Seat<ScapeState>,
+        state: &mut ScapeState,
         window: &WindowElement,
         serial: Serial,
     ) {
@@ -61,7 +61,6 @@ impl HeaderBar {
             Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
                 match window {
                     WindowElement::Wayland(w) => w.toplevel().send_close(),
-                    #[cfg(feature = "xwayland")]
                     WindowElement::X11(w) => {
                         let _ = w.close();
                     }
@@ -70,11 +69,10 @@ impl HeaderBar {
             Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
                 match window {
                     WindowElement::Wayland(w) => state.maximize_request(w.toplevel().clone()),
-                    #[cfg(feature = "xwayland")]
                     WindowElement::X11(w) => {
                         let surface = w.clone();
                         state
-                            .handle
+                            .loop_handle
                             .insert_idle(move |data| data.state.maximize_request_x11(&surface));
                     }
                 };
@@ -84,15 +82,14 @@ impl HeaderBar {
                     WindowElement::Wayland(w) => {
                         let seat = seat.clone();
                         let toplevel = w.toplevel().clone();
-                        state.handle.insert_idle(move |data| {
+                        state.loop_handle.insert_idle(move |data| {
                             data.state.move_request_xdg(&toplevel, &seat, serial)
                         });
                     }
-                    #[cfg(feature = "xwayland")]
                     WindowElement::X11(w) => {
                         let window = w.clone();
                         state
-                            .handle
+                            .loop_handle
                             .insert_idle(move |data| data.state.move_request_x11(&window));
                     }
                 };

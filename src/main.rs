@@ -2,7 +2,7 @@
 
 #![warn(missing_docs)]
 
-use scape::args::get_global_args;
+use scape::{args::get_global_args, compositor};
 
 #[cfg(feature = "profile-with-tracy")]
 #[global_allocator]
@@ -40,13 +40,5 @@ fn main() {
     setup_profiling();
 
     let args = get_global_args();
-    if args.winit_backend {
-        tracing::info!("Starting with winit backend");
-        #[cfg(feature = "winit")]
-        scape::winit::run_winit();
-    } else {
-        tracing::info!("Starting on a tty using udev");
-        #[cfg(feature = "udev")]
-        scape::udev::run_udev();
-    }
+    compositor::run(&args);
 }

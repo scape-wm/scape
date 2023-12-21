@@ -1,10 +1,4 @@
-#[cfg(feature = "xwayland")]
-use crate::CalloopData;
-use crate::{
-    state::{AnvilState, Backend},
-    ClientState,
-};
-#[cfg(feature = "xwayland")]
+use crate::{CalloopData, ClientState, ScapeState};
 use smithay::xwayland::X11Wm;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
@@ -44,13 +38,11 @@ use std::cell::RefCell;
 mod element;
 mod grabs;
 pub(crate) mod ssd;
-#[cfg(feature = "xwayland")]
 mod x11;
 mod xdg;
 
 pub use self::element::*;
 pub use self::grabs::*;
-#[cfg(feature = "xwayland")]
 pub use self::x11::*;
 pub use self::xdg::*;
 
@@ -95,17 +87,16 @@ impl FullscreenSurface {
     }
 }
 
-impl<BackendData: Backend> BufferHandler for AnvilState<BackendData> {
+impl BufferHandler for ScapeState {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
 }
 
-impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
+impl CompositorHandler for ScapeState {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self.compositor_state
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        #[cfg(feature = "xwayland")]
         if let Some(state) = client.get_data::<XWaylandClientData>() {
             return &state.compositor_state;
         }
@@ -131,7 +122,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
             if let Some(dmabuf) = maybe_dmabuf {
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
                     let client = surface.client().unwrap();
-                    let res = state.handle.insert_source(source, move |_, _, data| {
+                    let res = state.loop_handle.insert_source(source, move |_, _, data| {
                         data.state
                             .client_compositor_state(&client)
                             .blocker_cleared(&mut data.state, &data.display.handle());
@@ -146,8 +137,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
-        #[cfg(feature = "xwayland")]
-        X11Wm::commit_hook::<CalloopData<BackendData>>(surface);
+        X11Wm::commit_hook::<CalloopData>(surface);
 
         on_commit_buffer_handler::<Self>(surface);
         self.backend_data.early_import(surface);
@@ -167,7 +157,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
     }
 }
 
-impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
+impl WlrLayerShellHandler for ScapeState {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
         &mut self.layer_shell_state
     }
@@ -202,7 +192,7 @@ impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
     }
 }
 
-impl<BackendData: Backend> AnvilState<BackendData> {
+impl ScapeState {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
         self.space
             .elements()
@@ -240,7 +230,6 @@ fn ensure_initial_configure(
         .cloned()
     {
         // send the initial configure if relevant
-        #[cfg_attr(not(feature = "xwayland"), allow(irrefutable_let_patterns))]
         if let WindowElement::Wayland(ref toplevel) = window {
             let initial_configure_sent = with_states(surface, |states| {
                 states

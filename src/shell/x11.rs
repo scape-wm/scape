@@ -1,3 +1,8 @@
+use super::{
+    place_new_window, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
+    ResizeSurfaceGrab, SurfaceData, WindowElement,
+};
+use crate::{focus::FocusTarget, CalloopData, ScapeState};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -21,13 +26,6 @@ use smithay::{
 use std::{cell::RefCell, os::fd::OwnedFd};
 use tracing::{error, trace};
 
-use crate::{focus::FocusTarget, state::Backend, AnvilState, CalloopData};
-
-use super::{
-    place_new_window, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
-    ResizeSurfaceGrab, SurfaceData, WindowElement,
-};
-
 #[derive(Debug, Default)]
 struct OldGeometry(RefCell<Option<Rectangle<i32, Logical>>>);
 impl OldGeometry {
@@ -40,7 +38,7 @@ impl OldGeometry {
     }
 }
 
-impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
+impl XwmHandler for CalloopData {
     fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
         self.state.xwm.as_mut().unwrap()
     }
@@ -58,7 +56,9 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             true,
         );
         let bbox = self.state.space.element_bbox(&window).unwrap();
-        let WindowElement::X11(xsurface) = &window else { unreachable!() };
+        let WindowElement::X11(xsurface) = &window else {
+            unreachable!()
+        };
         xsurface.configure(Some(bbox)).unwrap();
         window.set_ssd(!xsurface.is_decorated());
     }
@@ -120,7 +120,9 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             .elements()
             .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
             .cloned()
-        else { return };
+        else {
+            return;
+        };
         self.state.space.map_element(elem, geometry.loc, false);
         // TODO: We don't properly handle the order of override-redirect windows here,
         //       they are always mapped top and then never reordered.
@@ -137,7 +139,9 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             .elements()
             .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
             .cloned()
-        else { return };
+        else {
+            return;
+        };
 
         window.set_maximized(false).unwrap();
         if let Some(old_geo) = window
@@ -225,7 +229,10 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
             .state
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window)) else { return };
+            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+        else {
+            return;
+        };
 
         let geometry = element.geometry();
         let loc = self.state.space.element_location(element).unwrap();
@@ -341,14 +348,16 @@ impl<BackendData: Backend> XwmHandler for CalloopData<BackendData> {
     }
 }
 
-impl<BackendData: Backend> AnvilState<BackendData> {
+impl ScapeState {
     pub fn maximize_request_x11(&mut self, window: &X11Surface) {
         let Some(elem) = self
             .space
             .elements()
             .find(|e| matches!(e, WindowElement::X11(w) if w == window))
             .cloned()
-        else { return };
+        else {
+            return;
+        };
 
         let old_geo = self.space.element_bbox(&elem).unwrap();
         let outputs_for_window = self.space.outputs_for_element(&elem);
@@ -380,7 +389,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         let Some(element) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == window)) else { return };
+            .find(|e| matches!(e, WindowElement::X11(w) if w == window))
+        else {
+            return;
+        };
 
         let mut initial_window_location = self.space.element_location(element).unwrap();
 

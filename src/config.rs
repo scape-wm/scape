@@ -1,7 +1,6 @@
-use std::fs;
-
 use anyhow::Result;
 use rlua::Lua;
+use std::fs;
 
 fn read_config() -> Result<()> {
     let lua = Lua::new();
@@ -12,4 +11,3 @@ fn read_config() -> Result<()> {
         Ok(())
     })
 }
-

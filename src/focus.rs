@@ -1,7 +1,4 @@
-use crate::{
-    shell::WindowElement,
-    state::{AnvilState, Backend},
-};
+use crate::{shell::WindowElement, state::ScapeState};
 pub use smithay::{
     backend::input::KeyState,
     desktop::{LayerSurface, PopupKind},
@@ -38,25 +35,15 @@ impl From<FocusTarget> for WlSurface {
     }
 }
 
-impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for FocusTarget {
-    fn enter(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        event: &MotionEvent,
-    ) {
+impl PointerTarget<ScapeState> for FocusTarget {
+    fn enter(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::enter(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::enter(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::enter(p.wl_surface(), seat, data, event),
         }
     }
-    fn motion(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        event: &MotionEvent,
-    ) {
+    fn motion(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::motion(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::motion(l, seat, data, event),
@@ -65,8 +52,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for FocusTarge
     }
     fn relative_motion(
         &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
         event: &RelativeMotionEvent,
     ) {
         match self {
@@ -79,37 +66,21 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for FocusTarge
             }
         }
     }
-    fn button(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        event: &ButtonEvent,
-    ) {
+    fn button(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &ButtonEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::button(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::button(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::button(p.wl_surface(), seat, data, event),
         }
     }
-    fn axis(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        frame: AxisFrame,
-    ) {
+    fn axis(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, frame: AxisFrame) {
         match self {
             FocusTarget::Window(w) => PointerTarget::axis(w, seat, data, frame),
             FocusTarget::LayerSurface(l) => PointerTarget::axis(l, seat, data, frame),
             FocusTarget::Popup(p) => PointerTarget::axis(p.wl_surface(), seat, data, frame),
         }
     }
-    fn leave(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        serial: Serial,
-        time: u32,
-    ) {
+    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial, time: u32) {
         match self {
             FocusTarget::Window(w) => PointerTarget::leave(w, seat, data, serial, time),
             FocusTarget::LayerSurface(l) => PointerTarget::leave(l, seat, data, serial, time),
@@ -118,11 +89,11 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for FocusTarge
     }
 }
 
-impl<BackendData: Backend> KeyboardTarget<AnvilState<BackendData>> for FocusTarget {
+impl KeyboardTarget<ScapeState> for FocusTarget {
     fn enter(
         &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
         keys: Vec<KeysymHandle<'_>>,
         serial: Serial,
     ) {
@@ -134,12 +105,7 @@ impl<BackendData: Backend> KeyboardTarget<AnvilState<BackendData>> for FocusTarg
             }
         }
     }
-    fn leave(
-        &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
-        serial: Serial,
-    ) {
+    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial) {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::leave(w, seat, data, serial),
             FocusTarget::LayerSurface(l) => KeyboardTarget::leave(l, seat, data, serial),
@@ -148,8 +114,8 @@ impl<BackendData: Backend> KeyboardTarget<AnvilState<BackendData>> for FocusTarg
     }
     fn key(
         &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
         key: KeysymHandle<'_>,
         state: KeyState,
         serial: Serial,
@@ -167,8 +133,8 @@ impl<BackendData: Backend> KeyboardTarget<AnvilState<BackendData>> for FocusTarg
     }
     fn modifiers(
         &self,
-        seat: &Seat<AnvilState<BackendData>>,
-        data: &mut AnvilState<BackendData>,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
         modifiers: ModifiersState,
         serial: Serial,
     ) {
@@ -195,7 +161,6 @@ impl WaylandFocus for FocusTarget {
     fn same_client_as(&self, object_id: &ObjectId) -> bool {
         match self {
             FocusTarget::Window(WindowElement::Wayland(w)) => w.same_client_as(object_id),
-            #[cfg(feature = "xwayland")]
             FocusTarget::Window(WindowElement::X11(w)) => w.same_client_as(object_id),
             FocusTarget::LayerSurface(l) => l.wl_surface().id().same_client_as(object_id),
             FocusTarget::Popup(p) => p.wl_surface().id().same_client_as(object_id),

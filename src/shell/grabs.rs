@@ -1,8 +1,5 @@
 use super::{SurfaceData, WindowElement};
-use crate::{
-    focus::FocusTarget,
-    state::{AnvilState, Backend},
-};
+use crate::{focus::FocusTarget, state::ScapeState};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::{
@@ -13,21 +10,20 @@ use smithay::{
     utils::{IsAlive, Logical, Point, Serial, Size},
     wayland::{compositor::with_states, shell::xdg::SurfaceCachedState},
 };
-#[cfg(feature = "xwayland")]
 use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
 use std::cell::RefCell;
 
-pub struct MoveSurfaceGrab<B: Backend + 'static> {
-    pub start_data: PointerGrabStartData<AnvilState<B>>,
+pub struct MoveSurfaceGrab {
+    pub start_data: PointerGrabStartData<ScapeState>,
     pub window: WindowElement,
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceGrab<BackendData> {
+impl PointerGrab<ScapeState> for MoveSurfaceGrab {
     fn motion(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         _focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &MotionEvent,
     ) {
@@ -43,8 +39,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
 
     fn relative_motion(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
@@ -53,8 +49,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
 
     fn button(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         event: &ButtonEvent,
     ) {
         handle.button(data, event);
@@ -66,14 +62,14 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for MoveSurfaceG
 
     fn axis(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         details: AxisFrame,
     ) {
         handle.axis(data, details)
     }
 
-    fn start_data(&self) -> &PointerGrabStartData<AnvilState<BackendData>> {
+    fn start_data(&self) -> &PointerGrabStartData<ScapeState> {
         &self.start_data
     }
 }
@@ -107,7 +103,6 @@ impl From<ResizeEdge> for xdg_toplevel::ResizeEdge {
     }
 }
 
-#[cfg(feature = "xwayland")]
 impl From<X11ResizeEdge> for ResizeEdge {
     fn from(edge: X11ResizeEdge) -> Self {
         match edge {
@@ -153,8 +148,8 @@ impl Default for ResizeState {
     }
 }
 
-pub struct ResizeSurfaceGrab<B: Backend + 'static> {
-    pub start_data: PointerGrabStartData<AnvilState<B>>,
+pub struct ResizeSurfaceGrab {
+    pub start_data: PointerGrabStartData<ScapeState>,
     pub window: WindowElement,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
@@ -162,11 +157,11 @@ pub struct ResizeSurfaceGrab<B: Backend + 'static> {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfaceGrab<BackendData> {
+impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
     fn motion(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         _focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &MotionEvent,
     ) {
@@ -239,7 +234,6 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
                 });
                 xdg.send_pending_configure();
             }
-            #[cfg(feature = "xwayland")]
             WindowElement::X11(x11) => {
                 let location = data.space.element_location(&self.window).unwrap();
                 x11.configure(Rectangle::from_loc_and_size(
@@ -253,8 +247,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
 
     fn relative_motion(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
@@ -263,8 +257,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
 
     fn button(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         event: &ButtonEvent,
     ) {
         handle.button(data, event);
@@ -315,7 +309,6 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
                         }
                     });
                 }
-                #[cfg(feature = "xwayland")]
                 WindowElement::X11(x11) => {
                     let mut location = data.space.element_location(&self.window).unwrap();
                     if self.edges.intersects(ResizeEdge::TOP_LEFT) {
@@ -340,7 +333,7 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
 
                     let Some(surface) = self.window.wl_surface() else {
                         // X11 Window got unmapped, abort
-                        return
+                        return;
                     };
                     with_states(&surface, |states| {
                         let mut data = states
@@ -361,14 +354,14 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for ResizeSurfac
 
     fn axis(
         &mut self,
-        data: &mut AnvilState<BackendData>,
-        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        data: &mut ScapeState,
+        handle: &mut PointerInnerHandle<'_, ScapeState>,
         details: AxisFrame,
     ) {
         handle.axis(data, details)
     }
 
-    fn start_data(&self) -> &PointerGrabStartData<AnvilState<BackendData>> {
+    fn start_data(&self) -> &PointerGrabStartData<ScapeState> {
         &self.start_data
     }
 }

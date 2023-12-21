@@ -1,104 +1,106 @@
+use crate::drawing::*;
+use crate::render::CustomRenderElements;
+use crate::state::{
+    post_repaint, take_presentation_feedback, BackendData, CalloopData, ScapeState,
+};
+use anyhow::{anyhow, Result};
+use calloop::timer::{TimeoutAction, Timer};
+use calloop::LoopHandle;
+use smithay::backend::input::InputEvent;
+use smithay::backend::renderer::damage::Error as OutputDamageTrackerError;
+use smithay::backend::renderer::element::AsRenderElements;
 #[cfg(feature = "egl")]
 use smithay::backend::renderer::ImportEgl;
+use smithay::backend::renderer::ImportMemWl;
+use smithay::backend::winit::{WinitEvent, WinitEventLoop, WinitInput};
+use smithay::backend::SwapBuffersError;
+use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
+use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
+use smithay::utils::{IsAlive, Point, Scale};
+use smithay::wayland::input_method::InputMethodSeat;
 use smithay::{
-    backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma, renderer::ImportMemWl},
+    backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     backend::{
         egl::EGLDevice,
         renderer::{
-            damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
-            element::AsRenderElements,
+            damage::OutputDamageTracker,
             gles::{GlesRenderer, GlesTexture},
         },
-        winit::{self, WinitEvent, WinitGraphicsBackend},
-        SwapBuffersError,
+        winit::{self, WinitGraphicsBackend},
     },
-    delegate_dmabuf,
-    input::pointer::{CursorImageAttributes, CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::EventLoop,
-        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::{protocol::wl_surface, Display},
     },
-    utils::{IsAlive, Point, Scale, Transform},
-    wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportError},
-    wayland::{
-        compositor,
-        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder},
-        input_method::InputMethodSeat,
-    },
+    utils::Transform,
+    wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder},
+    wayland::dmabuf::{DmabufGlobal, DmabufState, ImportError},
 };
 #[cfg(feature = "debug")]
 use smithay::{
     backend::{allocator::Fourcc, renderer::ImportMem},
     reexports::winit::platform::unix::WindowExtUnix,
 };
-use std::{
-    ffi::OsString,
-    sync::{atomic::Ordering, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::{error, info, warn};
-
-use crate::state::{post_repaint, take_presentation_feedback, AnvilState, Backend, CalloopData};
-use crate::{drawing::*, render::*};
 
 pub const OUTPUT_NAME: &str = "winit";
 
+#[derive(Debug)]
 pub struct WinitData {
     backend: WinitGraphicsBackend<GlesRenderer>,
     damage_tracker: OutputDamageTracker,
     dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
+    pointer_element: PointerElement<GlesTexture>,
     full_redraw: u8,
+    winit_loop: WinitEventLoop,
+    pending_input_events: Vec<InputEvent<WinitInput>>,
+    output: Output,
     #[cfg(feature = "debug")]
     pub fps: fps_ticker::Fps,
 }
 
-#[cfg(feature = "egl")]
-impl DmabufHandler for AnvilState<WinitData> {
-    fn dmabuf_state(&mut self) -> &mut DmabufState {
-        &mut self.backend_data.dmabuf_state.0
+impl WinitData {
+    pub fn has_relative_motion(&self) -> bool {
+        false
     }
 
-    fn dmabuf_imported(
-        &mut self,
-        _global: &DmabufGlobal,
-        dmabuf: Dmabuf,
-    ) -> Result<(), ImportError> {
-        self.backend_data
-            .backend
+    pub fn seat_name(&self) -> String {
+        String::from("winit")
+    }
+
+    pub fn reset_buffers(&mut self, _output: &Output) {
+        self.full_redraw = 4;
+    }
+
+    pub fn early_import(&mut self, _surface: &wl_surface::WlSurface) {}
+
+    pub fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state.0
+    }
+
+    pub fn dmabuf_imported(&mut self, dmabuf: &Dmabuf) -> Result<(), ImportError> {
+        self.backend
             .renderer()
             .import_dmabuf(&dmabuf, None)
             .map(|_| ())
             .map_err(|_| ImportError::Failed)
     }
 }
-delegate_dmabuf!(AnvilState<WinitData>);
 
-impl Backend for WinitData {
-    fn seat_name(&self) -> String {
-        String::from("winit")
-    }
-    fn reset_buffers(&mut self, _output: &Output) {
-        self.full_redraw = 4;
-    }
-    fn early_import(&mut self, _surface: &wl_surface::WlSurface) {}
-}
-
-pub fn run_winit() {
-    let mut event_loop = EventLoop::try_new().unwrap();
-    let mut display = Display::new().unwrap();
-
+pub fn init_winit(
+    event_loop: &mut EventLoop<CalloopData>,
+    display: &mut Display<ScapeState>,
+) -> Result<BackendData> {
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let (mut backend, mut winit) = match winit::init::<GlesRenderer>() {
-        Ok(ret) => ret,
-        Err(err) => {
-            error!("Failed to initialize Winit backend: {}", err);
-            return;
-        }
-    };
-    let size = backend.window_size().physical_size;
+    let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| {
+        error!("Failed to initialize Winit backend: {}", e);
+        anyhow!("Winit backend cannot be started")
+    })?;
 
+    let size = backend.window_size().physical_size;
     let mode = Mode {
         size,
         refresh: 60_000,
@@ -108,11 +110,11 @@ pub fn run_winit() {
         PhysicalProperties {
             size: (0, 0).into(),
             subpixel: Subpixel::Unknown,
-            make: "Smithay".into(),
+            make: "Scape".into(),
             model: "Winit".into(),
         },
     );
-    let _global = output.create_global::<AnvilState<WinitData>>(&display.handle());
+    let _global = output.create_global::<ScapeState>(&display.handle());
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
@@ -166,17 +168,16 @@ pub fn run_winit() {
     // Note: egl on Mesa requires either v4 or wl_drm (initialized with bind_wl_display)
     let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global = dmabuf_state
-            .create_global_with_default_feedback::<AnvilState<WinitData>>(
-                &display.handle(),
-                &default_feedback,
-            );
+        let dmabuf_global = dmabuf_state.create_global_with_default_feedback::<ScapeState>(
+            &display.handle(),
+            &default_feedback,
+        );
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
         let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
         let mut dmabuf_state = DmabufState::new();
         let dmabuf_global =
-            dmabuf_state.create_global::<AnvilState<WinitData>>(&display.handle(), dmabuf_formats);
+            dmabuf_state.create_global::<ScapeState>(&display.handle(), dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
     };
 
@@ -189,124 +190,227 @@ pub fn run_winit() {
         info!("EGL hardware-acceleration enabled");
     };
 
-    let data = {
-        let damage_tracker = OutputDamageTracker::from_output(&output);
-
-        WinitData {
-            backend,
-            damage_tracker,
-            #[cfg(feature = "egl")]
-            dmabuf_state,
-            full_redraw: 0,
-            #[cfg(feature = "debug")]
-            fps: fps_ticker::Fps::default(),
-        }
-    };
-    let mut state = AnvilState::init(&mut display, event_loop.handle(), data, true);
-    state.space.map_output(&output, (0, 0));
-
-    #[cfg(feature = "xwayland")]
-    if let Err(e) = state.xwayland.start(
-        state.handle.clone(),
-        None,
-        std::iter::empty::<(OsString, OsString)>(),
-        true,
-        |_| {},
-    ) {
-        error!("Failed to start XWayland: {}", e);
-    }
-    info!("Initialization completed, starting the main loop.");
-
     let mut pointer_element = PointerElement::<GlesTexture>::default();
 
-    while state.running.load(Ordering::SeqCst) {
-        if winit
-            .dispatch_new_events(|event| match event {
-                WinitEvent::Resized { size, .. } => {
-                    // We only have one output
-                    let output = state.space.outputs().next().unwrap().clone();
-                    state
-                        .shm_state
-                        .update_formats(state.backend_data.backend.renderer().shm_formats());
-                    state.space.map_output(&output, (0, 0));
-                    let mode = Mode {
-                        size,
-                        refresh: 60_000,
-                    };
-                    output.change_current_state(Some(mode), None, None, None);
-                    output.set_preferred(mode);
-                    crate::shell::fixup_positions(
-                        &mut state.space,
-                        state.pointer.current_location(),
-                    );
+    let damage_tracker = OutputDamageTracker::from_output(&output);
+
+    event_loop
+        .handle()
+        .insert_source(Timer::immediate(), |_event, &mut (), data| {
+            let output = data.state.backend_data.winit().output.clone();
+            data.state.space.map_output(&output, (0, 0));
+            TimeoutAction::Drop
+        });
+
+    event_loop
+        .handle()
+        .insert_source(Timer::immediate(), |_, _, data| {
+            run_tick(&mut data.state);
+            TimeoutAction::ToDuration(Duration::from_millis(16))
+        });
+
+    Ok(BackendData::Winit(WinitData {
+        backend,
+        damage_tracker,
+        dmabuf_state,
+        pointer_element,
+        full_redraw: 0,
+        winit_loop: winit,
+        pending_input_events: vec![],
+        output,
+        #[cfg(feature = "debug")]
+        fps: fps_ticker::Fps::default(),
+    }))
+}
+
+fn run_tick(state: &mut ScapeState) {
+    let winit_data = state.backend_data.winit_mut();
+    let mut handle_events = false;
+    if winit_data
+        .winit_loop
+        .dispatch_new_events(|event| match event {
+            WinitEvent::Resized { size, .. } => {
+                // We only have one output
+                let output = state.space.outputs().next().unwrap().clone();
+                state
+                    .shm_state
+                    .update_formats(winit_data.backend.renderer().shm_formats());
+                state.space.map_output(&output, (0, 0));
+                let mode = Mode {
+                    size,
+                    refresh: 60_000,
+                };
+                output.change_current_state(Some(mode), None, None, None);
+                output.set_preferred(mode);
+                crate::shell::fixup_positions(&mut state.space, state.pointer.current_location());
+            }
+            WinitEvent::Input(event) => {
+                winit_data.pending_input_events.push(event);
+                handle_events = true;
+            }
+            _ => (),
+        })
+        .is_err()
+    {
+        return;
+    }
+
+    if handle_events {
+        state
+            .loop_handle
+            .insert_source(Timer::immediate(), |_, _, data| {
+                let display_handle = data.state.display_handle.clone();
+                let pending_events = std::mem::replace(
+                    &mut data.state.backend_data.winit_mut().pending_input_events,
+                    vec![],
+                );
+                for event in pending_events {
+                    data.state
+                        .process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
                 }
-                WinitEvent::Input(event) => {
-                    state.process_input_event_windowed(&display.handle(), event, OUTPUT_NAME)
-                }
-                _ => (),
-            })
-            .is_err()
-        {
-            state.running.store(false, Ordering::SeqCst);
-            break;
+                TimeoutAction::Drop
+            });
+    }
+
+    // drawing logic
+    {
+        let backend = &mut winit_data.backend;
+        let output = state.space.outputs().next().unwrap().clone();
+
+        let mut cursor_guard = state.cursor_status.lock().unwrap();
+
+        // draw the cursor as relevant
+        // reset the cursor if the surface is no longer alive
+        let mut reset = false;
+        if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
+            reset = !surface.alive();
         }
+        if reset {
+            *cursor_guard = CursorImageStatus::Default;
+        }
+        let cursor_visible = !matches!(*cursor_guard, CursorImageStatus::Surface(_));
 
-        // drawing logic
-        {
-            let backend = &mut state.backend_data.backend;
+        winit_data.pointer_element.set_status(cursor_guard.clone());
 
-            let mut cursor_guard = state.cursor_status.lock().unwrap();
+        #[cfg(feature = "debug")]
+        let fps = state.backend_data.fps.avg().round() as u32;
+        #[cfg(feature = "debug")]
+        fps_element.update_fps(fps);
 
-            // draw the cursor as relevant
-            // reset the cursor if the surface is no longer alive
-            let mut reset = false;
-            if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
-                reset = !surface.alive();
-            }
-            if reset {
-                *cursor_guard = CursorImageStatus::Default;
-            }
-            let cursor_visible = !matches!(*cursor_guard, CursorImageStatus::Surface(_));
+        let full_redraw = &mut winit_data.full_redraw;
+        *full_redraw = full_redraw.saturating_sub(1);
+        let space = &mut state.space;
+        let damage_tracker = &mut winit_data.damage_tracker;
+        let show_window_preview = state.show_window_preview;
 
-            pointer_element.set_status(cursor_guard.clone());
+        let input_method = state.seat.input_method();
+        let dnd_icon = state.dnd_icon.as_ref();
 
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
+            smithay::wayland::compositor::with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<Mutex<CursorImageAttributes>>()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .hotspot
+            })
+        } else {
+            (0, 0).into()
+        };
+        let cursor_pos = state.pointer.current_location() - cursor_hotspot.to_f64();
+        let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
+
+        #[cfg(feature = "debug")]
+        let mut renderdoc = state.renderdoc.as_mut();
+        let render_res = backend.bind().and_then(|_| {
             #[cfg(feature = "debug")]
-            let fps = state.backend_data.fps.avg().round() as u32;
-            #[cfg(feature = "debug")]
-            fps_element.update_fps(fps);
-
-            let full_redraw = &mut state.backend_data.full_redraw;
-            *full_redraw = full_redraw.saturating_sub(1);
-            let space = &mut state.space;
-            let damage_tracker = &mut state.backend_data.damage_tracker;
-            let show_window_preview = state.show_window_preview;
-
-            let input_method = state.seat.input_method();
-            let dnd_icon = state.dnd_icon.as_ref();
-
-            let scale = Scale::from(output.current_scale().fractional_scale());
-            let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
-                compositor::with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
-                })
+            if let Some(renderdoc) = renderdoc.as_mut() {
+                renderdoc.start_frame_capture(
+                    backend.renderer().egl_context().get_context_handle(),
+                    backend
+                        .window()
+                        .wayland_surface()
+                        .unwrap_or_else(std::ptr::null),
+                );
+            }
+            let age = if *full_redraw > 0 {
+                0
             } else {
-                (0, 0).into()
+                backend.buffer_age().unwrap_or(0)
             };
-            let cursor_pos = state.pointer.current_location() - cursor_hotspot.to_f64();
-            let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
+
+            let renderer = backend.renderer();
+
+            let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
+
+            elements.extend(winit_data.pointer_element.render_elements(
+                renderer,
+                cursor_pos_scaled,
+                scale,
+                1.0,
+            ));
+
+            // draw input method surface if any
+            let rectangle = input_method.coordinates();
+            let position = Point::from((
+                rectangle.loc.x + rectangle.size.w,
+                rectangle.loc.y + rectangle.size.h,
+            ));
+            input_method.with_surface(|surface| {
+                elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
+                    &smithay::desktop::space::SurfaceTree::from_surface(surface),
+                    renderer,
+                    position.to_physical_precise_round(scale),
+                    scale,
+                    1.0,
+                ));
+            });
+
+            // draw the dnd icon if any
+            if let Some(surface) = dnd_icon {
+                if surface.alive() {
+                    elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
+                        &smithay::desktop::space::SurfaceTree::from_surface(surface),
+                        renderer,
+                        cursor_pos_scaled,
+                        scale,
+                        1.0,
+                    ));
+                }
+            }
 
             #[cfg(feature = "debug")]
-            let mut renderdoc = state.renderdoc.as_mut();
-            let render_res = backend.bind().and_then(|_| {
+            elements.push(CustomRenderElements::Fps(fps_element.clone()));
+
+            crate::render::render_output(
+                &output,
+                space,
+                elements,
+                renderer,
+                damage_tracker,
+                age,
+                show_window_preview,
+            )
+            .map_err(|err| match err {
+                OutputDamageTrackerError::Rendering(err) => err.into(),
+                _ => unreachable!(),
+            })
+        });
+
+        match render_res {
+            Ok(render_output_result) => {
+                let has_rendered = render_output_result.damage.is_some();
+                if let Some(damage) = render_output_result.damage {
+                    if let Err(err) = backend.submit(Some(&*damage)) {
+                        warn!("Failed to submit buffer: {}", err);
+                    }
+                }
                 #[cfg(feature = "debug")]
                 if let Some(renderdoc) = renderdoc.as_mut() {
-                    renderdoc.start_frame_capture(
+                    renderdoc.end_frame_capture(
                         backend.renderer().egl_context().get_context_handle(),
                         backend
                             .window()
@@ -314,148 +418,53 @@ pub fn run_winit() {
                             .unwrap_or_else(std::ptr::null),
                     );
                 }
-                let age = if *full_redraw > 0 {
-                    0
-                } else {
-                    backend.buffer_age().unwrap_or(0)
-                };
+                backend.window().set_cursor_visible(cursor_visible);
 
-                let renderer = backend.renderer();
-
-                let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
-
-                elements.extend(pointer_element.render_elements(
-                    renderer,
-                    cursor_pos_scaled,
-                    scale,
-                    1.0,
-                ));
-
-                // draw input method surface if any
-                let rectangle = input_method.coordinates();
-                let position = Point::from((
-                    rectangle.loc.x + rectangle.size.w,
-                    rectangle.loc.y + rectangle.size.h,
-                ));
-                input_method.with_surface(|surface| {
-                    elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
-                        &smithay::desktop::space::SurfaceTree::from_surface(surface),
-                        renderer,
-                        position.to_physical_precise_round(scale),
-                        scale,
-                        1.0,
-                    ));
-                });
-
-                // draw the dnd icon if any
-                if let Some(surface) = dnd_icon {
-                    if surface.alive() {
-                        elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
-                            &smithay::desktop::space::SurfaceTree::from_surface(surface),
-                            renderer,
-                            cursor_pos_scaled,
-                            scale,
-                            1.0,
-                        ));
-                    }
-                }
-
-                #[cfg(feature = "debug")]
-                elements.push(CustomRenderElements::Fps(fps_element.clone()));
-
-                render_output(
+                // Send frame events so that client start drawing their next frame
+                let time = state.clock.now();
+                post_repaint(
                     &output,
-                    space,
-                    elements,
-                    renderer,
-                    damage_tracker,
-                    age,
-                    show_window_preview,
-                )
-                .map_err(|err| match err {
-                    OutputDamageTrackerError::Rendering(err) => err.into(),
-                    _ => unreachable!(),
-                })
-            });
+                    &render_output_result.states,
+                    &state.space,
+                    None,
+                    time,
+                );
 
-            match render_res {
-                Ok(render_output_result) => {
-                    let has_rendered = render_output_result.damage.is_some();
-                    if let Some(damage) = render_output_result.damage {
-                        if let Err(err) = backend.submit(Some(&*damage)) {
-                            warn!("Failed to submit buffer: {}", err);
-                        }
-                    }
-                    #[cfg(feature = "debug")]
-                    if let Some(renderdoc) = renderdoc.as_mut() {
-                        renderdoc.end_frame_capture(
-                            backend.renderer().egl_context().get_context_handle(),
-                            backend
-                                .window()
-                                .wayland_surface()
-                                .unwrap_or_else(std::ptr::null),
-                        );
-                    }
-                    backend.window().set_cursor_visible(cursor_visible);
-
-                    // Send frame events so that client start drawing their next frame
-                    let time = state.clock.now();
-                    post_repaint(
+                if has_rendered {
+                    let mut output_presentation_feedback = take_presentation_feedback(
                         &output,
-                        &render_output_result.states,
                         &state.space,
-                        None,
-                        time,
+                        &render_output_result.states,
                     );
-
-                    if has_rendered {
-                        let mut output_presentation_feedback = take_presentation_feedback(
-                            &output,
-                            &state.space,
-                            &render_output_result.states,
-                        );
-                        output_presentation_feedback.presented(
-                            time,
-                            output
-                                .current_mode()
-                                .map(|mode| mode.refresh as u32)
-                                .unwrap_or_default(),
-                            0,
-                            wp_presentation_feedback::Kind::Vsync,
-                        )
-                    }
+                    output_presentation_feedback.presented(
+                        time,
+                        output
+                            .current_mode()
+                            .map(|mode| mode.refresh as u32)
+                            .unwrap_or_default(),
+                        0,
+                        wp_presentation_feedback::Kind::Vsync,
+                    )
                 }
-                Err(SwapBuffersError::ContextLost(err)) => {
-                    #[cfg(feature = "debug")]
-                    if let Some(renderdoc) = renderdoc.as_mut() {
-                        renderdoc.discard_frame_capture(
-                            backend.renderer().egl_context().get_context_handle(),
-                            backend
-                                .window()
-                                .wayland_surface()
-                                .unwrap_or_else(std::ptr::null),
-                        );
-                    }
-                    error!("Critical Rendering Error: {}", err);
-                    state.running.store(false, Ordering::SeqCst);
-                }
-                Err(err) => warn!("Rendering error: {}", err),
             }
+            Err(SwapBuffersError::ContextLost(err)) => {
+                #[cfg(feature = "debug")]
+                if let Some(renderdoc) = renderdoc.as_mut() {
+                    renderdoc.discard_frame_capture(
+                        backend.renderer().egl_context().get_context_handle(),
+                        backend
+                            .window()
+                            .wayland_surface()
+                            .unwrap_or_else(std::ptr::null),
+                    );
+                }
+                error!("Critical Rendering Error: {}", err);
+                state.loop_signal.stop();
+            }
+            Err(err) => warn!("Rendering error: {}", err),
         }
-
-        let mut calloop_data = CalloopData { state, display };
-        let result = event_loop.dispatch(Some(Duration::from_millis(1)), &mut calloop_data);
-        CalloopData { state, display } = calloop_data;
-
-        if result.is_err() {
-            state.running.store(false, Ordering::SeqCst);
-        } else {
-            state.space.refresh();
-            state.popups.cleanup();
-            display.flush_clients().unwrap();
-        }
-
-        #[cfg(feature = "debug")]
-        state.backend_data.fps.tick();
     }
+
+    #[cfg(feature = "debug")]
+    self.fps.tick();
 }

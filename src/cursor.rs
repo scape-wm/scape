@@ -7,6 +7,7 @@ use xcursor::{
 
 static FALLBACK_CURSOR_DATA: &[u8] = include_bytes!("../resources/cursor.rgba");
 
+#[derive(Debug)]
 pub struct Cursor {
     icons: Vec<Image>,
     size: u32,
