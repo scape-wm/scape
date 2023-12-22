@@ -18,9 +18,10 @@ use smithay::{
     delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
     delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
-    delegate_seat, delegate_shm, delegate_tablet_manager, delegate_text_input_manager,
-    delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
-    delegate_xdg_decoration, delegate_xdg_shell, delegate_xwayland_keyboard_grab,
+    delegate_seat, delegate_security_context, delegate_shm, delegate_tablet_manager,
+    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
+    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_xwayland_keyboard_grab,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
@@ -76,6 +77,10 @@ use smithay::{
         },
         relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
+        security_context::{
+            SecurityContext, SecurityContextHandler, SecurityContextListenerSource,
+            SecurityContextState,
+        },
         shell::{
             wlr_layer::WlrLayerShellState,
             xdg::{
@@ -111,6 +116,7 @@ pub struct CalloopData {
 #[derive(Debug, Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    pub security_context: Option<SecurityContext>,
 }
 
 impl ClientData for ClientState {
@@ -484,6 +490,31 @@ impl FractionalScaleHandler for ScapeState {
 }
 delegate_fractional_scale!(ScapeState);
 
+impl SecurityContextHandler for ScapeState {
+    fn context_created(
+        &mut self,
+        source: SecurityContextListenerSource,
+        security_context: SecurityContext,
+    ) {
+        self.loop_handle
+            .insert_source(source, move |client_stream, _, data| {
+                let client_state = ClientState {
+                    security_context: Some(security_context.clone()),
+                    ..ClientState::default()
+                };
+                if let Err(err) = data
+                    .display
+                    .handle()
+                    .insert_client(client_stream, Arc::new(client_state))
+                {
+                    warn!("Error adding wayland client: {}", err);
+                };
+            })
+            .expect("Failed to init wayland socket source");
+    }
+}
+delegate_security_context!(ScapeState);
+
 impl XWaylandKeyboardGrabHandler for ScapeState {
     fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<FocusTarget> {
         let elem = self
@@ -558,6 +589,11 @@ impl ScapeState {
         let virtual_keyboard_manager_state =
             VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
         let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
+        SecurityContextState::new::<Self, _>(&dh, |client| {
+            client
+                .get_data::<ClientState>()
+                .map_or(true, |client_state| client_state.security_context.is_none())
+        });
 
         // init input
         let seat_name = match &backend_data {
