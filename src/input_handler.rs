@@ -394,6 +394,14 @@ impl ScapeState {
             } else if evt.source() == AxisSource::Finger {
                 frame = frame.stop(Axis::Vertical);
             }
+            if evt.source() == AxisSource::Finger {
+                if evt.amount(Axis::Horizontal) == Some(0.0) {
+                    frame = frame.stop(Axis::Horizontal);
+                }
+                if evt.amount(Axis::Vertical) == Some(0.0) {
+                    frame = frame.stop(Axis::Vertical);
+                }
+            }
             let pointer = self.pointer.clone();
             pointer.axis(self, frame);
         }

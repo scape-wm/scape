@@ -17,17 +17,17 @@ use smithay::{
     },
     delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
-    delegate_output, delegate_pointer_gestures, delegate_presentation, delegate_primary_selection,
-    delegate_relative_pointer, delegate_seat, delegate_security_context, delegate_shm,
-    delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter,
-    delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
-    delegate_xdg_shell, delegate_xwayland_keyboard_grab,
+    delegate_output, delegate_pointer_constraints, delegate_pointer_gestures,
+    delegate_presentation, delegate_primary_selection, delegate_relative_pointer, delegate_seat,
+    delegate_security_context, delegate_shm, delegate_tablet_manager, delegate_text_input_manager,
+    delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
+    delegate_xdg_decoration, delegate_xdg_shell, delegate_xwayland_keyboard_grab,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
             update_surface_primary_scanout_output, OutputPresentationFeedback,
         },
-        PopupManager, Space,
+        PopupKind, PopupManager, Space,
     },
     input::{
         keyboard::XkbConfig,
@@ -53,7 +53,7 @@ use smithay::{
             Display, DisplayHandle, Resource,
         },
     },
-    utils::{Clock, Monotonic, Point, Size},
+    utils::{Clock, Monotonic, Point, Rectangle, Size},
     wayland::{
         compositor::{get_parent, with_states, CompositorClientState, CompositorState},
         data_device::{
@@ -64,12 +64,13 @@ use smithay::{
         fractional_scale::{
             with_fractional_scale, FractionalScaleHandler, FractionalScaleManagerState,
         },
-        input_method::InputMethodManagerState,
+        input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface},
         keyboard_shortcuts_inhibit::{
             KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState,
             KeyboardShortcutsInhibitor,
         },
         output::OutputManagerState,
+        pointer_constraints::{with_pointer_constraint, PointerConstraintsHandler},
         pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         primary_selection::{
@@ -325,6 +326,28 @@ delegate_tablet_manager!(ScapeState);
 
 delegate_text_input_manager!(ScapeState);
 
+impl InputMethodHandler for ScapeState {
+    fn new_popup(&mut self, surface: PopupSurface) {
+        if let Err(err) = self.popups.track_popup(PopupKind::from(surface)) {
+            warn!("Failed to track popup: {}", err);
+        }
+    }
+
+    fn dismiss_popup(&mut self, surface: PopupSurface) {
+        if let Some(parent) = surface.get_parent().map(|parent| parent.surface.clone()) {
+            let _ = PopupManager::dismiss_popup(&parent, &PopupKind::from(surface));
+        }
+    }
+
+    fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, smithay::utils::Logical> {
+        self.space
+            .elements()
+            .find_map(|window| {
+                (window.wl_surface().as_ref() == Some(parent)).then(|| window.geometry())
+            })
+            .unwrap_or_default()
+    }
+}
 delegate_input_method_manager!(ScapeState);
 
 impl KeyboardShortcutsInhibitHandler for ScapeState {
@@ -346,6 +369,23 @@ delegate_pointer_gestures!(ScapeState);
 
 delegate_relative_pointer!(ScapeState);
 
+impl PointerConstraintsHandler for ScapeState {
+    fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        // XXX region
+        if pointer
+            .current_focus()
+            .and_then(|x| x.wl_surface())
+            .as_ref()
+            == Some(surface)
+        {
+            with_pointer_constraint(surface, pointer, |constraint| {
+                constraint.unwrap().activate();
+            });
+        }
+    }
+}
+delegate_pointer_constraints!(ScapeState);
+
 delegate_viewporter!(ScapeState);
 
 impl XdgActivationHandler for ScapeState {
@@ -353,9 +393,22 @@ impl XdgActivationHandler for ScapeState {
         &mut self.xdg_activation_state
     }
 
+    fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
+        if let Some((serial, seat)) = data.serial {
+            let keyboard = self.seat.get_keyboard().unwrap();
+            Seat::from_resource(&seat) == Some(self.seat.clone())
+                && keyboard
+                    .last_enter()
+                    .map(|last_enter| serial.is_no_older_than(&last_enter))
+                    .unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
     fn request_activation(
         &mut self,
-        token: XdgActivationToken,
+        _token: XdgActivationToken,
         token_data: XdgActivationTokenData,
         surface: WlSurface,
     ) {
@@ -369,19 +422,7 @@ impl XdgActivationHandler for ScapeState {
             if let Some(window) = w {
                 self.space.raise_element(&window, true);
             }
-        } else {
-            // Discard the request
-            self.xdg_activation_state.remove_request(&token);
         }
-    }
-
-    fn destroy_activation(
-        &mut self,
-        _token: XdgActivationToken,
-        _token_data: XdgActivationTokenData,
-        _surface: WlSurface,
-    ) {
-        // The request is cancelled
     }
 }
 delegate_xdg_activation!(ScapeState);
