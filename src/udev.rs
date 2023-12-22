@@ -539,6 +539,7 @@ struct SurfaceCompositorRenderResult {
 }
 
 impl SurfaceComposition {
+    #[cfg_attr(feature = "profiling", profiling::function)]
     fn frame_submitted(
         &mut self,
     ) -> Result<Option<Option<OutputPresentationFeedback>>, SwapBuffersError> {
@@ -759,20 +760,15 @@ fn get_surface_dmabuf_feedback(
         .collect::<HashSet<_>>();
 
     let surface = composition.surface();
-    let planes = surface.planes().unwrap();
+    let planes = surface.planes().clone();
     // We limit the scan-out trache to formats we can also render from
     // so that there is always a fallback render path available in case
     // the supplied buffer can not be scanned out directly
-    let planes_formats = surface
-        .supported_formats(planes.primary.handle)
-        .unwrap()
+    let planes_formats = planes
+        .primary
+        .formats
         .into_iter()
-        .chain(
-            planes
-                .overlay
-                .iter()
-                .flat_map(|p| surface.supported_formats(p.handle).unwrap()),
-        )
+        .chain(planes.overlay.into_iter().flat_map(|p| p.formats))
         .collect::<HashSet<_>>()
         .intersection(&all_render_formats)
         .copied()
@@ -826,6 +822,11 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
             };
             match event {
                 DrmEvent::VBlank(crtc) => {
+                    #[cfg(feature = "profiling")]
+                    profiling::scope!(
+                        "vblank",
+                        &format!("{:?}:{crtc:?}", node.dev_path().unwrap())
+                    );
                     frame_finish(&mut data.state, node, crtc, metadata);
                 }
                 DrmEvent::Error(error) => {
@@ -983,13 +984,7 @@ fn connector_connected(
             }
         };
 
-        let mut planes = match surface.planes() {
-            Ok(planes) => planes,
-            Err(err) => {
-                warn!("Failed to query surface planes: {}", err);
-                return;
-            }
-        };
+        let mut planes = surface.planes().clone();
 
         // Using an overlay plane on a nvidia card breaks
         if driver
@@ -1154,6 +1149,12 @@ fn frame_finish(
     crtc: crtc::Handle,
     metadata: &mut Option<DrmEventMetadata>,
 ) {
+    #[cfg(feature = "profiling")]
+    profiling::scope!(
+        "frame_finish",
+        &format!("{:?}:{crtc:?}", dev_id.dev_path().unwrap())
+    );
+
     let udev_data = state.backend_data.udev_mut();
     let device_backend = match udev_data.backends.get_mut(&dev_id) {
         Some(backend) => backend,
@@ -1215,7 +1216,7 @@ fn frame_finish(
                     clock,
                     output
                         .current_mode()
-                        .map(|mode| mode.refresh as u32)
+                        .map(|mode| Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
                         .unwrap_or_default(),
                     seq as u64,
                     flags,
