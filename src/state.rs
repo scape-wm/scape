@@ -17,11 +17,11 @@ use smithay::{
     },
     delegate_compositor, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
     delegate_input_method_manager, delegate_keyboard_shortcuts_inhibit, delegate_layer_shell,
-    delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
-    delegate_seat, delegate_security_context, delegate_shm, delegate_tablet_manager,
-    delegate_text_input_manager, delegate_viewporter, delegate_virtual_keyboard_manager,
-    delegate_xdg_activation, delegate_xdg_decoration, delegate_xdg_shell,
-    delegate_xwayland_keyboard_grab,
+    delegate_output, delegate_pointer_gestures, delegate_presentation, delegate_primary_selection,
+    delegate_relative_pointer, delegate_seat, delegate_security_context, delegate_shm,
+    delegate_tablet_manager, delegate_text_input_manager, delegate_viewporter,
+    delegate_virtual_keyboard_manager, delegate_xdg_activation, delegate_xdg_decoration,
+    delegate_xdg_shell, delegate_xwayland_keyboard_grab,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
@@ -70,6 +70,7 @@ use smithay::{
             KeyboardShortcutsInhibitor,
         },
         output::OutputManagerState,
+        pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         primary_selection::{
             set_primary_focus, with_source_metadata as with_primary_source_metadata,
@@ -341,6 +342,8 @@ delegate_keyboard_shortcuts_inhibit!(ScapeState);
 
 delegate_virtual_keyboard_manager!(ScapeState);
 
+delegate_pointer_gestures!(ScapeState);
+
 delegate_relative_pointer!(ScapeState);
 
 delegate_viewporter!(ScapeState);
@@ -589,6 +592,7 @@ impl ScapeState {
         let virtual_keyboard_manager_state =
             VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
         let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
+        let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
         SecurityContextState::new::<Self, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()

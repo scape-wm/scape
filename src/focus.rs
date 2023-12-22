@@ -1,4 +1,8 @@
 use crate::{shell::WindowElement, state::ScapeState};
+use smithay::input::pointer::{
+    GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
+    GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
+};
 pub use smithay::{
     backend::input::KeyState,
     desktop::{LayerSurface, PopupKind},
@@ -85,6 +89,127 @@ impl PointerTarget<ScapeState> for FocusTarget {
             FocusTarget::Window(w) => PointerTarget::leave(w, seat, data, serial, time),
             FocusTarget::LayerSurface(l) => PointerTarget::leave(l, seat, data, serial, time),
             FocusTarget::Popup(p) => PointerTarget::leave(p.wl_surface(), seat, data, serial, time),
+        }
+    }
+
+    fn gesture_swipe_begin(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GestureSwipeBeginEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_swipe_begin(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => {
+                PointerTarget::gesture_swipe_begin(l, seat, data, event)
+            }
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_swipe_begin(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_swipe_update(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GestureSwipeUpdateEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_swipe_update(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => {
+                PointerTarget::gesture_swipe_update(l, seat, data, event)
+            }
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_swipe_update(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_swipe_end(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GestureSwipeEndEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_swipe_end(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => PointerTarget::gesture_swipe_end(l, seat, data, event),
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_swipe_end(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_pinch_begin(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GesturePinchBeginEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_pinch_begin(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => {
+                PointerTarget::gesture_pinch_begin(l, seat, data, event)
+            }
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_pinch_begin(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_pinch_update(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GesturePinchUpdateEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_pinch_update(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => {
+                PointerTarget::gesture_pinch_update(l, seat, data, event)
+            }
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_pinch_update(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_pinch_end(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GesturePinchEndEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_pinch_end(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => PointerTarget::gesture_pinch_end(l, seat, data, event),
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_pinch_end(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_hold_begin(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GestureHoldBeginEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_hold_begin(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => PointerTarget::gesture_hold_begin(l, seat, data, event),
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_hold_begin(p.wl_surface(), seat, data, event)
+            }
+        }
+    }
+    fn gesture_hold_end(
+        &self,
+        seat: &Seat<ScapeState>,
+        data: &mut ScapeState,
+        event: &GestureHoldEndEvent,
+    ) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
+            FocusTarget::LayerSurface(l) => PointerTarget::gesture_hold_end(l, seat, data, event),
+            FocusTarget::Popup(p) => {
+                PointerTarget::gesture_hold_end(p.wl_surface(), seat, data, event)
+            }
         }
     }
 }
