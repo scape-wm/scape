@@ -34,6 +34,7 @@ use smithay::{
     xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
+use tracing::info;
 
 mod element;
 mod grabs;
@@ -262,7 +263,14 @@ fn ensure_initial_configure(
     }
 
     if let Some(popup) = popups.find_popup(surface) {
-        let PopupKind::Xdg(ref popup) = popup;
+        let popup = match popup {
+            PopupKind::Xdg(ref popup) => popup,
+            // Doesn't require configure
+            PopupKind::InputMethod(ref input_popup) => {
+                info!("PopupKind input method received {input_popup}");
+                return;
+            }
+        };
         let initial_configure_sent = with_states(surface, |states| {
             states
                 .data_map

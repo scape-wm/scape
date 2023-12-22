@@ -4,7 +4,7 @@ name = "scape"
 version = "0.0.1"
 
 [dependencies]
-bitflags = "2.3.3"
+bitflags = "2.4.1"
 fps_ticker = { version = "1.0.0", optional = true }
 image = { version = "0.24.6", default-features = false, optional = true }
 rand = "0.8"
@@ -31,14 +31,14 @@ calloop = { version = "*", features = ["executor"] }
 default-features = false
 features = ["desktop", "wayland_frontend"]
 git = "https://github.com/smithay/smithay"
-rev = "ac511cd93d89e7a0c49f21bd25ca117de4abc8cd"
+rev = "1ebe4e8fdcc910aba85e5222da1c1102d4f50e41"
 # path = "../smithay"
 
 [dependencies.smithay-drm-extras]
 default-features = false
 optional = true
 git = "https://github.com/smithay/smithay"
-rev = "ac511cd93d89e7a0c49f21bd25ca117de4abc8cd"
+rev = "1ebe4e8fdcc910aba85e5222da1c1102d4f50e41"
 # path = "../smithay-drm-extras"
 
 [dependencies.x11rb]

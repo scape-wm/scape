@@ -2,7 +2,6 @@ use crate::{args::GlobalArgs, state::BackendData, CalloopData, ScapeState};
 use calloop::{EventLoop, LoopHandle};
 use smithay::reexports::wayland_server::Display;
 use std::{ffi::OsString, time::Duration};
-use tracing::info;
 
 pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let mut display = create_display()?;
@@ -17,7 +16,7 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
 
 fn create_display() -> anyhow::Result<Display<ScapeState>> {
     tracing::info!("Creating new display");
-    let mut display = Display::new().map_err(|e| {
+    let display = Display::new().map_err(|e| {
         tracing::error!(
             "Unable to create display. libwayland-server.so is probably missing: {}",
             e
@@ -30,7 +29,7 @@ fn create_display() -> anyhow::Result<Display<ScapeState>> {
 
 fn create_event_loop() -> anyhow::Result<EventLoop<'static, CalloopData>> {
     tracing::info!("Creating new event loop");
-    let mut event_loop = EventLoop::try_new().map_err(|e| {
+    let event_loop = EventLoop::try_new().map_err(|e| {
         tracing::error!("Unable to create event loop: {}", e);
         e
     })?;

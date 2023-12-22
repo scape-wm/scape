@@ -20,7 +20,7 @@ use smithay::{
     delegate_output, delegate_presentation, delegate_primary_selection, delegate_relative_pointer,
     delegate_seat, delegate_shm, delegate_tablet_manager, delegate_text_input_manager,
     delegate_viewporter, delegate_virtual_keyboard_manager, delegate_xdg_activation,
-    delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_xdg_decoration, delegate_xdg_shell, delegate_xwayland_keyboard_grab,
     desktop::{
         utils::{
             surface_presentation_feedback_flags_from_states, surface_primary_scanout_output,
@@ -92,6 +92,7 @@ use smithay::{
         xdg_activation::{
             XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
         },
+        xwayland_keyboard_grab::{XWaylandKeyboardGrabHandler, XWaylandKeyboardGrabState},
     },
     xwayland::{X11Wm, XWayland, XWaylandEvent},
 };
@@ -483,6 +484,17 @@ impl FractionalScaleHandler for ScapeState {
 }
 delegate_fractional_scale!(ScapeState);
 
+impl XWaylandKeyboardGrabHandler for ScapeState {
+    fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<FocusTarget> {
+        let elem = self
+            .space
+            .elements()
+            .find(|elem| elem.wl_surface().as_ref() == Some(surface))?;
+        Some(FocusTarget::Window(elem.clone()))
+    }
+}
+delegate_xwayland_keyboard_grab!(ScapeState);
+
 impl ScapeState {
     pub fn init(
         display: &mut Display<ScapeState>,
@@ -577,6 +589,8 @@ impl ScapeState {
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         let xwayland = {
+            XWaylandKeyboardGrabState::new::<Self>(&dh);
+
             let (xwayland, channel) = XWayland::new(&dh);
             let ret = loop_handle.insert_source(channel, move |event, _, data| match event {
                 XWaylandEvent::Ready {
