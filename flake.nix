@@ -46,6 +46,7 @@
           libinput
           mesa
           llvmPackages.bintools
+          libgcc
         ];
         runtimeDependencies = with pkgs; [
           libglvnd
