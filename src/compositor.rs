@@ -75,8 +75,8 @@ fn run_loop(
         &mut calloop_data,
         |data| {
             data.state.space.refresh();
-            data.display.flush_clients().unwrap();
             data.state.popups.cleanup();
+            data.display.flush_clients().unwrap();
         },
     )?;
 
