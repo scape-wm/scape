@@ -290,8 +290,10 @@ pub fn init_udev(
     })?;
     info!("Using {} as primary gpu", primary_gpu);
 
-    #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let gpus = GpuManager::new(GbmGlesBackend::default()).map_err(|e| {
+    let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(
+        egl::context::ContextPriority::High,
+    ))
+    .map_err(|e| {
         error!("Could not initialize GpuManager: {}", e);
         e
     })?;
@@ -823,10 +825,7 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
             match event {
                 DrmEvent::VBlank(crtc) => {
                     #[cfg(feature = "profiling")]
-                    profiling::scope!(
-                        "vblank",
-                        &format!("{:?}:{crtc:?}", node.dev_path().unwrap())
-                    );
+                    profiling::scope!("vblank", &format!("{crtc:?}"),);
                     frame_finish(&mut data.state, node, crtc, metadata);
                 }
                 DrmEvent::Error(error) => {
@@ -1150,10 +1149,7 @@ fn frame_finish(
     metadata: &mut Option<DrmEventMetadata>,
 ) {
     #[cfg(feature = "profiling")]
-    profiling::scope!(
-        "frame_finish",
-        &format!("{:?}:{crtc:?}", dev_id.dev_path().unwrap())
-    );
+    profiling::scope!("frame_finish", &format!("{crtc:?}"));
 
     let udev_data = state.backend_data.udev_mut();
     let device_backend = match udev_data.backends.get_mut(&dev_id) {
@@ -1336,10 +1332,7 @@ fn render(state: &mut ScapeState, node: DrmNode, crtc: Option<crtc::Handle>) {
 
 fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle) {
     #[cfg(feature = "profiling")]
-    profiling::scope!(
-        "render_surface",
-        &format!("{:?}:{crtc:?}", node.dev_path().unwrap())
-    );
+    profiling::scope!("render_surface", &format!("{crtc:?}"));
     let udev_data = state.backend_data.udev_mut();
     let device = if let Some(device) = udev_data.backends.get_mut(&node) {
         device

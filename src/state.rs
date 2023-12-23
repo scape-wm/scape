@@ -70,7 +70,9 @@ use smithay::{
             KeyboardShortcutsInhibitor,
         },
         output::OutputManagerState,
-        pointer_constraints::{with_pointer_constraint, PointerConstraintsHandler},
+        pointer_constraints::{
+            with_pointer_constraint, PointerConstraintsHandler, PointerConstraintsState,
+        },
         pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         primary_selection::{
@@ -83,6 +85,7 @@ use smithay::{
             SecurityContext, SecurityContextHandler, SecurityContextListenerSource,
             SecurityContextState,
         },
+        selection::{data_device::set_data_device_focus, primary_selection::set_primary_focus},
         shell::{
             wlr_layer::WlrLayerShellState,
             xdg::{
@@ -633,6 +636,7 @@ impl ScapeState {
         let virtual_keyboard_manager_state =
             VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
         let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
+        PointerConstraintsState::new::<Self>(&dh);
         let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
         SecurityContextState::new::<Self, _>(&dh, |client| {
             client
