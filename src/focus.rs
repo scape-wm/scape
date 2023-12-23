@@ -84,6 +84,13 @@ impl PointerTarget<ScapeState> for FocusTarget {
             FocusTarget::Popup(p) => PointerTarget::axis(p.wl_surface(), seat, data, frame),
         }
     }
+    fn frame(&self, seat: &Seat<ScapeState>, data: &mut ScapeState) {
+        match self {
+            FocusTarget::Window(w) => PointerTarget::frame(w, seat, data),
+            FocusTarget::LayerSurface(l) => PointerTarget::frame(l, seat, data),
+            FocusTarget::Popup(p) => PointerTarget::frame(p.wl_surface(), seat, data),
+        }
+    }
     fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial, time: u32) {
         match self {
             FocusTarget::Window(w) => PointerTarget::leave(w, seat, data, serial, time),

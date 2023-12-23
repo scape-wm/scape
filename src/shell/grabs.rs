@@ -75,6 +75,10 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
         &self.start_data
     }
 
+    fn frame(&mut self, data: &mut ScapeState, handle: &mut PointerInnerHandle<'_, ScapeState>) {
+        handle.frame(data);
+    }
+
     fn gesture_swipe_begin(
         &mut self,
         data: &mut ScapeState,
@@ -437,6 +441,10 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn start_data(&self) -> &PointerGrabStartData<ScapeState> {
         &self.start_data
+    }
+
+    fn frame(&mut self, data: &mut ScapeState, handle: &mut PointerInnerHandle<'_, ScapeState>) {
+        handle.frame(data);
     }
 
     fn gesture_swipe_begin(

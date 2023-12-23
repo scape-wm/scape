@@ -294,6 +294,15 @@ impl PointerTarget<ScapeState> for WindowElement {
             }
         }
     }
+    fn frame(&self, seat: &Seat<ScapeState>, data: &mut ScapeState) {
+        let state = self.decoration_state();
+        if !state.is_ssd || state.ptr_entered_window {
+            match self {
+                WindowElement::Wayland(w) => PointerTarget::frame(w, seat, data),
+                WindowElement::X11(w) => PointerTarget::frame(w, seat, data),
+            }
+        }
+    }
     fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial, time: u32) {
         let mut state = self.decoration_state();
         if state.is_ssd {

@@ -405,6 +405,7 @@ impl ScapeState {
             }
             let pointer = self.pointer.clone();
             pointer.axis(self, frame);
+            pointer.frame(self);
         }
     }
 }
@@ -532,6 +533,7 @@ impl ScapeState {
                 time: evt.time_msec(),
             },
         );
+        pointer.frame(self);
     }
 }
 
@@ -572,6 +574,7 @@ impl ScapeState {
                                 time: 0,
                             },
                         );
+                        pointer.frame(self);
                     }
                 }
                 KeyAction::ScaleUp => {
@@ -615,6 +618,7 @@ impl ScapeState {
                                 time: 0,
                             },
                         );
+                        pointer.frame(self);
                         self.backend_data.reset_buffers(&output);
                     }
                 }
@@ -659,6 +663,7 @@ impl ScapeState {
                                 time: 0,
                             },
                         );
+                        pointer.frame(self);
                         self.backend_data.reset_buffers(&output);
                     }
                 }
@@ -805,6 +810,7 @@ impl ScapeState {
 
         // If pointer is locked, only emit relative motion
         if pointer_locked {
+            pointer.frame(self);
             return;
         }
 
@@ -822,10 +828,12 @@ impl ScapeState {
                 if new_under.as_ref().and_then(|(under, _)| under.wl_surface())
                     != surface.wl_surface()
                 {
+                    pointer.frame(self);
                     return;
                 }
                 if let Some(region) = confine_region {
                     if !region.contains(pointer_location.to_i32_round() - *surface_loc) {
+                        pointer.frame(self);
                         return;
                     }
                 }
@@ -841,6 +849,7 @@ impl ScapeState {
                 time: evt.time_msec(),
             },
         );
+        pointer.frame(self);
 
         // If pointer is now in a constraint region, activate it
         // TODO Anywhere else pointer is moved needs to do this
@@ -898,6 +907,7 @@ impl ScapeState {
                 time: evt.time_msec(),
             },
         );
+        pointer.frame(self);
     }
 
     fn on_tablet_tool_axis<B: InputBackend>(&mut self, evt: B::TabletToolAxisEvent) {
@@ -955,6 +965,7 @@ impl ScapeState {
                     evt.time_msec(),
                 );
             }
+            pointer.frame(self);
         }
     }
 
@@ -991,6 +1002,7 @@ impl ScapeState {
                     time: 0,
                 },
             );
+            pointer.frame(self);
 
             if let (Some(under), Some(tablet), Some(tool)) = (
                 under.and_then(|(f, loc)| f.wl_surface().map(|s| (s, loc))),
