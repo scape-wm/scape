@@ -1,50 +1,57 @@
-use crate::drawing::*;
-use crate::render::CustomRenderElements;
-use crate::state::{
-    post_repaint, take_presentation_feedback, BackendData, CalloopData, ScapeState,
+use crate::{
+    drawing::*,
+    render::CustomRenderElements,
+    state::{post_repaint, take_presentation_feedback, BackendData, CalloopData, ScapeState},
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
-use calloop::LoopHandle;
-use smithay::backend::input::InputEvent;
-use smithay::backend::renderer::damage::Error as OutputDamageTrackerError;
-use smithay::backend::renderer::element::AsRenderElements;
-#[cfg(feature = "egl")]
-use smithay::backend::renderer::ImportEgl;
-use smithay::backend::renderer::ImportMemWl;
-use smithay::backend::winit::{WinitEvent, WinitEventLoop, WinitInput};
-use smithay::backend::SwapBuffersError;
-use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
-use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
-use smithay::reexports::winit::platform::pump_events::PumpStatus;
-use smithay::utils::{IsAlive, Point, Scale};
-use smithay::wayland::dmabuf::ImportNotifier;
-use smithay::wayland::input_method::InputMethodSeat;
 use smithay::{
-    backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     backend::{
+        allocator::dmabuf::Dmabuf,
         egl::EGLDevice,
+        input::InputEvent,
         renderer::{
-            damage::OutputDamageTracker,
+            damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
             gles::{GlesRenderer, GlesTexture},
+            ImportDma,
         },
         winit::{self, WinitGraphicsBackend},
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::{
         calloop::EventLoop,
-        wayland_server::{protocol::wl_surface, Display},
+        wayland_server::{protocol::wl_surface, DisplayHandle},
     },
     utils::Transform,
-    wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder},
-    wayland::dmabuf::{DmabufGlobal, DmabufState, ImportError},
+    wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
 };
 #[cfg(feature = "debug")]
 use smithay::{
     backend::{allocator::Fourcc, renderer::ImportMem},
     reexports::winit::platform::unix::WindowExtUnix,
 };
-use std::sync::{Arc, Mutex};
+use smithay::{
+    backend::{
+        renderer::ImportMemWl,
+        winit::{WinitEvent, WinitEventLoop, WinitInput},
+    },
+    reexports::{
+        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
+        winit::platform::pump_events::PumpStatus,
+    },
+};
+use smithay::{
+    backend::{
+        renderer::{element::AsRenderElements, ImportEgl},
+        SwapBuffersError,
+    },
+    input::pointer::{CursorImageAttributes, CursorImageStatus},
+};
+use smithay::{
+    utils::{IsAlive, Scale},
+    wayland::dmabuf::ImportNotifier,
+};
+use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -83,7 +90,7 @@ impl WinitData {
         &mut self.dmabuf_state.0
     }
 
-    fn dmabuf_imported(
+    pub fn dmabuf_imported(
         &mut self,
         _global: &DmabufGlobal,
         dmabuf: Dmabuf,
@@ -98,8 +105,8 @@ impl WinitData {
 }
 
 pub fn init_winit(
+    display_handle: DisplayHandle,
     event_loop: &mut EventLoop<CalloopData>,
-    display: Display<ScapeState>,
 ) -> Result<BackendData> {
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
     let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| {
@@ -121,8 +128,7 @@ pub fn init_winit(
             model: "Winit".into(),
         },
     );
-    let dh = display.handle();
-    let _global = output.create_global::<ScapeState>(&dh);
+    let _global = output.create_global::<ScapeState>(&display_handle);
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
@@ -176,22 +182,23 @@ pub fn init_winit(
     // Note: egl on Mesa requires either v4 or wl_drm (initialized with bind_wl_display)
     let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global =
-            dmabuf_state.create_global_with_default_feedback::<ScapeState>(&dh, &default_feedback);
+        let dmabuf_global = dmabuf_state
+            .create_global_with_default_feedback::<ScapeState>(&display_handle, &default_feedback);
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
         let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global = dmabuf_state.create_global::<ScapeState>(&dh, dmabuf_formats);
+        let dmabuf_global =
+            dmabuf_state.create_global::<ScapeState>(&display_handle, dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
     };
 
     #[cfg(feature = "egl")]
-    if backend.renderer().bind_wl_display(&dh).is_ok() {
+    if backend.renderer().bind_wl_display(&display_handle).is_ok() {
         info!("EGL hardware-acceleration enabled");
     };
 
-    let mut pointer_element = PointerElement::<GlesTexture>::default();
+    let pointer_element = PointerElement::<GlesTexture>::default();
 
     let damage_tracker = OutputDamageTracker::from_output(&output);
 
@@ -201,14 +208,16 @@ pub fn init_winit(
             let output = data.state.backend_data.winit().output.clone();
             data.state.space.map_output(&output, (0, 0));
             TimeoutAction::Drop
-        });
+        })
+        .unwrap();
 
     event_loop
         .handle()
         .insert_source(Timer::immediate(), |_, _, data| {
             run_tick(&mut data.state);
             TimeoutAction::ToDuration(Duration::from_millis(16))
-        });
+        })
+        .unwrap();
 
     Ok(BackendData::Winit(WinitData {
         backend,
@@ -270,7 +279,8 @@ fn run_tick(state: &mut ScapeState) {
                         .process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
                 }
                 TimeoutAction::Drop
-            });
+            })
+            .unwrap();
     }
 
     // drawing logic
@@ -304,7 +314,6 @@ fn run_tick(state: &mut ScapeState) {
         let damage_tracker = &mut winit_data.damage_tracker;
         let show_window_preview = state.show_window_preview;
 
-        let input_method = state.seat.input_method();
         let dnd_icon = state.dnd_icon.as_ref();
 
         let scale = Scale::from(output.current_scale().fractional_scale());
@@ -360,22 +369,6 @@ fn run_tick(state: &mut ScapeState) {
                 scale,
                 1.0,
             ));
-
-            // draw input method surface if any
-            let rectangle = input_method.coordinates();
-            let position = Point::from((
-                rectangle.loc.x + rectangle.size.w,
-                rectangle.loc.y + rectangle.size.h,
-            ));
-            input_method.with_surface(|surface| {
-                elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
-                    &smithay::desktop::space::SurfaceTree::from_surface(surface),
-                    renderer,
-                    position.to_physical_precise_round(scale),
-                    scale,
-                    1.0,
-                ));
-            });
 
             // draw the dnd icon if any
             if let Some(surface) = dnd_icon {

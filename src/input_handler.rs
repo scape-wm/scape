@@ -3,25 +3,27 @@ use crate::{
     shell::{FullscreenSurface, WindowElement},
     ScapeState,
 };
+use smithay::backend::input::GesturePinchUpdateEvent;
+use smithay::backend::input::GestureSwipeUpdateEvent;
+use smithay::input::pointer;
 use smithay::{
     backend::{
         input::{
             self, AbsolutePositionEvent, Axis, AxisSource, Device, DeviceCapability, Event,
-            InputBackend, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent,
-            PointerButtonEvent, PointerMotionEvent, ProximityState, TabletToolButtonEvent,
-            TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState,
+            GestureBeginEvent, GestureEndEvent, InputBackend, InputEvent, KeyState,
+            KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+            ProximityState, TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent,
+            TabletToolTipEvent, TabletToolTipState,
         },
         renderer::DebugFlags,
-        session::Session,
     },
     desktop::{layer_map_for_output, WindowSurfaceType},
     input::{
         keyboard::{keysyms as xkb, FilterResult, Keysym, ModifiersState},
         pointer::{
             AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
-            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
-            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
-            RelativeMotionEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GestureSwipeBeginEvent,
+            GestureSwipeEndEvent, MotionEvent, RelativeMotionEvent,
         },
     },
     output::{Output, Scale},
@@ -43,7 +45,7 @@ use smithay::{
         tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
 };
-use std::{convert::TryInto, process::Command, sync::atomic::Ordering};
+use std::{convert::TryInto, process::Command};
 use tracing::{debug, error, info};
 
 impl ScapeState {
@@ -259,11 +261,10 @@ impl ScapeState {
                     .get::<FullscreenSurface>()
                     .and_then(|f| f.get())
                 {
-                    if let Some((_, point)) = window.surface_under(
+                    if let Some((_, _)) = window.surface_under(
                         self.pointer.current_location() - output_geo.loc.to_f64(),
                         WindowSurfaceType::ALL,
                     ) {
-                        input_method.set_point(&point);
                         if let WindowElement::X11(surf) = &window {
                             self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
                         }
@@ -278,13 +279,12 @@ impl ScapeState {
                     .or_else(|| layers.layer_under(WlrLayer::Top, self.pointer.current_location()))
                 {
                     if layer.can_receive_keyboard_focus() {
-                        if let Some((_, point)) = layer.surface_under(
+                        if let Some((_, _)) = layer.surface_under(
                             self.pointer.current_location()
                                 - output_geo.loc.to_f64()
                                 - layers.layer_geometry(layer).unwrap().loc.to_f64(),
                             WindowSurfaceType::ALL,
                         ) {
-                            input_method.set_point(&point);
                             keyboard.set_focus(self, Some(layer.clone().into()), serial);
                             return;
                         }
@@ -292,13 +292,12 @@ impl ScapeState {
                 }
             }
 
-            if let Some((window, point)) = self
+            if let Some((window, _)) = self
                 .space
                 .element_under(self.pointer.current_location())
                 .map(|(w, p)| (w.clone(), p))
             {
                 self.space.raise_element(&window, true);
-                input_method.set_point(&point);
                 keyboard.set_focus(self, Some(window.clone().into()), serial);
                 if let WindowElement::X11(surf) = &window {
                     self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
@@ -316,13 +315,12 @@ impl ScapeState {
                     })
                 {
                     if layer.can_receive_keyboard_focus() {
-                        if let Some((_, point)) = layer.surface_under(
+                        if let Some((_, _)) = layer.surface_under(
                             self.pointer.current_location()
                                 - output_geo.loc.to_f64()
                                 - layers.layer_geometry(layer).unwrap().loc.to_f64(),
                             WindowSurfaceType::ALL,
                         ) {
-                            input_method.set_point(&point);
                             keyboard.set_focus(self, Some(layer.clone().into()), serial);
                         }
                     }
@@ -367,7 +365,7 @@ impl ScapeState {
         under
     }
 
-    fn on_pointer_axis<B: InputBackend>(&mut self, _dh: &DisplayHandle, evt: B::PointerAxisEvent) {
+    fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
         let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
             evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 3.0 / 120.
         });
@@ -510,7 +508,7 @@ impl ScapeState {
                 self.on_pointer_move_absolute_windowed::<B>(dh, event, &output)
             }
             InputEvent::PointerButton { event } => self.on_pointer_button::<B>(event),
-            InputEvent::PointerAxis { event } => self.on_pointer_axis::<B>(dh, event),
+            InputEvent::PointerAxis { event } => self.on_pointer_axis::<B>(event),
             _ => (), // other events are not handled in anvil (yet)
         }
     }
@@ -542,11 +540,7 @@ impl ScapeState {
 }
 
 impl ScapeState {
-    pub fn process_input_event<B: InputBackend>(
-        &mut self,
-        dh: &DisplayHandle,
-        event: InputEvent<B>,
-    ) {
+    pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
                 #[cfg(feature = "udev")]
@@ -712,15 +706,15 @@ impl ScapeState {
                     _ => unreachable!(),
                 },
             },
-            InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(dh, event),
+            InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(event),
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                self.on_pointer_move_absolute::<B>(dh, event)
+                self.on_pointer_move_absolute::<B>(event)
             }
             InputEvent::PointerButton { event, .. } => self.on_pointer_button::<B>(event),
-            InputEvent::PointerAxis { event, .. } => self.on_pointer_axis::<B>(dh, event),
+            InputEvent::PointerAxis { event, .. } => self.on_pointer_axis::<B>(event),
             InputEvent::TabletToolAxis { event, .. } => self.on_tablet_tool_axis::<B>(event),
             InputEvent::TabletToolProximity { event, .. } => {
-                self.on_tablet_tool_proximity::<B>(dh, event)
+                self.on_tablet_tool_proximity::<B>(event)
             }
             InputEvent::TabletToolTip { event, .. } => self.on_tablet_tool_tip::<B>(event),
             InputEvent::TabletToolButton { event, .. } => self.on_tablet_button::<B>(event),
@@ -740,7 +734,7 @@ impl ScapeState {
                 if device.has_capability(DeviceCapability::TabletTool) {
                     self.seat
                         .tablet_seat()
-                        .add_tablet::<Self>(dh, &TabletDescriptor::from(&device));
+                        .add_tablet::<Self>(&self.display_handle, &TabletDescriptor::from(&device));
                 }
             }
             InputEvent::DeviceRemoved { device } => {
@@ -761,11 +755,7 @@ impl ScapeState {
         }
     }
 
-    fn on_pointer_move<B: InputBackend>(
-        &mut self,
-        _dh: &DisplayHandle,
-        evt: B::PointerMotionEvent,
-    ) {
+    fn on_pointer_move<B: InputBackend>(&mut self, evt: B::PointerMotionEvent) {
         let mut pointer_location = self.pointer.current_location();
 
         let serial = SCOUNTER.next_serial();
@@ -875,11 +865,7 @@ impl ScapeState {
         }
     }
 
-    fn on_pointer_move_absolute<B: InputBackend>(
-        &mut self,
-        _dh: &DisplayHandle,
-        evt: B::PointerMotionAbsoluteEvent,
-    ) {
+    fn on_pointer_move_absolute<B: InputBackend>(&mut self, evt: B::PointerMotionAbsoluteEvent) {
         let serial = SCOUNTER.next_serial();
 
         let max_x = self.space.outputs().fold(0, |acc, o| {
@@ -973,11 +959,7 @@ impl ScapeState {
         }
     }
 
-    fn on_tablet_tool_proximity<B: InputBackend>(
-        &mut self,
-        dh: &DisplayHandle,
-        evt: B::TabletToolProximityEvent,
-    ) {
+    fn on_tablet_tool_proximity<B: InputBackend>(&mut self, evt: B::TabletToolProximityEvent) {
         let tablet_seat = self.seat.tablet_seat();
 
         let output_geometry = self
@@ -988,7 +970,7 @@ impl ScapeState {
 
         if let Some(rect) = output_geometry {
             let tool = evt.tool();
-            tablet_seat.add_tool::<Self>(dh, &tool);
+            tablet_seat.add_tool::<Self>(&self.display_handle, &tool);
 
             let pointer_location = evt.position_transformed(rect.size) + rect.loc.to_f64();
 
@@ -1076,7 +1058,7 @@ impl ScapeState {
         let pointer = self.pointer.clone();
         pointer.gesture_swipe_update(
             self,
-            &GestureSwipeUpdateEvent {
+            &pointer::GestureSwipeUpdateEvent {
                 time: evt.time_msec(),
                 delta: evt.delta(),
             },
@@ -1113,7 +1095,7 @@ impl ScapeState {
         let pointer = self.pointer.clone();
         pointer.gesture_pinch_update(
             self,
-            &GesturePinchUpdateEvent {
+            &pointer::GesturePinchUpdateEvent {
                 time: evt.time_msec(),
                 delta: evt.delta(),
                 scale: evt.scale(),
@@ -1211,8 +1193,8 @@ enum KeyAction {
 }
 
 fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Option<KeyAction> {
-    if modifiers.ctrl && modifiers.alt && keysym == xkb::KEY_BackSpace
-        || modifiers.logo && keysym == xkb::KEY_q
+    if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
+        || modifiers.logo && keysym == Keysym::Q
     {
         // ctrl+alt+backspace = quit
         // logo + q = quit
@@ -1225,8 +1207,8 @@ fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Optio
     } else if modifiers.logo && keysym == Keysym::Return {
         // run terminal
         Some(KeyAction::Run("wezterm".into()))
-    } else if modifiers.logo && (xkb::KEY_1..=xkb::KEY_9).contains(&keysym) {
-        Some(KeyAction::Screen((keysym - xkb::KEY_1) as usize))
+    } else if modifiers.logo && (xkb::KEY_1..=xkb::KEY_9).contains(&keysym.raw()) {
+        Some(KeyAction::Screen((keysym.raw() - xkb::KEY_1) as usize))
     } else if modifiers.logo && modifiers.shift && keysym == Keysym::M {
         Some(KeyAction::ScaleDown)
     } else if modifiers.logo && modifiers.shift && keysym == Keysym::P {

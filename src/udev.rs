@@ -53,7 +53,6 @@ use smithay::{
         vulkan::{version::Version, Instance, PhysicalDevice},
         SwapBuffersError,
     },
-    delegate_dmabuf,
     desktop::{
         space::{Space, SurfaceTree},
         utils::OutputPresentationFeedback,
@@ -66,20 +65,19 @@ use smithay::{
             timer::{TimeoutAction, Timer},
             EventLoop, LoopHandle, RegistrationToken,
         },
-        drm::{self, control::crtc, Device as _},
+        drm::{control::crtc, Device as _},
         input::Libinput,
         rustix::fs::OFlags,
         wayland_protocols::wp::{
             linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1,
             presentation_time::server::wp_presentation_feedback,
         },
-        wayland_server::{backend::GlobalId, protocol::wl_surface, Display, DisplayHandle},
+        wayland_server::{backend::GlobalId, protocol::wl_surface, DisplayHandle},
     },
     utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Scale, Transform},
     wayland::{
         compositor,
-        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState},
-        input_method::{InputMethodHandle, InputMethodSeat},
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
     },
 };
 use smithay_drm_extras::{
@@ -90,11 +88,9 @@ use std::time::Instant;
 use std::{
     collections::{hash_map::HashMap, HashSet},
     convert::TryInto,
-    ffi::OsString,
     io,
-    os::unix::io::FromRawFd,
     path::Path,
-    sync::{atomic::Ordering, Mutex},
+    sync::Mutex,
     time::Duration,
 };
 use tracing::{error, info, trace, warn};
@@ -172,10 +168,6 @@ impl UdevData {
 }
 
 impl UdevData {
-    fn has_relative_motion(&self) -> bool {
-        true
-    }
-
     pub fn seat_name(&self) -> String {
         self.session.seat()
     }
@@ -203,7 +195,7 @@ impl UdevData {
         &mut self.dmabuf_state.as_mut().unwrap().0
     }
 
-    fn dmabuf_imported(
+    pub fn dmabuf_imported(
         &mut self,
         _global: &DmabufGlobal,
         dmabuf: Dmabuf,
@@ -287,10 +279,7 @@ fn select_allocator(
     })
 }
 
-pub fn init_udev(
-    event_loop: &mut EventLoop<CalloopData>,
-    display: Display<ScapeState>,
-) -> Result<BackendData> {
+pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
         e
@@ -337,14 +326,14 @@ pub fn init_udev(
                 .udev_assign_seat(&data.state.seat_name)
                 .unwrap();
             TimeoutAction::Drop
-        });
+        })
+        .unwrap();
 
     let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
     event_loop
         .handle()
         .insert_source(libinput_backend, move |event, _, data| {
-            data.state
-                .process_input_event(&data.state.display_handle, event)
+            data.state.process_input_event(event)
         })
         .unwrap();
     event_loop
@@ -418,7 +407,8 @@ pub fn init_udev(
                     error!("Skipping device {device_id}: {err}");
                 }
                 TimeoutAction::Drop
-            });
+            })
+            .unwrap();
     }
     event_loop
         .handle()
@@ -526,7 +516,8 @@ pub fn init_udev(
             });
 
             TimeoutAction::Drop
-        });
+        })
+        .unwrap();
 
     Ok(BackendData::Udev(udev_data))
 }
@@ -534,6 +525,7 @@ pub fn init_udev(
 impl DrmLeaseHandler for ScapeState {
     fn drm_lease_state(&mut self, node: DrmNode) -> &mut DrmLeaseState {
         self.backend_data
+            .udev_mut()
             .backends
             .get_mut(&node)
             .unwrap()
@@ -549,6 +541,7 @@ impl DrmLeaseHandler for ScapeState {
     ) -> Result<DrmLeaseBuilder, LeaseRejected> {
         let backend = self
             .backend_data
+            .udev_mut()
             .backends
             .get(&node)
             .ok_or(LeaseRejected::default())?;
@@ -583,12 +576,22 @@ impl DrmLeaseHandler for ScapeState {
     }
 
     fn new_active_lease(&mut self, node: DrmNode, lease: DrmLease) {
-        let backend = self.backend_data.backends.get_mut(&node).unwrap();
+        let backend = self
+            .backend_data
+            .udev_mut()
+            .backends
+            .get_mut(&node)
+            .unwrap();
         backend.active_leases.push(lease);
     }
 
     fn lease_destroyed(&mut self, node: DrmNode, lease: u32) {
-        let backend = self.backend_data.backends.get_mut(&node).unwrap();
+        let backend = self
+            .backend_data
+            .udev_mut()
+            .backends
+            .get_mut(&node)
+            .unwrap();
         backend.active_leases.retain(|l| l.id() != lease);
     }
 }
@@ -817,8 +820,6 @@ enum DeviceAddError {
     DrmNode(CreateDrmNodeError),
     #[error("Failed to add device to GpuManager: {0}")]
     AddNode(egl::Error),
-    #[error("Did not receive udev context")]
-    NotUdev,
 }
 
 fn get_surface_dmabuf_feedback(
@@ -901,12 +902,9 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
 
     let registration_token = state
         .loop_handle
-        .insert_source(notifier, move |event, metadata, data: &mut CalloopData| {
-            let BackendData::Udev(udev_data) = &mut data.state.backend_data else {
-                error!("Received non udev backend data");
-                return;
-            };
-            match event {
+        .insert_source(
+            notifier,
+            move |event, metadata, data: &mut CalloopData| match event {
                 DrmEvent::VBlank(crtc) => {
                     #[cfg(feature = "profiling")]
                     profiling::scope!("vblank", &format!("{crtc:?}"),);
@@ -915,8 +913,8 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
                 DrmEvent::Error(error) => {
                     error!("{:?}", error);
                 }
-            }
-        })
+            },
+        )
         .unwrap();
 
     let render_node = EGLDevice::device_for_display(&EGLDisplay::new(gbm.clone()).unwrap())
@@ -1093,7 +1091,7 @@ fn connector_connected(
             SurfaceComposition::Surface {
                 surface: gbm_surface,
                 damage_tracker: OutputDamageTracker::from_output(&output),
-                debug_flags: state.backend_data.debug_flags,
+                debug_flags: udev_data.debug_flags,
             }
         } else {
             let driver = match device.drm.get_driver() {
@@ -1138,14 +1136,14 @@ fn connector_connected(
                     return;
                 }
             };
-            compositor.set_debug_flags(state.backend_data.debug_flags);
+            compositor.set_debug_flags(udev_data.debug_flags);
             SurfaceComposition::Compositor(compositor)
         };
 
         let dmabuf_feedback = get_surface_dmabuf_feedback(
-            state.backend_data.primary_gpu,
+            udev_data.primary_gpu,
             device.render_node,
-            &mut state.backend_data.gpus,
+            &mut udev_data.gpus,
             &compositor,
         );
 
@@ -1555,7 +1553,6 @@ fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle
         &mut renderer,
         &state.space,
         &output,
-        state.seat.input_method(),
         state.pointer.current_location(),
         &pointer_image,
         &mut udev_data.pointer_element,
@@ -1601,10 +1598,6 @@ fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle
         state
             .loop_handle
             .insert_source(timer, move |_, _, data| {
-                let BackendData::Udev(udev_data) = &mut data.state.backend_data else {
-                    error!("Received non udev backend data");
-                    return TimeoutAction::Drop;
-                };
                 render(&mut data.state, node, Some(crtc));
                 TimeoutAction::Drop
             })
@@ -1669,7 +1662,6 @@ fn render_surface<'a, 'b>(
     renderer: &mut UdevRenderer<'a, 'b>,
     space: &Space<WindowElement>,
     output: &Output,
-    input_method: &InputMethodHandle,
     pointer_location: Point<f64, Logical>,
     pointer_image: &TextureBuffer<MultiTexture>,
     pointer_element: &mut PointerElement<MultiTexture>,
@@ -1682,21 +1674,6 @@ fn render_surface<'a, 'b>(
     let scale = Scale::from(output.current_scale().fractional_scale());
 
     let mut custom_elements: Vec<CustomRenderElements<_>> = Vec::new();
-    // draw input method surface if any
-    let rectangle = input_method.coordinates();
-    let position = Point::from((
-        rectangle.loc.x + rectangle.size.w,
-        rectangle.loc.y + rectangle.size.h,
-    ));
-    input_method.with_surface(|surface| {
-        custom_elements.extend(AsRenderElements::<UdevRenderer<'a, 'b>>::render_elements(
-            &SurfaceTree::from_surface(surface),
-            renderer,
-            position.to_physical_precise_round(scale),
-            scale,
-            1.0,
-        ));
-    });
 
     if output_geometry.to_f64().contains(pointer_location) {
         let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = cursor_status {

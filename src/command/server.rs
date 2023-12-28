@@ -5,9 +5,9 @@ use super::SOCKET_PATH;
 
 pub fn run() {
     let server = UnixListener::bind(SOCKET_PATH).unwrap();
-    let stream = UnixListenerStream::new(server);
+    let _stream = UnixListenerStream::new(server);
 
-    let runtime = Builder::new_multi_thread()
+    let _runtime = Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("scape-command-server-worker")
         .build()

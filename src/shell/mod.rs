@@ -124,9 +124,10 @@ impl CompositorHandler for ScapeState {
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
                     let client = surface.client().unwrap();
                     let res = state.loop_handle.insert_source(source, move |_, _, data| {
+                        let dh = data.state.display_handle.clone();
                         data.state
                             .client_compositor_state(&client)
-                            .blocker_cleared(&mut data.state, &data.state.display_handle);
+                            .blocker_cleared(&mut data.state, &dh);
                         Ok(())
                     });
                     if res.is_ok() {
@@ -267,7 +268,7 @@ fn ensure_initial_configure(
             PopupKind::Xdg(ref popup) => popup,
             // Doesn't require configure
             PopupKind::InputMethod(ref input_popup) => {
-                info!("PopupKind input method received {input_popup}");
+                info!("PopupKind input method received {:?}", input_popup);
                 return;
             }
         };

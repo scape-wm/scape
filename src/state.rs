@@ -5,6 +5,8 @@ use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
 use smithay::delegate_data_control;
 use smithay::desktop::space::SpaceElement;
+use smithay::input::keyboard::Keysym;
+use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState,
@@ -46,12 +48,9 @@ use smithay::{
     output::Output,
     reexports::{
         calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction},
-        wayland_protocols::{
-            wp::primary_selection::zv1::server::zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1,
-            xdg::decoration::{
-                self as xdg_decoration,
-                zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
-            },
+        wayland_protocols::xdg::decoration::{
+            self as xdg_decoration,
+            zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
         },
         wayland_server::{
             backend::{ClientData, ClientId, DisconnectReason},
@@ -87,8 +86,8 @@ use smithay::{
             SecurityContextState,
         },
         selection::data_device::{
-            set_data_device_focus, with_source_metadata as with_data_device_source_metadata,
-            ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+            set_data_device_focus, ClientDndGrabHandler, DataDeviceHandler, DataDeviceState,
+            ServerDndGrabHandler,
         },
         shell::{
             wlr_layer::WlrLayerShellState,
@@ -111,7 +110,7 @@ use smithay::{
     xwayland::{X11Wm, XWayland, XWaylandEvent},
 };
 use std::{
-    os::unix::io::{AsRawFd, OwnedFd},
+    os::unix::io::OwnedFd,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -167,7 +166,7 @@ pub struct ScapeState {
     pub dnd_icon: Option<WlSurface>,
 
     // input-related fields
-    pub suppressed_keys: Vec<u32>,
+    pub suppressed_keys: Vec<Keysym>,
     pub cursor_status: Arc<Mutex<CursorImageStatus>>,
     pub seat_name: String,
     pub seat: Seat<ScapeState>,
@@ -215,6 +214,8 @@ delegate_data_device!(ScapeState);
 delegate_output!(ScapeState);
 
 impl SelectionHandler for ScapeState {
+    type SelectionUserData = ();
+
     fn new_selection(
         &mut self,
         ty: SelectionTarget,
@@ -513,8 +514,8 @@ impl SecurityContextHandler for ScapeState {
                     ..ClientState::default()
                 };
                 if let Err(err) = data
-                    .display
-                    .handle()
+                    .state
+                    .display_handle
                     .insert_client(client_stream, Arc::new(client_state))
                 {
                     warn!("Error adding wayland client: {}", err);
@@ -538,7 +539,7 @@ delegate_xwayland_keyboard_grab!(ScapeState);
 
 impl ScapeState {
     pub fn init(
-        display: &mut Display<ScapeState>,
+        display: Display<ScapeState>,
         backend_data: BackendData,
         event_loop: &mut EventLoop<'static, CalloopData>,
     ) -> anyhow::Result<ScapeState> {
@@ -563,20 +564,25 @@ impl ScapeState {
         info!(socket_name, "Listening on wayland socket");
         ::std::env::set_var("WAYLAND_DISPLAY", &socket_name);
 
+        let dh = display.handle();
+
         loop_handle
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
                 |_, display, data| {
                     #[cfg(feature = "profiling")]
                     profiling::scope!("dispatch_clients");
-                    display.dispatch_clients(&mut data.state).unwrap();
+
+                    // Safety: the display is not dropped
+                    unsafe {
+                        display.get_mut().dispatch_clients(&mut data.state).unwrap();
+                    }
                     Ok(PostAction::Continue)
                 },
             )
             .expect("Failed to init wayland server source");
 
         // init globals
-        let dh = display.handle();
         let compositor_state = CompositorState::new::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
@@ -592,17 +598,17 @@ impl ScapeState {
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
         let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self>(&dh);
-        let text_input_manager_state = TextInputManagerState::new::<Self>(&dh);
-        let input_method_manager_state = InputMethodManagerState::new::<Self, _>(&dh, |_client| {
+        let _text_input_manager_state = TextInputManagerState::new::<Self>(&dh);
+        let _input_method_manager_state = InputMethodManagerState::new::<Self, _>(&dh, |_client| {
             // TODO: implement filtering based on the client
             true
         });
-        let virtual_keyboard_manager_state =
+        let _virtual_keyboard_manager_state =
             VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
-        let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
+        let _relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
         PointerConstraintsState::new::<Self>(&dh);
-        let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
-        let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
+        let _pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
+        let _tablet_manager_state = TabletManagerState::new::<Self>(&dh);
         SecurityContextState::new::<Self, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()
@@ -648,9 +654,13 @@ impl ScapeState {
                     client_fd: _,
                     display,
                 } => {
-                    let mut wm =
-                        X11Wm::start_wm(data.state.loop_handle.clone(), dh, connection, client)
-                            .expect("Failed to attach X11 Window Manager");
+                    let mut wm = X11Wm::start_wm(
+                        data.state.loop_handle.clone(),
+                        data.state.display_handle.clone(),
+                        connection,
+                        client,
+                    )
+                    .expect("Failed to attach X11 Window Manager");
                     let cursor = Cursor::load();
                     let image = cursor.get_image(1, Duration::ZERO);
                     wm.set_cursor(
@@ -678,7 +688,7 @@ impl ScapeState {
         let loop_signal = event_loop.get_signal();
 
         Ok(ScapeState {
-            display_handle: display.handle(),
+            display_handle: dh,
             loop_handle,
             loop_signal,
             backend_data,
@@ -903,12 +913,17 @@ impl BackendData {
 
     pub fn dmabuf_imported(
         &mut self,
-        _global: &DmabufGlobal,
+        global: &DmabufGlobal,
         dmabuf: Dmabuf,
-    ) -> Result<(), ImportError> {
+        notifier: ImportNotifier,
+    ) {
         match self {
-            BackendData::Udev(ref mut udev_data) => udev_data.dmabuf_imported(&dmabuf),
-            BackendData::Winit(ref mut winit_data) => winit_data.dmabuf_imported(&dmabuf),
+            BackendData::Udev(ref mut udev_data) => {
+                udev_data.dmabuf_imported(global, dmabuf, notifier)
+            }
+            BackendData::Winit(ref mut winit_data) => {
+                winit_data.dmabuf_imported(global, dmabuf, notifier)
+            }
         }
     }
 
@@ -941,12 +956,8 @@ impl DmabufHandler for ScapeState {
         self.backend_data.dmabuf_state()
     }
 
-    fn dmabuf_imported(
-        &mut self,
-        global: &DmabufGlobal,
-        dmabuf: Dmabuf,
-    ) -> Result<(), ImportError> {
-        self.backend_data.dmabuf_imported(global, dmabuf)
+    fn dmabuf_imported(&mut self, global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+        self.backend_data.dmabuf_imported(global, dmabuf, notifier)
     }
 }
 

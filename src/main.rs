@@ -34,11 +34,11 @@ fn setup_logging() {
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     setup_logging();
     #[cfg(feature = "profiling")]
     setup_profiling();
 
     let args = get_global_args();
-    compositor::run(&args);
+    compositor::run(&args)
 }
