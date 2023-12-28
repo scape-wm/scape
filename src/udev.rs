@@ -67,7 +67,7 @@ use smithay::{
         },
         drm::{self, control::crtc, Device as _},
         input::Libinput,
-        nix::fcntl::OFlag,
+        rustix::fs::OFlags,
         wayland_protocols::wp::{
             linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1,
             presentation_time::server::wp_presentation_feedback,
@@ -77,10 +77,7 @@ use smithay::{
     utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Scale, Transform},
     wayland::{
         compositor,
-        dmabuf::{
-            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
-            ImportError,
-        },
+        dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState},
         input_method::{InputMethodHandle, InputMethodSeat},
     },
 };
@@ -881,11 +878,11 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
         .session
         .open(
             path,
-            OFlag::O_RDWR | OFlag::O_CLOEXEC | OFlag::O_NOCTTY | OFlag::O_NONBLOCK,
+            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
         )
         .map_err(DeviceAddError::DeviceOpen)?;
 
-    let fd = DrmDeviceFd::new(unsafe { DeviceFd::from_raw_fd(fd) });
+    let fd = DrmDeviceFd::new(DeviceFd::from(fd));
 
     let (drm, notifier) = DrmDevice::new(fd.clone(), true).map_err(DeviceAddError::DrmDevice)?;
     let gbm = GbmDevice::new(fd).map_err(DeviceAddError::GbmDevice)?;
