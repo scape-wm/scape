@@ -216,13 +216,12 @@ impl ScapeState {
     fn on_pointer_button<B: InputBackend>(&mut self, evt: B::PointerButtonEvent) {
         let serial = SCOUNTER.next_serial();
         let button = evt.button_code();
-
         let state = wl_pointer::ButtonState::from(evt.state());
-
         if wl_pointer::ButtonState::Pressed == state {
             self.update_keyboard_focus(serial);
         };
-        self.seat.get_pointer().unwrap().button(
+        let pointer = self.pointer.clone();
+        pointer.button(
             self,
             &ButtonEvent {
                 button,
@@ -231,6 +230,7 @@ impl ScapeState {
                 time: evt.time_msec(),
             },
         );
+        pointer.frame(self);
     }
 
     fn update_keyboard_focus(&mut self, serial: Serial) {
