@@ -47,6 +47,9 @@
           mesa
           llvmPackages.bintools
           libgcc
+          glib # needed for puffin
+          gtk3 # needed for puffin
+          tracy # for profiling with tracy
         ];
         runtimeDependencies = with pkgs; [
           libglvnd

@@ -5,6 +5,8 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
+#[cfg(feature = "debug")]
+use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -21,14 +23,10 @@ use smithay::{
     reexports::{
         calloop::EventLoop,
         wayland_server::{protocol::wl_surface, DisplayHandle},
+        winit::raw_window_handle::{HasWindowHandle, RawWindowHandle},
     },
     utils::Transform,
     wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
-};
-#[cfg(feature = "debug")]
-use smithay::{
-    backend::{allocator::Fourcc, renderer::ImportMem},
-    reexports::winit::platform::unix::WindowExtUnix,
 };
 use smithay::{
     backend::{
@@ -69,6 +67,8 @@ pub struct WinitData {
     output: Output,
     #[cfg(feature = "debug")]
     pub fps: fps_ticker::Fps,
+    #[cfg(feature = "debug")]
+    fps_texture: GlesTexture,
 }
 
 impl WinitData {
@@ -154,8 +154,6 @@ pub fn init_winit(
             false,
         )
         .expect("Unable to upload FPS texture");
-    #[cfg(feature = "debug")]
-    let mut fps_element = FpsElement::new(fps_texture);
 
     let render_node = EGLDevice::device_for_display(backend.renderer().egl_context().display())
         .and_then(|device| device.try_get_render_node());
@@ -229,6 +227,8 @@ pub fn init_winit(
         output,
         #[cfg(feature = "debug")]
         fps: fps_ticker::Fps::default(),
+        #[cfg(feature = "debug")]
+        fps_texture,
     }))
 }
 
@@ -302,9 +302,12 @@ fn run_tick(state: &mut State) {
         winit_data.pointer_element.set_status(cursor_guard.clone());
 
         #[cfg(feature = "debug")]
-        let fps = state.backend_data.fps.avg().round() as u32;
+        let mut fps_element = FpsElement::new(winit_data.fps_texture.clone());
         #[cfg(feature = "debug")]
-        fps_element.update_fps(fps);
+        {
+            let fps = winit_data.fps.avg().round() as u32;
+            fps_element.update_fps(fps);
+        }
 
         let full_redraw = &mut winit_data.full_redraw;
         *full_redraw = full_redraw.saturating_sub(1);
@@ -479,5 +482,8 @@ fn run_tick(state: &mut State) {
     }
 
     #[cfg(feature = "debug")]
-    self.fps.tick();
+    winit_data.fps.tick();
+
+    #[cfg(feature = "profiling")]
+    profiling::finish_frame!();
 }

@@ -905,7 +905,7 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> Result<(), Dev
         .insert_source(notifier, move |event, metadata, state| match event {
             DrmEvent::VBlank(crtc) => {
                 #[cfg(feature = "profiling")]
-                profiling::scope!("vblank", &format!("{crtc:?}"),);
+                profiling::scope!("vblank", &format!("{crtc:?}"));
                 frame_finish(state, node, crtc, metadata);
             }
             DrmEvent::Error(error) => {
@@ -1063,7 +1063,7 @@ fn connector_connected(
         });
 
         #[cfg(feature = "debug")]
-        let fps_element = self.backend_data.fps_texture.clone().map(FpsElement::new);
+        let fps_element = udev_data.fps_texture.clone().map(FpsElement::new);
 
         let allocator = GbmAllocator::new(
             device.gbm.clone(),
