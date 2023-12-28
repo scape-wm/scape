@@ -1,4 +1,4 @@
-use crate::{args::GlobalArgs, state::BackendData, CalloopData, ScapeState};
+use crate::{args::GlobalArgs, state::BackendData, State};
 use calloop::{EventLoop, LoopHandle};
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use std::{ffi::OsString, time::Duration};
@@ -8,13 +8,13 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let mut event_loop = create_event_loop()?;
     let backend_data = create_backend_data(args, &mut event_loop, display.handle())?;
 
-    let mut state = ScapeState::init(display, backend_data, &mut event_loop)?;
+    let mut state = State::init(display, backend_data, &mut event_loop)?;
 
     start_xwayland(&mut state, event_loop.handle());
     run_loop(state, &mut event_loop)
 }
 
-fn create_display() -> anyhow::Result<Display<ScapeState>> {
+fn create_display() -> anyhow::Result<Display<State>> {
     tracing::info!("Creating new display");
     let display = Display::new().map_err(|e| {
         tracing::error!(
@@ -27,7 +27,7 @@ fn create_display() -> anyhow::Result<Display<ScapeState>> {
     Ok(display)
 }
 
-fn create_event_loop() -> anyhow::Result<EventLoop<'static, CalloopData>> {
+fn create_event_loop() -> anyhow::Result<EventLoop<'static, State>> {
     tracing::info!("Creating new event loop");
     let event_loop = EventLoop::try_new().map_err(|e| {
         tracing::error!("Unable to create event loop: {}", e);
@@ -39,7 +39,7 @@ fn create_event_loop() -> anyhow::Result<EventLoop<'static, CalloopData>> {
 
 fn create_backend_data(
     args: &GlobalArgs,
-    event_loop: &mut EventLoop<CalloopData>,
+    event_loop: &mut EventLoop<State>,
     display_handle: DisplayHandle,
 ) -> anyhow::Result<BackendData> {
     if args.winit_backend {
@@ -51,7 +51,7 @@ fn create_backend_data(
     }
 }
 
-fn start_xwayland(state: &ScapeState, loop_handle: LoopHandle<CalloopData>) {
+fn start_xwayland(state: &State, loop_handle: LoopHandle<State>) {
     if let Err(e) = state.xwayland.start(
         loop_handle.clone(),
         None,
@@ -63,18 +63,13 @@ fn start_xwayland(state: &ScapeState, loop_handle: LoopHandle<CalloopData>) {
     }
 }
 
-fn run_loop(state: ScapeState, event_loop: &mut EventLoop<CalloopData>) -> anyhow::Result<()> {
-    let mut calloop_data = CalloopData { state };
+fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Result<()> {
     tracing::info!("Starting main loop");
-    event_loop.run(
-        Some(Duration::from_millis(100)),
-        &mut calloop_data,
-        |data| {
-            data.state.space.refresh();
-            data.state.popups.cleanup();
-            data.state.display_handle.flush_clients().unwrap();
-        },
-    )?;
+    event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
+        state.space.refresh();
+        state.popups.cleanup();
+        state.display_handle.flush_clients().unwrap();
+    })?;
 
     Ok(())
 }

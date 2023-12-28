@@ -1,5 +1,5 @@
 use super::{SurfaceData, WindowElement};
-use crate::{focus::FocusTarget, state::ScapeState};
+use crate::{focus::FocusTarget, state::State};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::{
@@ -16,16 +16,16 @@ use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
 use std::cell::RefCell;
 
 pub struct MoveSurfaceGrab {
-    pub start_data: PointerGrabStartData<ScapeState>,
+    pub start_data: PointerGrabStartData<State>,
     pub window: WindowElement,
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl PointerGrab<ScapeState> for MoveSurfaceGrab {
+impl PointerGrab<State> for MoveSurfaceGrab {
     fn motion(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         _focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &MotionEvent,
     ) {
@@ -41,8 +41,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn relative_motion(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
@@ -51,8 +51,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn button(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &ButtonEvent,
     ) {
         handle.button(data, event);
@@ -64,25 +64,25 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn axis(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         details: AxisFrame,
     ) {
         handle.axis(data, details)
     }
 
-    fn start_data(&self) -> &PointerGrabStartData<ScapeState> {
+    fn start_data(&self) -> &PointerGrabStartData<State> {
         &self.start_data
     }
 
-    fn frame(&mut self, data: &mut ScapeState, handle: &mut PointerInnerHandle<'_, ScapeState>) {
+    fn frame(&mut self, data: &mut State, handle: &mut PointerInnerHandle<'_, State>) {
         handle.frame(data);
     }
 
     fn gesture_swipe_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeBeginEvent,
     ) {
         handle.gesture_swipe_begin(data, event);
@@ -90,8 +90,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_swipe_update(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeUpdateEvent,
     ) {
         handle.gesture_swipe_update(data, event);
@@ -99,8 +99,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_swipe_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeEndEvent,
     ) {
         handle.gesture_swipe_end(data, event);
@@ -108,8 +108,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_pinch_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchBeginEvent,
     ) {
         handle.gesture_pinch_begin(data, event);
@@ -117,8 +117,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_pinch_update(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchUpdateEvent,
     ) {
         handle.gesture_pinch_update(data, event);
@@ -126,8 +126,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_pinch_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchEndEvent,
     ) {
         handle.gesture_pinch_end(data, event);
@@ -135,8 +135,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_hold_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureHoldBeginEvent,
     ) {
         handle.gesture_hold_begin(data, event);
@@ -144,8 +144,8 @@ impl PointerGrab<ScapeState> for MoveSurfaceGrab {
 
     fn gesture_hold_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureHoldEndEvent,
     ) {
         handle.gesture_hold_end(data, event);
@@ -227,7 +227,7 @@ impl Default for ResizeState {
 }
 
 pub struct ResizeSurfaceGrab {
-    pub start_data: PointerGrabStartData<ScapeState>,
+    pub start_data: PointerGrabStartData<State>,
     pub window: WindowElement,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
@@ -235,11 +235,11 @@ pub struct ResizeSurfaceGrab {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
+impl PointerGrab<State> for ResizeSurfaceGrab {
     fn motion(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         _focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &MotionEvent,
     ) {
@@ -325,8 +325,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn relative_motion(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         focus: Option<(FocusTarget, Point<i32, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
@@ -335,8 +335,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn button(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &ButtonEvent,
     ) {
         handle.button(data, event);
@@ -432,25 +432,25 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn axis(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         details: AxisFrame,
     ) {
         handle.axis(data, details)
     }
 
-    fn start_data(&self) -> &PointerGrabStartData<ScapeState> {
+    fn start_data(&self) -> &PointerGrabStartData<State> {
         &self.start_data
     }
 
-    fn frame(&mut self, data: &mut ScapeState, handle: &mut PointerInnerHandle<'_, ScapeState>) {
+    fn frame(&mut self, data: &mut State, handle: &mut PointerInnerHandle<'_, State>) {
         handle.frame(data);
     }
 
     fn gesture_swipe_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeBeginEvent,
     ) {
         handle.gesture_swipe_begin(data, event);
@@ -458,8 +458,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_swipe_update(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeUpdateEvent,
     ) {
         handle.gesture_swipe_update(data, event);
@@ -467,8 +467,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_swipe_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureSwipeEndEvent,
     ) {
         handle.gesture_swipe_end(data, event);
@@ -476,8 +476,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_pinch_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchBeginEvent,
     ) {
         handle.gesture_pinch_begin(data, event);
@@ -485,8 +485,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_pinch_update(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchUpdateEvent,
     ) {
         handle.gesture_pinch_update(data, event);
@@ -494,8 +494,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_pinch_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GesturePinchEndEvent,
     ) {
         handle.gesture_pinch_end(data, event);
@@ -503,8 +503,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_hold_begin(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureHoldBeginEvent,
     ) {
         handle.gesture_hold_begin(data, event);
@@ -512,8 +512,8 @@ impl PointerGrab<ScapeState> for ResizeSurfaceGrab {
 
     fn gesture_hold_end(
         &mut self,
-        data: &mut ScapeState,
-        handle: &mut PointerInnerHandle<'_, ScapeState>,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
         event: &GestureHoldEndEvent,
     ) {
         handle.gesture_hold_end(data, event);

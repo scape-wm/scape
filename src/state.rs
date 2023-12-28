@@ -116,10 +116,6 @@ use std::{
 };
 use tracing::{info, warn};
 
-pub struct CalloopData {
-    pub state: ScapeState,
-}
-
 #[derive(Debug, Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
@@ -134,10 +130,10 @@ impl ClientData for ClientState {
 }
 
 #[derive(Debug)]
-pub struct ScapeState {
+pub struct State {
     pub socket_name: String,
     pub display_handle: DisplayHandle,
-    pub loop_handle: LoopHandle<'static, CalloopData>,
+    pub loop_handle: LoopHandle<'static, Self>,
     pub loop_signal: LoopSignal,
 
     pub backend_data: BackendData,
@@ -153,7 +149,7 @@ pub struct ScapeState {
     pub output_manager_state: OutputManagerState,
     pub primary_selection_state: PrimarySelectionState,
     pub data_control_state: DataControlState,
-    pub seat_state: SeatState<ScapeState>,
+    pub seat_state: SeatState<State>,
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     pub shm_state: ShmState,
     pub viewporter_state: ViewporterState,
@@ -169,9 +165,9 @@ pub struct ScapeState {
     pub suppressed_keys: Vec<Keysym>,
     pub cursor_status: Arc<Mutex<CursorImageStatus>>,
     pub seat_name: String,
-    pub seat: Seat<ScapeState>,
+    pub seat: Seat<State>,
     pub clock: Clock<Monotonic>,
-    pub pointer: PointerHandle<ScapeState>,
+    pub pointer: PointerHandle<State>,
 
     pub xwayland: XWayland,
     pub xwm: Option<X11Wm>,
@@ -183,14 +179,14 @@ pub struct ScapeState {
     pub show_window_preview: bool,
 }
 
-delegate_compositor!(ScapeState);
+delegate_compositor!(State);
 
-impl DataDeviceHandler for ScapeState {
+impl DataDeviceHandler for State {
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
     }
 }
-impl ClientDndGrabHandler for ScapeState {
+impl ClientDndGrabHandler for State {
     fn started(
         &mut self,
         _source: Option<WlDataSource>,
@@ -204,16 +200,16 @@ impl ClientDndGrabHandler for ScapeState {
         self.dnd_icon = None;
     }
 }
-impl ServerDndGrabHandler for ScapeState {
+impl ServerDndGrabHandler for State {
     fn send(&mut self, _mime_type: String, _fd: OwnedFd, _seat: Seat<Self>) {
         unreachable!("Anvil doesn't do server-side grabs");
     }
 }
-delegate_data_device!(ScapeState);
+delegate_data_device!(State);
 
-delegate_output!(ScapeState);
+delegate_output!(State);
 
-impl SelectionHandler for ScapeState {
+impl SelectionHandler for State {
     type SelectionUserData = ();
 
     fn new_selection(
@@ -245,32 +241,32 @@ impl SelectionHandler for ScapeState {
     }
 }
 
-impl PrimarySelectionHandler for ScapeState {
+impl PrimarySelectionHandler for State {
     fn primary_selection_state(&self) -> &PrimarySelectionState {
         &self.primary_selection_state
     }
 }
-delegate_primary_selection!(ScapeState);
+delegate_primary_selection!(State);
 
-impl DataControlHandler for ScapeState {
+impl DataControlHandler for State {
     fn data_control_state(&self) -> &DataControlState {
         &self.data_control_state
     }
 }
-delegate_data_control!(ScapeState);
+delegate_data_control!(State);
 
-impl ShmHandler for ScapeState {
+impl ShmHandler for State {
     fn shm_state(&self) -> &ShmState {
         &self.shm_state
     }
 }
-delegate_shm!(ScapeState);
+delegate_shm!(State);
 
-impl SeatHandler for ScapeState {
+impl SeatHandler for State {
     type KeyboardFocus = FocusTarget;
     type PointerFocus = FocusTarget;
 
-    fn seat_state(&mut self) -> &mut SeatState<ScapeState> {
+    fn seat_state(&mut self) -> &mut SeatState<State> {
         &mut self.seat_state
     }
 
@@ -287,13 +283,13 @@ impl SeatHandler for ScapeState {
         *self.cursor_status.lock().unwrap() = image;
     }
 }
-delegate_seat!(ScapeState);
+delegate_seat!(State);
 
-delegate_tablet_manager!(ScapeState);
+delegate_tablet_manager!(State);
 
-delegate_text_input_manager!(ScapeState);
+delegate_text_input_manager!(State);
 
-impl InputMethodHandler for ScapeState {
+impl InputMethodHandler for State {
     fn new_popup(&mut self, surface: PopupSurface) {
         if let Err(err) = self.popups.track_popup(PopupKind::from(surface)) {
             warn!("Failed to track popup: {}", err);
@@ -315,9 +311,9 @@ impl InputMethodHandler for ScapeState {
             .unwrap_or_default()
     }
 }
-delegate_input_method_manager!(ScapeState);
+delegate_input_method_manager!(State);
 
-impl KeyboardShortcutsInhibitHandler for ScapeState {
+impl KeyboardShortcutsInhibitHandler for State {
     fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
         &mut self.keyboard_shortcuts_inhibit_state
     }
@@ -328,15 +324,15 @@ impl KeyboardShortcutsInhibitHandler for ScapeState {
     }
 }
 
-delegate_keyboard_shortcuts_inhibit!(ScapeState);
+delegate_keyboard_shortcuts_inhibit!(State);
 
-delegate_virtual_keyboard_manager!(ScapeState);
+delegate_virtual_keyboard_manager!(State);
 
-delegate_pointer_gestures!(ScapeState);
+delegate_pointer_gestures!(State);
 
-delegate_relative_pointer!(ScapeState);
+delegate_relative_pointer!(State);
 
-impl PointerConstraintsHandler for ScapeState {
+impl PointerConstraintsHandler for State {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
         // XXX region
         if pointer
@@ -351,11 +347,11 @@ impl PointerConstraintsHandler for ScapeState {
         }
     }
 }
-delegate_pointer_constraints!(ScapeState);
+delegate_pointer_constraints!(State);
 
-delegate_viewporter!(ScapeState);
+delegate_viewporter!(State);
 
-impl XdgActivationHandler for ScapeState {
+impl XdgActivationHandler for State {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
     }
@@ -392,9 +388,9 @@ impl XdgActivationHandler for ScapeState {
         }
     }
 }
-delegate_xdg_activation!(ScapeState);
+delegate_xdg_activation!(State);
 
-impl XdgDecorationHandler for ScapeState {
+impl XdgDecorationHandler for State {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
         toplevel.with_pending_state(|state| {
@@ -446,13 +442,13 @@ impl XdgDecorationHandler for ScapeState {
         }
     }
 }
-delegate_xdg_decoration!(ScapeState);
+delegate_xdg_decoration!(State);
 
-delegate_xdg_shell!(ScapeState);
-delegate_layer_shell!(ScapeState);
-delegate_presentation!(ScapeState);
+delegate_xdg_shell!(State);
+delegate_layer_shell!(State);
+delegate_presentation!(State);
 
-impl FractionalScaleHandler for ScapeState {
+impl FractionalScaleHandler for State {
     fn new_fractional_scale(
         &mut self,
         surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -499,22 +495,21 @@ impl FractionalScaleHandler for ScapeState {
         });
     }
 }
-delegate_fractional_scale!(ScapeState);
+delegate_fractional_scale!(State);
 
-impl SecurityContextHandler for ScapeState {
+impl SecurityContextHandler for State {
     fn context_created(
         &mut self,
         source: SecurityContextListenerSource,
         security_context: SecurityContext,
     ) {
         self.loop_handle
-            .insert_source(source, move |client_stream, _, data| {
+            .insert_source(source, move |client_stream, _, state| {
                 let client_state = ClientState {
                     security_context: Some(security_context.clone()),
                     ..ClientState::default()
                 };
-                if let Err(err) = data
-                    .state
+                if let Err(err) = state
                     .display_handle
                     .insert_client(client_stream, Arc::new(client_state))
                 {
@@ -524,9 +519,9 @@ impl SecurityContextHandler for ScapeState {
             .expect("Failed to init wayland socket source");
     }
 }
-delegate_security_context!(ScapeState);
+delegate_security_context!(State);
 
-impl XWaylandKeyboardGrabHandler for ScapeState {
+impl XWaylandKeyboardGrabHandler for State {
     fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<FocusTarget> {
         let elem = self
             .space
@@ -535,14 +530,14 @@ impl XWaylandKeyboardGrabHandler for ScapeState {
         Some(FocusTarget::Window(elem.clone()))
     }
 }
-delegate_xwayland_keyboard_grab!(ScapeState);
+delegate_xwayland_keyboard_grab!(State);
 
-impl ScapeState {
+impl State {
     pub fn init(
-        display: Display<ScapeState>,
+        display: Display<State>,
         backend_data: BackendData,
-        event_loop: &mut EventLoop<'static, CalloopData>,
-    ) -> anyhow::Result<ScapeState> {
+        event_loop: &mut EventLoop<'static, State>,
+    ) -> anyhow::Result<State> {
         info!("Initializing state");
         let clock = Clock::new();
         let loop_handle = event_loop.handle();
@@ -551,9 +546,8 @@ impl ScapeState {
         let source = ListeningSocketSource::new_auto()?;
         let socket_name = source.socket_name().to_string_lossy().into_owned();
         loop_handle
-            .insert_source(source, |client_stream, _, data| {
-                if let Err(err) = data
-                    .state
+            .insert_source(source, |client_stream, _, state| {
+                if let Err(err) = state
                     .display_handle
                     .insert_client(client_stream, Arc::new(ClientState::default()))
                 {
@@ -569,13 +563,13 @@ impl ScapeState {
         loop_handle
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
-                |_, display, data| {
+                |_, display, state| {
                     #[cfg(feature = "profiling")]
                     profiling::scope!("dispatch_clients");
 
                     // Safety: the display is not dropped
                     unsafe {
-                        display.get_mut().dispatch_clients(&mut data.state).unwrap();
+                        display.get_mut().dispatch_clients(state).unwrap();
                     }
                     Ok(PostAction::Continue)
                 },
@@ -647,7 +641,7 @@ impl ScapeState {
             XWaylandKeyboardGrabState::new::<Self>(&dh);
 
             let (xwayland, channel) = XWayland::new(&dh);
-            let ret = loop_handle.insert_source(channel, move |event, _, data| match event {
+            let ret = loop_handle.insert_source(channel, move |event, _, state| match event {
                 XWaylandEvent::Ready {
                     connection,
                     client,
@@ -655,8 +649,8 @@ impl ScapeState {
                     display,
                 } => {
                     let mut wm = X11Wm::start_wm(
-                        data.state.loop_handle.clone(),
-                        data.state.display_handle.clone(),
+                        state.loop_handle.clone(),
+                        state.display_handle.clone(),
                         connection,
                         client,
                     )
@@ -669,11 +663,11 @@ impl ScapeState {
                         Point::from((image.xhot as u16, image.yhot as u16)),
                     )
                     .expect("Failed to set xwayland default cursor");
-                    data.state.xwm = Some(wm);
-                    data.state.xdisplay = Some(display);
+                    state.xwm = Some(wm);
+                    state.xdisplay = Some(display);
                 }
                 XWaylandEvent::Exited => {
-                    let _ = data.state.xwm.take();
+                    let _ = state.xwm.take();
                 }
             });
             if let Err(e) = ret {
@@ -687,7 +681,7 @@ impl ScapeState {
 
         let loop_signal = event_loop.get_signal();
 
-        Ok(ScapeState {
+        Ok(State {
             display_handle: dh,
             loop_handle,
             loop_signal,
@@ -951,7 +945,7 @@ impl BackendData {
     }
 }
 
-impl DmabufHandler for ScapeState {
+impl DmabufHandler for State {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
         self.backend_data.dmabuf_state()
     }
@@ -961,4 +955,4 @@ impl DmabufHandler for ScapeState {
     }
 }
 
-delegate_dmabuf!(ScapeState);
+delegate_dmabuf!(State);

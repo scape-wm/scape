@@ -1,4 +1,4 @@
-use crate::{shell::WindowElement, state::ScapeState};
+use crate::{shell::WindowElement, state::State};
 use smithay::input::pointer::{
     GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
     GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
@@ -39,27 +39,22 @@ impl From<FocusTarget> for WlSurface {
     }
 }
 
-impl PointerTarget<ScapeState> for FocusTarget {
-    fn enter(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
+impl PointerTarget<State> for FocusTarget {
+    fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::enter(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::enter(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::enter(p.wl_surface(), seat, data, event),
         }
     }
-    fn motion(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
+    fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::motion(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::motion(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::motion(p.wl_surface(), seat, data, event),
         }
     }
-    fn relative_motion(
-        &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
-        event: &RelativeMotionEvent,
-    ) {
+    fn relative_motion(&self, seat: &Seat<State>, data: &mut State, event: &RelativeMotionEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::relative_motion(w, seat, data, event),
             FocusTarget::LayerSurface(l) => {
@@ -70,28 +65,28 @@ impl PointerTarget<ScapeState> for FocusTarget {
             }
         }
     }
-    fn button(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &ButtonEvent) {
+    fn button(&self, seat: &Seat<State>, data: &mut State, event: &ButtonEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::button(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::button(l, seat, data, event),
             FocusTarget::Popup(p) => PointerTarget::button(p.wl_surface(), seat, data, event),
         }
     }
-    fn axis(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, frame: AxisFrame) {
+    fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {
         match self {
             FocusTarget::Window(w) => PointerTarget::axis(w, seat, data, frame),
             FocusTarget::LayerSurface(l) => PointerTarget::axis(l, seat, data, frame),
             FocusTarget::Popup(p) => PointerTarget::axis(p.wl_surface(), seat, data, frame),
         }
     }
-    fn frame(&self, seat: &Seat<ScapeState>, data: &mut ScapeState) {
+    fn frame(&self, seat: &Seat<State>, data: &mut State) {
         match self {
             FocusTarget::Window(w) => PointerTarget::frame(w, seat, data),
             FocusTarget::LayerSurface(l) => PointerTarget::frame(l, seat, data),
             FocusTarget::Popup(p) => PointerTarget::frame(p.wl_surface(), seat, data),
         }
     }
-    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial, time: u32) {
+    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
         match self {
             FocusTarget::Window(w) => PointerTarget::leave(w, seat, data, serial, time),
             FocusTarget::LayerSurface(l) => PointerTarget::leave(l, seat, data, serial, time),
@@ -101,8 +96,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
 
     fn gesture_swipe_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeBeginEvent,
     ) {
         match self {
@@ -117,8 +112,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_swipe_update(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeUpdateEvent,
     ) {
         match self {
@@ -133,8 +128,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_swipe_end(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeEndEvent,
     ) {
         match self {
@@ -147,8 +142,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_pinch_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchBeginEvent,
     ) {
         match self {
@@ -163,8 +158,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_pinch_update(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchUpdateEvent,
     ) {
         match self {
@@ -179,8 +174,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_pinch_end(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchEndEvent,
     ) {
         match self {
@@ -193,8 +188,8 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
     fn gesture_hold_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureHoldBeginEvent,
     ) {
         match self {
@@ -205,12 +200,7 @@ impl PointerTarget<ScapeState> for FocusTarget {
             }
         }
     }
-    fn gesture_hold_end(
-        &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
-        event: &GestureHoldEndEvent,
-    ) {
+    fn gesture_hold_end(&self, seat: &Seat<State>, data: &mut State, event: &GestureHoldEndEvent) {
         match self {
             FocusTarget::Window(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
             FocusTarget::LayerSurface(l) => PointerTarget::gesture_hold_end(l, seat, data, event),
@@ -221,11 +211,11 @@ impl PointerTarget<ScapeState> for FocusTarget {
     }
 }
 
-impl KeyboardTarget<ScapeState> for FocusTarget {
+impl KeyboardTarget<State> for FocusTarget {
     fn enter(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         keys: Vec<KeysymHandle<'_>>,
         serial: Serial,
     ) {
@@ -237,7 +227,7 @@ impl KeyboardTarget<ScapeState> for FocusTarget {
             }
         }
     }
-    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial) {
+    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial) {
         match self {
             FocusTarget::Window(w) => KeyboardTarget::leave(w, seat, data, serial),
             FocusTarget::LayerSurface(l) => KeyboardTarget::leave(l, seat, data, serial),
@@ -246,8 +236,8 @@ impl KeyboardTarget<ScapeState> for FocusTarget {
     }
     fn key(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         key: KeysymHandle<'_>,
         state: KeyState,
         serial: Serial,
@@ -265,8 +255,8 @@ impl KeyboardTarget<ScapeState> for FocusTarget {
     }
     fn modifiers(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         modifiers: ModifiersState,
         serial: Serial,
     ) {

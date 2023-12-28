@@ -1,4 +1,4 @@
-use crate::{CalloopData, ClientState, ScapeState};
+use crate::{ClientState, State};
 use smithay::xwayland::X11Wm;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
@@ -88,11 +88,11 @@ impl FullscreenSurface {
     }
 }
 
-impl BufferHandler for ScapeState {
+impl BufferHandler for State {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
 }
 
-impl CompositorHandler for ScapeState {
+impl CompositorHandler for State {
     fn compositor_state(&mut self) -> &mut CompositorState {
         &mut self.compositor_state
     }
@@ -123,11 +123,11 @@ impl CompositorHandler for ScapeState {
             if let Some(dmabuf) = maybe_dmabuf {
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
                     let client = surface.client().unwrap();
-                    let res = state.loop_handle.insert_source(source, move |_, _, data| {
-                        let dh = data.state.display_handle.clone();
-                        data.state
+                    let res = state.loop_handle.insert_source(source, move |_, _, state| {
+                        let dh = state.display_handle.clone();
+                        state
                             .client_compositor_state(&client)
-                            .blocker_cleared(&mut data.state, &dh);
+                            .blocker_cleared(state, &dh);
                         Ok(())
                     });
                     if res.is_ok() {
@@ -139,7 +139,7 @@ impl CompositorHandler for ScapeState {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
-        X11Wm::commit_hook::<CalloopData>(surface);
+        X11Wm::commit_hook::<State>(surface);
 
         on_commit_buffer_handler::<Self>(surface);
         self.backend_data.early_import(surface);
@@ -159,7 +159,7 @@ impl CompositorHandler for ScapeState {
     }
 }
 
-impl WlrLayerShellHandler for ScapeState {
+impl WlrLayerShellHandler for State {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
         &mut self.layer_shell_state
     }
@@ -194,7 +194,7 @@ impl WlrLayerShellHandler for ScapeState {
     }
 }
 
-impl ScapeState {
+impl State {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
         self.space
             .elements()

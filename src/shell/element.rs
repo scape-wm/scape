@@ -1,5 +1,5 @@
 use super::ssd::HEADER_BAR_HEIGHT;
-use crate::ScapeState;
+use crate::State;
 use smithay::{
     backend::{
         input::KeyState,
@@ -191,8 +191,8 @@ impl IsAlive for WindowElement {
     }
 }
 
-impl PointerTarget<ScapeState> for WindowElement {
-    fn enter(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
+impl PointerTarget<State> for WindowElement {
+    fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
             if event.location.y < HEADER_BAR_HEIGHT as f64 {
@@ -215,7 +215,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             };
         }
     }
-    fn motion(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &MotionEvent) {
+    fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
             if event.location.y < HEADER_BAR_HEIGHT as f64 {
@@ -253,12 +253,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             };
         }
     }
-    fn relative_motion(
-        &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
-        event: &RelativeMotionEvent,
-    ) {
+    fn relative_motion(&self, seat: &Seat<State>, data: &mut State, event: &RelativeMotionEvent) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
@@ -267,7 +262,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             }
         }
     }
-    fn button(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, event: &ButtonEvent) {
+    fn button(&self, seat: &Seat<State>, data: &mut State, event: &ButtonEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
             if state.ptr_entered_window {
@@ -285,7 +280,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             };
         }
     }
-    fn axis(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, frame: AxisFrame) {
+    fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
@@ -294,7 +289,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             }
         }
     }
-    fn frame(&self, seat: &Seat<ScapeState>, data: &mut ScapeState) {
+    fn frame(&self, seat: &Seat<State>, data: &mut State) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
@@ -303,7 +298,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             }
         }
     }
-    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial, time: u32) {
+    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
         let mut state = self.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_leave();
@@ -325,8 +320,8 @@ impl PointerTarget<ScapeState> for WindowElement {
 
     fn gesture_swipe_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeBeginEvent,
     ) {
         let state = self.decoration_state();
@@ -342,8 +337,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_swipe_update(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeUpdateEvent,
     ) {
         let state = self.decoration_state();
@@ -359,8 +354,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_swipe_end(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureSwipeEndEvent,
     ) {
         let state = self.decoration_state();
@@ -374,8 +369,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_pinch_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchBeginEvent,
     ) {
         let state = self.decoration_state();
@@ -391,8 +386,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_pinch_update(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchUpdateEvent,
     ) {
         let state = self.decoration_state();
@@ -408,8 +403,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_pinch_end(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GesturePinchEndEvent,
     ) {
         let state = self.decoration_state();
@@ -423,8 +418,8 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
     fn gesture_hold_begin(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         event: &GestureHoldBeginEvent,
     ) {
         let state = self.decoration_state();
@@ -438,12 +433,7 @@ impl PointerTarget<ScapeState> for WindowElement {
             }
         }
     }
-    fn gesture_hold_end(
-        &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
-        event: &GestureHoldEndEvent,
-    ) {
+    fn gesture_hold_end(&self, seat: &Seat<State>, data: &mut State, event: &GestureHoldEndEvent) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
@@ -455,11 +445,11 @@ impl PointerTarget<ScapeState> for WindowElement {
     }
 }
 
-impl KeyboardTarget<ScapeState> for WindowElement {
+impl KeyboardTarget<State> for WindowElement {
     fn enter(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         keys: Vec<KeysymHandle<'_>>,
         serial: Serial,
     ) {
@@ -468,7 +458,7 @@ impl KeyboardTarget<ScapeState> for WindowElement {
             WindowElement::X11(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
         }
     }
-    fn leave(&self, seat: &Seat<ScapeState>, data: &mut ScapeState, serial: Serial) {
+    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial) {
         match self {
             WindowElement::Wayland(w) => KeyboardTarget::leave(w, seat, data, serial),
             WindowElement::X11(w) => KeyboardTarget::leave(w, seat, data, serial),
@@ -476,8 +466,8 @@ impl KeyboardTarget<ScapeState> for WindowElement {
     }
     fn key(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         key: KeysymHandle<'_>,
         state: KeyState,
         serial: Serial,
@@ -492,8 +482,8 @@ impl KeyboardTarget<ScapeState> for WindowElement {
     }
     fn modifiers(
         &self,
-        seat: &Seat<ScapeState>,
-        data: &mut ScapeState,
+        seat: &Seat<State>,
+        data: &mut State,
         modifiers: ModifiersState,
         serial: Serial,
     ) {

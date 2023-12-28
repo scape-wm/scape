@@ -1,7 +1,7 @@
 use crate::{
     drawing::*,
     render::CustomRenderElements,
-    state::{post_repaint, take_presentation_feedback, BackendData, CalloopData, ScapeState},
+    state::{post_repaint, take_presentation_feedback, BackendData, State},
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
@@ -97,7 +97,7 @@ impl WinitData {
         notifier: ImportNotifier,
     ) {
         if self.backend.renderer().import_dmabuf(&dmabuf, None).is_ok() {
-            let _ = notifier.successful::<ScapeState>();
+            let _ = notifier.successful::<State>();
         } else {
             notifier.failed();
         }
@@ -106,7 +106,7 @@ impl WinitData {
 
 pub fn init_winit(
     display_handle: DisplayHandle,
-    event_loop: &mut EventLoop<CalloopData>,
+    event_loop: &mut EventLoop<State>,
 ) -> Result<BackendData> {
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
     let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| {
@@ -128,7 +128,7 @@ pub fn init_winit(
             model: "Winit".into(),
         },
     );
-    let _global = output.create_global::<ScapeState>(&display_handle);
+    let _global = output.create_global::<State>(&display_handle);
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
@@ -183,13 +183,12 @@ pub fn init_winit(
     let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
         let mut dmabuf_state = DmabufState::new();
         let dmabuf_global = dmabuf_state
-            .create_global_with_default_feedback::<ScapeState>(&display_handle, &default_feedback);
+            .create_global_with_default_feedback::<State>(&display_handle, &default_feedback);
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
         let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global =
-            dmabuf_state.create_global::<ScapeState>(&display_handle, dmabuf_formats);
+        let dmabuf_global = dmabuf_state.create_global::<State>(&display_handle, dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
     };
 
@@ -204,17 +203,17 @@ pub fn init_winit(
 
     event_loop
         .handle()
-        .insert_source(Timer::immediate(), |_event, &mut (), data| {
-            let output = data.state.backend_data.winit().output.clone();
-            data.state.space.map_output(&output, (0, 0));
+        .insert_source(Timer::immediate(), |_event, &mut (), state| {
+            let output = state.backend_data.winit().output.clone();
+            state.space.map_output(&output, (0, 0));
             TimeoutAction::Drop
         })
         .unwrap();
 
     event_loop
         .handle()
-        .insert_source(Timer::immediate(), |_, _, data| {
-            run_tick(&mut data.state);
+        .insert_source(Timer::immediate(), |_, _, state| {
+            run_tick(state);
             TimeoutAction::ToDuration(Duration::from_millis(16))
         })
         .unwrap();
@@ -233,7 +232,7 @@ pub fn init_winit(
     }))
 }
 
-fn run_tick(state: &mut ScapeState) {
+fn run_tick(state: &mut State) {
     let winit_data = state.backend_data.winit_mut();
     let mut handle_events = false;
     if let PumpStatus::Exit(_) = winit_data
@@ -268,15 +267,14 @@ fn run_tick(state: &mut ScapeState) {
     if handle_events {
         state
             .loop_handle
-            .insert_source(Timer::immediate(), |_, _, data| {
-                let display_handle = data.state.display_handle.clone();
+            .insert_source(Timer::immediate(), |_, _, state| {
+                let display_handle = state.display_handle.clone();
                 let pending_events = std::mem::replace(
-                    &mut data.state.backend_data.winit_mut().pending_input_events,
+                    &mut state.backend_data.winit_mut().pending_input_events,
                     vec![],
                 );
                 for event in pending_events {
-                    data.state
-                        .process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
+                    state.process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
                 }
                 TimeoutAction::Drop
             })

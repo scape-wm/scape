@@ -3,7 +3,7 @@ use crate::{
     drawing::*,
     render::*,
     shell::WindowElement,
-    state::{post_repaint, take_presentation_feedback, CalloopData, ScapeState},
+    state::{post_repaint, take_presentation_feedback, State},
 };
 use anyhow::{anyhow, Result};
 #[cfg(feature = "renderer_sync")]
@@ -207,7 +207,7 @@ impl UdevData {
             .and_then(|mut renderer| renderer.import_dmabuf(&dmabuf, None))
             .is_ok()
         {
-            let _ = notifier.successful::<ScapeState>();
+            let _ = notifier.successful::<State>();
         } else {
             notifier.failed();
         }
@@ -279,7 +279,7 @@ fn select_allocator(
     })
 }
 
-pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData> {
+pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
         e
@@ -321,9 +321,9 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     let mut libinput_context_2 = libinput_context.clone();
     event_loop
         .handle()
-        .insert_source(Timer::immediate(), move |_event, &mut (), data| {
+        .insert_source(Timer::immediate(), move |_event, &mut (), state| {
             libinput_context_2
-                .udev_assign_seat(&data.state.seat_name)
+                .udev_assign_seat(&state.seat_name)
                 .unwrap();
             TimeoutAction::Drop
         })
@@ -332,14 +332,14 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
     event_loop
         .handle()
-        .insert_source(libinput_backend, move |event, _, data| {
-            data.state.process_input_event(event)
+        .insert_source(libinput_backend, move |event, _, state| {
+            state.process_input_event(event)
         })
         .unwrap();
     event_loop
         .handle()
-        .insert_source(notifier, move |event, &mut (), data| {
-            let BackendData::Udev(udev_data) = &mut data.state.backend_data else {
+        .insert_source(notifier, move |event, &mut (), state| {
+            let BackendData::Udev(udev_data) = &mut state.backend_data else {
                 error!("Received non udev backend data");
                 return;
             };
@@ -367,7 +367,7 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
                     {
                         backend.drm.activate();
                         if let Some(lease_global) = backend.leasing_global.as_mut() {
-                            lease_global.resume::<ScapeState>();
+                            lease_global.resume::<State>();
                         }
                         for surface in backend.surfaces.values_mut() {
                             if let Err(err) = surface.compositor.surface().reset_state() {
@@ -379,9 +379,9 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
                             // otherwise
                             surface.compositor.reset_buffers();
                         }
-                        data.state
+                        state
                             .loop_handle
-                            .insert_idle(move |data| render(&mut data.state, node, None));
+                            .insert_idle(move |state| render(state, node, None));
                     }
                 }
             }
@@ -399,10 +399,10 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     {
         event_loop
             .handle()
-            .insert_source(Timer::immediate(), move |_, _, data| {
+            .insert_source(Timer::immediate(), move |_, _, state| {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
-                    .and_then(|node| device_added(&mut data.state, node, &path))
+                    .and_then(|node| device_added(state, node, &path))
                 {
                     error!("Skipping device {device_id}: {err}");
                 }
@@ -412,23 +412,23 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     }
     event_loop
         .handle()
-        .insert_source(udev_backend, move |event, _, data| match event {
+        .insert_source(udev_backend, move |event, _, state| match event {
             UdevEvent::Added { device_id, path } => {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
-                    .and_then(|node| device_added(&mut data.state, node, &path))
+                    .and_then(|node| device_added(state, node, &path))
                 {
                     error!("Skipping device {device_id}: {err}");
                 }
             }
             UdevEvent::Changed { device_id } => {
                 if let Ok(node) = DrmNode::from_dev_id(device_id) {
-                    device_changed(&mut data.state, node)
+                    device_changed(state, node)
                 }
             }
             UdevEvent::Removed { device_id } => {
                 if let Ok(node) = DrmNode::from_dev_id(device_id) {
-                    device_removed(&mut data.state, node)
+                    device_removed(state, node)
                 }
             }
         })
@@ -437,9 +437,9 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     let primary_gpu = primary_gpu.clone();
     event_loop
         .handle()
-        .insert_source(Timer::immediate(), move |_, _, data| {
-            data.state.shm_state.update_formats(
-                data.state
+        .insert_source(Timer::immediate(), move |_, _, state| {
+            state.shm_state.update_formats(
+                state
                     .backend_data
                     .udev_mut()
                     .gpus
@@ -448,7 +448,7 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
                     .shm_formats(),
             );
 
-            let udev_data = data.state.backend_data.udev_mut();
+            let udev_data = state.backend_data.udev_mut();
 
             let mut renderer = udev_data.gpus.single_renderer(&primary_gpu).unwrap();
 
@@ -482,7 +482,7 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
                 primary_gpu
             );
 
-            match renderer.bind_wl_display(&data.state.display_handle) {
+            match renderer.bind_wl_display(&state.display_handle) {
                 Ok(_) => info!("EGL hardware-acceleration enabled"),
                 Err(err) => info!(?err, "Failed to initialize EGL hardware-acceleration"),
             }
@@ -493,8 +493,8 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
                 .build()
                 .unwrap();
             let mut dmabuf_state = DmabufState::new();
-            let global = dmabuf_state.create_global_with_default_feedback::<ScapeState>(
-                &data.state.display_handle,
+            let global = dmabuf_state.create_global_with_default_feedback::<State>(
+                &state.display_handle,
                 &default_feedback,
             );
             udev_data.dmabuf_state = Some((dmabuf_state, global));
@@ -522,7 +522,7 @@ pub fn init_udev(event_loop: &mut EventLoop<CalloopData>) -> Result<BackendData>
     Ok(BackendData::Udev(udev_data))
 }
 
-impl DrmLeaseHandler for ScapeState {
+impl DrmLeaseHandler for State {
     fn drm_lease_state(&mut self, node: DrmNode) -> &mut DrmLeaseState {
         self.backend_data
             .udev_mut()
@@ -595,7 +595,7 @@ impl DrmLeaseHandler for ScapeState {
         backend.active_leases.retain(|l| l.id() != lease);
     }
 }
-delegate_drm_lease!(ScapeState);
+delegate_drm_lease!(State);
 
 pub type RenderSurface =
     GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, Option<OutputPresentationFeedback>>;
@@ -790,7 +790,7 @@ struct SurfaceData {
 impl Drop for SurfaceData {
     fn drop(&mut self) {
         if let Some(global) = self.global.take() {
-            self.dh.remove_global::<ScapeState>(global);
+            self.dh.remove_global::<State>(global);
         }
     }
 }
@@ -884,7 +884,7 @@ fn get_surface_dmabuf_feedback(
     })
 }
 
-fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<(), DeviceAddError> {
+fn device_added(state: &mut State, node: DrmNode, path: &Path) -> Result<(), DeviceAddError> {
     let udev_data = state.backend_data.udev_mut();
     // Try to open the device
     let fd = udev_data
@@ -902,19 +902,16 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
 
     let registration_token = state
         .loop_handle
-        .insert_source(
-            notifier,
-            move |event, metadata, data: &mut CalloopData| match event {
-                DrmEvent::VBlank(crtc) => {
-                    #[cfg(feature = "profiling")]
-                    profiling::scope!("vblank", &format!("{crtc:?}"),);
-                    frame_finish(&mut data.state, node, crtc, metadata);
-                }
-                DrmEvent::Error(error) => {
-                    error!("{:?}", error);
-                }
-            },
-        )
+        .insert_source(notifier, move |event, metadata, state| match event {
+            DrmEvent::VBlank(crtc) => {
+                #[cfg(feature = "profiling")]
+                profiling::scope!("vblank", &format!("{crtc:?}"),);
+                frame_finish(state, node, crtc, metadata);
+            }
+            DrmEvent::Error(error) => {
+                error!("{:?}", error);
+            }
+        })
         .unwrap();
 
     let render_node = EGLDevice::device_for_display(&EGLDisplay::new(gbm.clone()).unwrap())
@@ -938,7 +935,7 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
             non_desktop_connectors: Vec::new(),
             render_node,
             surfaces: HashMap::new(),
-            leasing_global: DrmLeaseState::new::<ScapeState>(&state.display_handle, &node)
+            leasing_global: DrmLeaseState::new::<State>(&state.display_handle, &node)
                 .map_err(|err| {
                     // TODO replace with inspect_err, once stable
                     warn!(?err, "Failed to initialize drm lease global for: {}", node);
@@ -955,7 +952,7 @@ fn device_added(state: &mut ScapeState, node: DrmNode, path: &Path) -> Result<()
 }
 
 fn connector_connected(
-    state: &mut ScapeState,
+    state: &mut State,
     node: DrmNode,
     connector: connector::Info,
     crtc: crtc::Handle,
@@ -1012,7 +1009,7 @@ fn connector_connected(
             .non_desktop_connectors
             .push((connector.handle(), crtc));
         if let Some(lease_state) = device.leasing_global.as_mut() {
-            lease_state.add_connector::<ScapeState>(
+            lease_state.add_connector::<State>(
                 connector.handle(),
                 output_name,
                 format!("{} {}", make, model),
@@ -1049,7 +1046,7 @@ fn connector_connected(
                 model,
             },
         );
-        let global = output.create_global::<ScapeState>(&state.display_handle);
+        let global = output.create_global::<State>(&state.display_handle);
 
         let x = state.space.outputs().fold(0, |acc, o| {
             acc + state.space.output_geometry(o).unwrap().size.w
@@ -1167,7 +1164,7 @@ fn connector_connected(
 }
 
 fn connector_disconnected(
-    state: &mut ScapeState,
+    state: &mut State,
     node: DrmNode,
     connector: connector::Info,
     crtc: crtc::Handle,
@@ -1208,7 +1205,7 @@ fn connector_disconnected(
     }
 }
 
-fn device_changed(state: &mut ScapeState, node: DrmNode) {
+fn device_changed(state: &mut State, node: DrmNode) {
     let udev_data = state.backend_data.udev_mut();
 
     let device = if let Some(device) = udev_data.backends.get_mut(&node) {
@@ -1238,7 +1235,7 @@ fn device_changed(state: &mut ScapeState, node: DrmNode) {
     crate::shell::fixup_positions(&mut state.space, state.pointer.current_location());
 }
 
-fn device_removed(state: &mut ScapeState, node: DrmNode) {
+fn device_removed(state: &mut State, node: DrmNode) {
     let device = if let Some(device) = state.backend_data.udev_mut().backends.get_mut(&node) {
         device
     } else {
@@ -1261,7 +1258,7 @@ fn device_removed(state: &mut ScapeState, node: DrmNode) {
     // drop the backends on this side
     if let Some(mut backend_data) = udev_data.backends.remove(&node) {
         if let Some(mut leasing_global) = backend_data.leasing_global.take() {
-            leasing_global.disable_global::<ScapeState>();
+            leasing_global.disable_global::<State>();
         }
 
         udev_data
@@ -1278,7 +1275,7 @@ fn device_removed(state: &mut ScapeState, node: DrmNode) {
 }
 
 fn frame_finish(
-    state: &mut ScapeState,
+    state: &mut State,
     dev_id: DrmNode,
     crtc: crtc::Handle,
     metadata: &mut Option<DrmEventMetadata>,
@@ -1437,8 +1434,8 @@ fn frame_finish(
 
         state
             .loop_handle
-            .insert_source(timer, move |_, _, data| {
-                render(&mut data.state, dev_id, Some(crtc));
+            .insert_source(timer, move |_, _, state| {
+                render(state, dev_id, Some(crtc));
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1446,7 +1443,7 @@ fn frame_finish(
 }
 
 // If crtc is `Some()`, render it, else render all crtcs
-fn render(state: &mut ScapeState, node: DrmNode, crtc: Option<crtc::Handle>) {
+fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
     let device_backend = match state.backend_data.udev_mut().backends.get_mut(&node) {
         Some(backend) => backend,
         None => {
@@ -1465,7 +1462,7 @@ fn render(state: &mut ScapeState, node: DrmNode, crtc: Option<crtc::Handle>) {
     };
 }
 
-fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle) {
+fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
     #[cfg(feature = "profiling")]
     profiling::scope!("render_surface", &format!("{crtc:?}"));
     let udev_data = state.backend_data.udev_mut();
@@ -1597,8 +1594,8 @@ fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle
         let timer = Timer::from_duration(reschedule_duration);
         state
             .loop_handle
-            .insert_source(timer, move |_, _, data| {
-                render(&mut data.state, node, Some(crtc));
+            .insert_source(timer, move |_, _, state| {
+                render(state, node, Some(crtc));
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1615,7 +1612,7 @@ fn schedule_initial_render(
     udev_data: &mut UdevData,
     node: DrmNode,
     crtc: crtc::Handle,
-    evt_handle: LoopHandle<'static, CalloopData>,
+    evt_handle: LoopHandle<'static, State>,
 ) {
     let device = if let Some(device) = udev_data.backends.get_mut(&node) {
         device
@@ -1642,8 +1639,8 @@ fn schedule_initial_render(
                 // TODO dont reschedule after 3(?) retries
                 warn!("Failed to submit page_flip: {}", err);
                 let handle = evt_handle.clone();
-                evt_handle.insert_idle(move |data| {
-                    let BackendData::Udev(udev_data) = &mut data.state.backend_data else {
+                evt_handle.insert_idle(move |state| {
+                    let BackendData::Udev(udev_data) = &mut state.backend_data else {
                         error!("Received non udev backend data");
                         return;
                     };

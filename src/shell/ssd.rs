@@ -1,5 +1,5 @@
 use super::WindowElement;
-use crate::ScapeState;
+use crate::State;
 use smithay::{
     backend::renderer::{
         element::{
@@ -52,8 +52,8 @@ impl HeaderBar {
 
     pub fn clicked(
         &mut self,
-        seat: &Seat<ScapeState>,
-        state: &mut ScapeState,
+        seat: &Seat<State>,
+        state: &mut State,
         window: &WindowElement,
         serial: Serial,
     ) {
@@ -73,7 +73,7 @@ impl HeaderBar {
                         let surface = w.clone();
                         state
                             .loop_handle
-                            .insert_idle(move |data| data.state.maximize_request_x11(&surface));
+                            .insert_idle(move |state| state.maximize_request_x11(&surface));
                     }
                 };
             }
@@ -82,15 +82,15 @@ impl HeaderBar {
                     WindowElement::Wayland(w) => {
                         let seat = seat.clone();
                         let toplevel = w.toplevel().clone();
-                        state.loop_handle.insert_idle(move |data| {
-                            data.state.move_request_xdg(&toplevel, &seat, serial)
+                        state.loop_handle.insert_idle(move |state| {
+                            state.move_request_xdg(&toplevel, &seat, serial)
                         });
                     }
                     WindowElement::X11(w) => {
                         let window = w.clone();
                         state
                             .loop_handle
-                            .insert_idle(move |data| data.state.move_request_x11(&window));
+                            .insert_idle(move |state| state.move_request_x11(&window));
                     }
                 };
             }

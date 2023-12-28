@@ -1,7 +1,7 @@
 use crate::{
     focus::FocusTarget,
     shell::{FullscreenSurface, WindowElement},
-    ScapeState,
+    State,
 };
 use smithay::backend::input::GesturePinchUpdateEvent;
 use smithay::backend::input::GestureSwipeUpdateEvent;
@@ -48,7 +48,7 @@ use smithay::{
 use std::{convert::TryInto, process::Command};
 use tracing::{debug, error, info};
 
-impl ScapeState {
+impl State {
     fn process_common_key_action(&mut self, action: KeyAction) {
         match action {
             KeyAction::None => (),
@@ -412,7 +412,7 @@ impl ScapeState {
     }
 }
 
-impl ScapeState {
+impl State {
     pub fn process_input_event_windowed<B: InputBackend>(
         &mut self,
         dh: &DisplayHandle,
@@ -539,7 +539,7 @@ impl ScapeState {
     }
 }
 
-impl ScapeState {
+impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {

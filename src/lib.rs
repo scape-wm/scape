@@ -12,4 +12,4 @@ pub mod state;
 pub mod udev;
 pub mod winit;
 
-pub use state::{CalloopData, ClientState, ScapeState};
+pub use state::{ClientState, State};
