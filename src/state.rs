@@ -591,7 +591,10 @@ impl ScapeState {
         let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
         let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self>(&dh);
         let text_input_manager_state = TextInputManagerState::new::<Self>(&dh);
-        let input_method_manager_state = InputMethodManagerState::new::<Self>(&dh);
+        let input_method_manager_state = InputMethodManagerState::new::<Self, _>(&dh, |_client| {
+            // TODO: implement filtering based on the client
+            true
+        });
         let virtual_keyboard_manager_state =
             VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
         let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
