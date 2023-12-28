@@ -20,6 +20,7 @@ use smithay::delegate_drm_lease;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
 use smithay::utils::{Physical, Rectangle};
+use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::drm_lease::{
     DrmLease, DrmLeaseBuilder, DrmLeaseHandler, DrmLeaseRequest, DrmLeaseState, LeaseRejected,
 };
@@ -201,12 +202,22 @@ impl UdevData {
         &mut self.dmabuf_state.as_mut().unwrap().0
     }
 
-    pub fn dmabuf_imported(&mut self, dmabuf: &Dmabuf) -> Result<(), ImportError> {
-        self.gpus
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
+        if self
+            .gpus
             .single_renderer(&self.primary_gpu)
             .and_then(|mut renderer| renderer.import_dmabuf(&dmabuf, None))
-            .map(|_| ())
-            .map_err(|_| ImportError::Failed)
+            .is_ok()
+        {
+            let _ = notifier.successful::<ScapeState>();
+        } else {
+            notifier.failed();
+        }
     }
 }
 

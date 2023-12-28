@@ -65,7 +65,7 @@ impl WindowElement {
 
     pub fn with_surfaces<F>(&self, processor: F)
     where
-        F: FnMut(&WlSurface, &WlSurfaceData) + Copy,
+        F: FnMut(&WlSurface, &WlSurfaceData),
     {
         match self {
             WindowElement::Wayland(w) => w.with_surfaces(processor),

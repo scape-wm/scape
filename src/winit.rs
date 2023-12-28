@@ -18,6 +18,7 @@ use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::reexports::winit::platform::pump_events::PumpStatus;
 use smithay::utils::{IsAlive, Point, Scale};
+use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::input_method::InputMethodSeat;
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
@@ -82,12 +83,17 @@ impl WinitData {
         &mut self.dmabuf_state.0
     }
 
-    pub fn dmabuf_imported(&mut self, dmabuf: &Dmabuf) -> Result<(), ImportError> {
-        self.backend
-            .renderer()
-            .import_dmabuf(&dmabuf, None)
-            .map(|_| ())
-            .map_err(|_| ImportError::Failed)
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
+        if self.backend.renderer().import_dmabuf(&dmabuf, None).is_ok() {
+            let _ = notifier.successful::<ScapeState>();
+        } else {
+            notifier.failed();
+        }
     }
 }
 
