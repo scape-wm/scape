@@ -11,6 +11,7 @@ use smithay::wayland::selection::primary_selection::{
 };
 use smithay::wayland::selection::wlr_data_control::{DataControlHandler, DataControlState};
 use smithay::wayland::selection::{SelectionHandler, SelectionSource, SelectionTarget};
+use smithay::wayland::tablet_manager::TabletManagerState;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -601,6 +602,7 @@ impl ScapeState {
         let relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
         PointerConstraintsState::new::<Self>(&dh);
         let pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
+        let tablet_manager_state = TabletManagerState::new::<Self>(&dh);
         SecurityContextState::new::<Self, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()
