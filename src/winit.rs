@@ -16,6 +16,7 @@ use smithay::backend::winit::{WinitEvent, WinitEventLoop, WinitInput};
 use smithay::backend::SwapBuffersError;
 use smithay::input::pointer::{CursorImageAttributes, CursorImageStatus};
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
+use smithay::reexports::winit::platform::pump_events::PumpStatus;
 use smithay::utils::{IsAlive, Point, Scale};
 use smithay::wayland::input_method::InputMethodSeat;
 use smithay::{
@@ -100,7 +101,7 @@ pub fn init_winit(
         anyhow!("Winit backend cannot be started")
     })?;
 
-    let size = backend.window_size().physical_size;
+    let size = backend.window_size();
     let mode = Mode {
         size,
         refresh: 60_000,
@@ -220,7 +221,7 @@ pub fn init_winit(
 fn run_tick(state: &mut ScapeState) {
     let winit_data = state.backend_data.winit_mut();
     let mut handle_events = false;
-    if winit_data
+    if let PumpStatus::Exit(_) = winit_data
         .winit_loop
         .dispatch_new_events(|event| match event {
             WinitEvent::Resized { size, .. } => {
@@ -244,8 +245,8 @@ fn run_tick(state: &mut ScapeState) {
             }
             _ => (),
         })
-        .is_err()
     {
+        // TODO: probably exit the main loop
         return;
     }
 
@@ -326,8 +327,15 @@ fn run_tick(state: &mut ScapeState) {
                     backend.renderer().egl_context().get_context_handle(),
                     backend
                         .window()
-                        .wayland_surface()
-                        .unwrap_or_else(std::ptr::null),
+                        .window_handle()
+                        .map(|handle| {
+                            if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
+                                handle.surface.as_ptr()
+                            } else {
+                                std::ptr::null_mut()
+                            }
+                        })
+                        .unwrap_or_else(|_| std::ptr::null_mut()),
                 );
             }
             let age = if *full_redraw > 0 {
@@ -408,8 +416,15 @@ fn run_tick(state: &mut ScapeState) {
                         backend.renderer().egl_context().get_context_handle(),
                         backend
                             .window()
-                            .wayland_surface()
-                            .unwrap_or_else(std::ptr::null),
+                            .window_handle()
+                            .map(|handle| {
+                                if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
+                                    handle.surface.as_ptr()
+                                } else {
+                                    std::ptr::null_mut()
+                                }
+                            })
+                            .unwrap_or_else(|_| std::ptr::null_mut()),
                     );
                 }
                 backend.window().set_cursor_visible(cursor_visible);
@@ -448,8 +463,15 @@ fn run_tick(state: &mut ScapeState) {
                         backend.renderer().egl_context().get_context_handle(),
                         backend
                             .window()
-                            .wayland_surface()
-                            .unwrap_or_else(std::ptr::null),
+                            .window_handle()
+                            .map(|handle| {
+                                if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
+                                    handle.surface.as_ptr()
+                                } else {
+                                    std::ptr::null_mut()
+                                }
+                            })
+                            .unwrap_or_else(|_| std::ptr::null_mut()),
                     );
                 }
                 error!("Critical Rendering Error: {}", err);

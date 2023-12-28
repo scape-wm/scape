@@ -4,6 +4,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
 use smithay::delegate_data_control;
+use smithay::desktop::space::SpaceElement;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState,
