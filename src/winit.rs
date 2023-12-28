@@ -92,7 +92,7 @@ impl WinitData {
 
 pub fn init_winit(
     event_loop: &mut EventLoop<CalloopData>,
-    display: &mut Display<ScapeState>,
+    display: Display<ScapeState>,
 ) -> Result<BackendData> {
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
     let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| {
@@ -114,7 +114,8 @@ pub fn init_winit(
             model: "Winit".into(),
         },
     );
-    let _global = output.create_global::<ScapeState>(&display.handle());
+    let dh = display.handle();
+    let _global = output.create_global::<ScapeState>(&dh);
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
@@ -168,25 +169,18 @@ pub fn init_winit(
     // Note: egl on Mesa requires either v4 or wl_drm (initialized with bind_wl_display)
     let dmabuf_state = if let Some(default_feedback) = dmabuf_default_feedback {
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global = dmabuf_state.create_global_with_default_feedback::<ScapeState>(
-            &display.handle(),
-            &default_feedback,
-        );
+        let dmabuf_global =
+            dmabuf_state.create_global_with_default_feedback::<ScapeState>(&dh, &default_feedback);
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
         let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
         let mut dmabuf_state = DmabufState::new();
-        let dmabuf_global =
-            dmabuf_state.create_global::<ScapeState>(&display.handle(), dmabuf_formats);
+        let dmabuf_global = dmabuf_state.create_global::<ScapeState>(&dh, dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
     };
 
     #[cfg(feature = "egl")]
-    if backend
-        .renderer()
-        .bind_wl_display(&display.handle())
-        .is_ok()
-    {
+    if backend.renderer().bind_wl_display(&dh).is_ok() {
         info!("EGL hardware-acceleration enabled");
     };
 

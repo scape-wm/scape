@@ -115,7 +115,6 @@ use tracing::{info, warn};
 
 pub struct CalloopData {
     pub state: ScapeState,
-    pub display: Display<ScapeState>,
 }
 
 #[derive(Debug, Default)]
@@ -602,15 +601,11 @@ impl ScapeState {
 
         loop_handle
             .insert_source(
-                Generic::new(
-                    display.backend().poll_fd().as_raw_fd(),
-                    Interest::READ,
-                    Mode::Level,
-                ),
-                |_, _, data| {
+                Generic::new(display, Interest::READ, Mode::Level),
+                |_, display, data| {
                     #[cfg(feature = "profiling")]
                     profiling::scope!("dispatch_clients");
-                    data.display.dispatch_clients(&mut data.state).unwrap();
+                    display.dispatch_clients(&mut data.state).unwrap();
                     Ok(PostAction::Continue)
                 },
             )
@@ -670,7 +665,6 @@ impl ScapeState {
                 *cursor_status2.lock().unwrap() = new_status;
             });
 
-        let dh = display.handle();
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
         let xwayland = {
@@ -684,13 +678,9 @@ impl ScapeState {
                     client_fd: _,
                     display,
                 } => {
-                    let mut wm = X11Wm::start_wm(
-                        data.state.loop_handle.clone(),
-                        dh.clone(),
-                        connection,
-                        client,
-                    )
-                    .expect("Failed to attach X11 Window Manager");
+                    let mut wm =
+                        X11Wm::start_wm(data.state.loop_handle.clone(), dh, connection, client)
+                            .expect("Failed to attach X11 Window Manager");
                     let cursor = Cursor::load();
                     let image = cursor.get_image(1, Duration::ZERO);
                     wm.set_cursor(

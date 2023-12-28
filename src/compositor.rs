@@ -76,7 +76,7 @@ fn run_loop(
         |data| {
             data.state.space.refresh();
             data.state.popups.cleanup();
-            data.display.flush_clients().unwrap();
+            data.state.display_handle.flush_clients().unwrap();
         },
     )?;
 

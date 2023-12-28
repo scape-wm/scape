@@ -120,7 +120,6 @@ struct UdevOutputId {
 
 pub struct UdevData {
     pub session: LibSeatSession,
-    dh: DisplayHandle,
     dmabuf_state: Option<(DmabufState, DmabufGlobal)>,
     primary_gpu: DrmNode,
     allocator: Option<Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>>,
@@ -138,7 +137,6 @@ impl std::fmt::Debug for UdevData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UdevData")
             .field("session", &self.session)
-            .field("dh", &self.dh)
             .field("dmabuf_state", &self.dmabuf_state)
             .field("primary_gpu", &self.primary_gpu)
             .field("gpus", &self.gpus)
@@ -277,7 +275,7 @@ fn select_allocator(
 
 pub fn init_udev(
     event_loop: &mut EventLoop<CalloopData>,
-    display: &mut Display<ScapeState>,
+    display: Display<ScapeState>,
 ) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
@@ -301,7 +299,6 @@ pub fn init_udev(
     let allocator = select_allocator(primary_gpu);
 
     let udev_data = UdevData {
-        dh: display.handle(),
         dmabuf_state: None,
         session: session.clone(),
         primary_gpu,
@@ -333,7 +330,7 @@ pub fn init_udev(
         .handle()
         .insert_source(libinput_backend, move |event, _, data| {
             data.state
-                .process_input_event(&data.display.handle(), event)
+                .process_input_event(&data.state.display_handle, event)
         })
         .unwrap();
     event_loop

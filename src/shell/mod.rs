@@ -126,7 +126,7 @@ impl CompositorHandler for ScapeState {
                     let res = state.loop_handle.insert_source(source, move |_, _, data| {
                         data.state
                             .client_compositor_state(&client)
-                            .blocker_cleared(&mut data.state, &data.display.handle());
+                            .blocker_cleared(&mut data.state, &data.state.display_handle);
                         Ok(())
                     });
                     if res.is_ok() {
