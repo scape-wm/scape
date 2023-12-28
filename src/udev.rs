@@ -91,6 +91,7 @@ use std::{
     collections::{hash_map::HashMap, HashSet},
     convert::TryInto,
     ffi::OsString,
+    io,
     os::unix::io::FromRawFd,
     path::Path,
     sync::{atomic::Ordering, Mutex},
@@ -1373,10 +1374,10 @@ fn frame_finish(
                 }
                 SwapBuffersError::TemporaryFailure(err) => matches!(
                     err.downcast_ref::<DrmError>(),
-                    Some(&DrmError::Access {
-                        source: drm::SystemError::PermissionDenied,
+                    Some(DrmError::Access {
+                        source,
                         ..
-                    })
+                    }) if source.kind() == io::ErrorKind::PermissionDenied
                 ),
                 SwapBuffersError::ContextLost(err) => {
                     panic!("Rendering loop lost: {}", err)
@@ -1569,14 +1570,13 @@ fn render_surface_crtc(state: &mut ScapeState, node: DrmNode, crtc: crtc::Handle
             warn!("Error during rendering: {:?}", err);
             match err {
                 SwapBuffersError::AlreadySwapped => false,
-                SwapBuffersError::TemporaryFailure(err) => !matches!(
-                    err.downcast_ref::<DrmError>(),
-                    Some(&DrmError::DeviceInactive)
-                        | Some(&DrmError::Access {
-                            source: drm::SystemError::PermissionDenied,
-                            ..
-                        })
-                ),
+                SwapBuffersError::TemporaryFailure(err) => match err.downcast_ref::<DrmError>() {
+                    Some(DrmError::DeviceInactive) => true,
+                    Some(DrmError::Access { source, .. }) => {
+                        source.kind() == io::ErrorKind::PermissionDenied
+                    }
+                    _ => false,
+                },
                 SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
             }
         }
