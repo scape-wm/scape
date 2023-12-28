@@ -280,7 +280,7 @@ fn run_tick(state: &mut ScapeState) {
             reset = !surface.alive();
         }
         if reset {
-            *cursor_guard = CursorImageStatus::Default;
+            *cursor_guard = CursorImageStatus::default_named();
         }
         let cursor_visible = !matches!(*cursor_guard, CursorImageStatus::Surface(_));
 

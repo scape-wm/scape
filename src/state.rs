@@ -646,7 +646,7 @@ impl ScapeState {
         };
         let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
 
-        let cursor_status = Arc::new(Mutex::new(CursorImageStatus::Default));
+        let cursor_status = Arc::new(Mutex::new(CursorImageStatus::default_named()));
         let pointer = seat.add_pointer();
         seat.add_keyboard(
             XkbConfig {
