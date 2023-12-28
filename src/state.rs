@@ -3,6 +3,13 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
+use smithay::delegate_data_control;
+use smithay::wayland::selection::primary_selection::set_primary_focus;
+use smithay::wayland::selection::primary_selection::{
+    PrimarySelectionHandler, PrimarySelectionState,
+};
+use smithay::wayland::selection::wlr_data_control::{DataControlHandler, DataControlState};
+use smithay::wayland::selection::{SelectionHandler, SelectionSource, SelectionTarget};
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -56,11 +63,7 @@ use smithay::{
     utils::{Clock, Monotonic, Point, Rectangle, Size},
     wayland::{
         compositor::{get_parent, with_states, CompositorClientState, CompositorState},
-        data_device::{
-            set_data_device_focus, with_source_metadata as with_data_device_source_metadata,
-            ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
-        },
-        dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, DmabufState, ImportError},
+        dmabuf::{DmabufFeedback, DmabufGlobal, DmabufHandler, DmabufState},
         fractional_scale::{
             with_fractional_scale, FractionalScaleHandler, FractionalScaleManagerState,
         },
@@ -75,17 +78,16 @@ use smithay::{
         },
         pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
-        primary_selection::{
-            set_primary_focus, with_source_metadata as with_primary_source_metadata,
-            PrimarySelectionHandler, PrimarySelectionState,
-        },
         relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         security_context::{
             SecurityContext, SecurityContextHandler, SecurityContextListenerSource,
             SecurityContextState,
         },
-        selection::{data_device::set_data_device_focus, primary_selection::set_primary_focus},
+        selection::data_device::{
+            set_data_device_focus, with_source_metadata as with_data_device_source_metadata,
+            ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
+        },
         shell::{
             wlr_layer::WlrLayerShellState,
             xdg::{
@@ -149,6 +151,7 @@ pub struct ScapeState {
     pub layer_shell_state: WlrLayerShellState,
     pub output_manager_state: OutputManagerState,
     pub primary_selection_state: PrimarySelectionState,
+    pub data_control_state: DataControlState,
     pub seat_state: SeatState<ScapeState>,
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
     pub shm_state: ShmState,
@@ -182,47 +185,8 @@ pub struct ScapeState {
 delegate_compositor!(ScapeState);
 
 impl DataDeviceHandler for ScapeState {
-    type SelectionUserData = ();
-
     fn data_device_state(&self) -> &DataDeviceState {
         &self.data_device_state
-    }
-
-    fn new_selection(&mut self, source: Option<WlDataSource>, _seat: Seat<Self>) {
-        use smithay::xwayland::xwm::SelectionType;
-
-        if let Some(xwm) = self.xwm.as_mut() {
-            if let Some(source) = source {
-                if let Ok(Err(err)) = with_data_device_source_metadata(&source, |metadata| {
-                    xwm.new_selection(SelectionType::Clipboard, Some(metadata.mime_types.clone()))
-                }) {
-                    warn!(?err, "Failed to set Xwayland clipboard selection");
-                }
-            } else if let Err(err) = xwm.new_selection(SelectionType::Clipboard, None) {
-                warn!(?err, "Failed to clear Xwayland clipboard selection");
-            }
-        }
-    }
-
-    fn send_selection(
-        &mut self,
-        mime_type: String,
-        fd: OwnedFd,
-        _seat: Seat<Self>,
-        _user_data: &(),
-    ) {
-        use smithay::xwayland::xwm::SelectionType;
-
-        if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.send_selection(
-                SelectionType::Clipboard,
-                mime_type,
-                fd,
-                self.loop_handle.clone(),
-            ) {
-                warn!(?err, "Failed to send clipboard (X11 -> Wayland)");
-            }
-        }
     }
 }
 impl ClientDndGrabHandler for ScapeState {
@@ -248,51 +212,49 @@ delegate_data_device!(ScapeState);
 
 delegate_output!(ScapeState);
 
-impl PrimarySelectionHandler for ScapeState {
-    type SelectionUserData = ();
-
-    fn primary_selection_state(&self) -> &PrimarySelectionState {
-        &self.primary_selection_state
-    }
-
-    fn new_selection(&mut self, source: Option<ZwpPrimarySelectionSourceV1>, _seat: Seat<Self>) {
-        use smithay::xwayland::xwm::SelectionType;
-
+impl SelectionHandler for ScapeState {
+    fn new_selection(
+        &mut self,
+        ty: SelectionTarget,
+        source: Option<SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Some(source) = source {
-                if let Ok(Err(err)) = with_primary_source_metadata(&source, |metadata| {
-                    xwm.new_selection(SelectionType::Primary, Some(metadata.mime_types.clone()))
-                }) {
-                    warn!(?err, "Failed to set Xwayland primary selection");
-                }
-            } else if let Err(err) = xwm.new_selection(SelectionType::Primary, None) {
-                warn!(?err, "Failed to clear Xwayland primary selection");
+            if let Err(err) = xwm.new_selection(ty, source.map(|source| source.mime_types())) {
+                warn!(?err, ?ty, "Failed to set Xwayland selection");
             }
         }
     }
 
     fn send_selection(
         &mut self,
+        ty: SelectionTarget,
         mime_type: String,
         fd: OwnedFd,
         _seat: Seat<Self>,
         _user_data: &(),
     ) {
-        use smithay::xwayland::xwm::SelectionType;
-
         if let Some(xwm) = self.xwm.as_mut() {
-            if let Err(err) = xwm.send_selection(
-                SelectionType::Primary,
-                mime_type,
-                fd,
-                self.loop_handle.clone(),
-            ) {
+            if let Err(err) = xwm.send_selection(ty, mime_type, fd, self.loop_handle.clone()) {
                 warn!(?err, "Failed to send primary (X11 -> Wayland)");
             }
         }
     }
 }
+
+impl PrimarySelectionHandler for ScapeState {
+    fn primary_selection_state(&self) -> &PrimarySelectionState {
+        &self.primary_selection_state
+    }
+}
 delegate_primary_selection!(ScapeState);
+
+impl DataControlHandler for ScapeState {
+    fn data_control_state(&self) -> &DataControlState {
+        &self.data_control_state
+    }
+}
+delegate_data_control!(ScapeState);
 
 impl ShmHandler for ScapeState {
     fn shm_state(&self) -> &ShmState {
@@ -618,6 +580,8 @@ impl ScapeState {
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
+        let data_control_state =
+            DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
         let mut seat_state = SeatState::new();
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
@@ -720,6 +684,7 @@ impl ScapeState {
             layer_shell_state,
             output_manager_state,
             primary_selection_state,
+            data_control_state,
             seat_state,
             keyboard_shortcuts_inhibit_state,
             shm_state,
