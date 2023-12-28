@@ -542,7 +542,7 @@ impl ScapeState {
         event_loop: &mut EventLoop<'static, CalloopData>,
     ) -> anyhow::Result<ScapeState> {
         info!("Initializing state");
-        let clock = Clock::new()?;
+        let clock = Clock::new();
         let loop_handle = event_loop.handle();
 
         // init wayland clients
@@ -551,8 +551,8 @@ impl ScapeState {
         loop_handle
             .insert_source(source, |client_stream, _, data| {
                 if let Err(err) = data
-                    .display
-                    .handle()
+                    .state
+                    .display_handle
                     .insert_client(client_stream, Arc::new(ClientState::default()))
                 {
                     warn!("Error adding wayland client: {}", err);
