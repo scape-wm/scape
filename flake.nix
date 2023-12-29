@@ -41,6 +41,7 @@
           udev
           dbus
           wayland
+          xwayland
           seatd
           libxkbcommon
           libinput
