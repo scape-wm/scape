@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 use scape::{args::get_global_args, compositor};
+use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 #[cfg(feature = "profile-with-tracy")]
 #[global_allocator]
@@ -25,14 +26,19 @@ fn setup_profiling() {
 }
 
 fn setup_logging() {
-    if let Ok(env_filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
-        tracing_subscriber::fmt()
-            .compact()
-            .with_env_filter(env_filter)
-            .init();
-    } else {
-        tracing_subscriber::fmt().compact().init();
-    }
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        let builder = EnvFilter::builder();
+        #[cfg(feature = "debug")]
+        let builder = builder.with_default_directive(LevelFilter::DEBUG.into());
+        #[cfg(not(feature = "debug"))]
+        let builder = builder.with_default_directive(LevelFilter::INFO.into());
+        builder.parse_lossy("")
+    });
+
+    tracing_subscriber::fmt()
+        .compact()
+        .with_env_filter(env_filter)
+        .init();
 }
 
 fn main() -> anyhow::Result<()> {
