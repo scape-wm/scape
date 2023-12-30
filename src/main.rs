@@ -2,7 +2,7 @@
 
 #![warn(missing_docs)]
 
-use scape::{args::get_global_args, compositor};
+use scape::{args::get_global_args, wayland};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 #[cfg(feature = "profile-with-tracy")]
@@ -47,5 +47,5 @@ fn main() -> anyhow::Result<()> {
     setup_profiling();
 
     let args = get_global_args();
-    compositor::run(&args)
+    wayland::run(&args)
 }
