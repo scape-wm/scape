@@ -408,7 +408,10 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                 }
                 TimeoutAction::Drop
             })
-            .unwrap();
+            .map_err(|e| {
+                error!("Unable to insert timer into loop: {e}");
+                anyhow!("Error during insert into loop")
+            })?;
     }
     event_loop
         .handle()

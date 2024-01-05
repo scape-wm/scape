@@ -852,28 +852,28 @@ impl BackendData {
     pub fn udev(&self) -> &UdevData {
         match self {
             BackendData::Udev(udev_data) => udev_data,
-            _ => panic!("Requeted udev_data, but is not udev backend data"),
+            _ => unreachable!("Requeted udev_data, but is not udev backend data"),
         }
     }
 
     pub fn udev_mut(&mut self) -> &mut UdevData {
         match self {
             BackendData::Udev(udev_data) => udev_data,
-            _ => panic!("Requeted mut udev_data, but is not udev backend data"),
+            _ => unreachable!("Requeted mut udev_data, but is not udev backend data"),
         }
     }
 
     pub fn winit(&self) -> &WinitData {
         match self {
             BackendData::Winit(winit_data) => winit_data,
-            _ => panic!("Requeted winit_data, but is not winit backend data"),
+            _ => unreachable!("Requeted winit_data, but is not winit backend data"),
         }
     }
 
     pub fn winit_mut(&mut self) -> &mut WinitData {
         match self {
             BackendData::Winit(winit_data) => winit_data,
-            _ => panic!("Requeted mut winit_data, but is not udev backend data"),
+            _ => unreachable!("Requeted mut winit_data, but is not udev backend data"),
         }
     }
 

@@ -347,7 +347,6 @@ fn place_new_window(
         .unwrap_or_else(|| Rectangle::from_loc_and_size((0, 0), (800, 800)));
 
     // set the initial toplevel bounds
-    #[allow(irrefutable_let_patterns)]
     if let WindowElement::Wayland(window) = window {
         window.toplevel().with_pending_state(|state| {
             state.bounds = Some(output_geometry.size);

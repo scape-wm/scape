@@ -14,6 +14,7 @@ use smithay::{
 };
 use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
 use std::cell::RefCell;
+use tracing::{error, warn};
 
 pub struct MoveSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
@@ -169,15 +170,43 @@ bitflags::bitflags! {
 
 impl From<xdg_toplevel::ResizeEdge> for ResizeEdge {
     #[inline]
-    fn from(x: xdg_toplevel::ResizeEdge) -> Self {
-        Self::from_bits(x as u32).unwrap()
+    fn from(value: xdg_toplevel::ResizeEdge) -> Self {
+        match value {
+            xdg_toplevel::ResizeEdge::None => ResizeEdge::NONE,
+            xdg_toplevel::ResizeEdge::Top => ResizeEdge::TOP,
+            xdg_toplevel::ResizeEdge::Bottom => ResizeEdge::BOTTOM,
+            xdg_toplevel::ResizeEdge::Left => ResizeEdge::LEFT,
+            xdg_toplevel::ResizeEdge::TopLeft => ResizeEdge::TOP_LEFT,
+            xdg_toplevel::ResizeEdge::BottomLeft => ResizeEdge::BOTTOM_LEFT,
+            xdg_toplevel::ResizeEdge::Right => ResizeEdge::RIGHT,
+            xdg_toplevel::ResizeEdge::TopRight => ResizeEdge::TOP_RIGHT,
+            xdg_toplevel::ResizeEdge::BottomRight => ResizeEdge::BOTTOM_RIGHT,
+            _ => {
+                warn!("xdg_toplevel::ResizeEdge value of {value:?} cannot be mapped");
+                ResizeEdge::NONE
+            }
+        }
     }
 }
 
 impl From<ResizeEdge> for xdg_toplevel::ResizeEdge {
     #[inline]
-    fn from(x: ResizeEdge) -> Self {
-        Self::try_from(x.bits()).unwrap()
+    fn from(value: ResizeEdge) -> Self {
+        match value {
+            ResizeEdge::NONE => xdg_toplevel::ResizeEdge::None,
+            ResizeEdge::TOP => xdg_toplevel::ResizeEdge::Top,
+            ResizeEdge::BOTTOM => xdg_toplevel::ResizeEdge::Bottom,
+            ResizeEdge::LEFT => xdg_toplevel::ResizeEdge::Left,
+            ResizeEdge::TOP_LEFT => xdg_toplevel::ResizeEdge::TopLeft,
+            ResizeEdge::BOTTOM_LEFT => xdg_toplevel::ResizeEdge::BottomLeft,
+            ResizeEdge::RIGHT => xdg_toplevel::ResizeEdge::Right,
+            ResizeEdge::TOP_RIGHT => xdg_toplevel::ResizeEdge::TopRight,
+            ResizeEdge::BOTTOM_RIGHT => xdg_toplevel::ResizeEdge::BottomRight,
+            _ => {
+                warn!("ResizeEdge value of {value:?} cannot be mapped");
+                xdg_toplevel::ResizeEdge::None
+            }
+        }
     }
 }
 
@@ -313,12 +342,14 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                 xdg.send_pending_configure();
             }
             WindowElement::X11(x11) => {
-                let location = data.space.element_location(&self.window).unwrap();
-                x11.configure(Rectangle::from_loc_and_size(
-                    location,
-                    self.last_window_size,
-                ))
-                .unwrap();
+                let Some(location) = data.space.element_location(&self.window) else {
+                    warn!("Surface to move was not found in the space");
+                    return;
+                };
+                let target = Rectangle::from_loc_and_size(location, self.last_window_size);
+                if let Err(e) = x11.configure(target) {
+                    error!("Unable to configure x11 surface: {e}");
+                }
             }
         }
     }
@@ -359,7 +390,10 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                     xdg.send_pending_configure();
                     if self.edges.intersects(ResizeEdge::TOP_LEFT) {
                         let geometry = self.window.geometry();
-                        let mut location = data.space.element_location(&self.window).unwrap();
+                        let Some(mut location) = data.space.element_location(&self.window) else {
+                            warn!("Window not found in space: {:?}", self.window);
+                            return;
+                        };
 
                         if self.edges.intersects(ResizeEdge::LEFT) {
                             location.x = self.initial_window_location.x
@@ -373,22 +407,36 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                         data.space.map_element(self.window.clone(), location, true);
                     }
 
-                    with_states(&self.window.wl_surface().unwrap(), |states| {
-                        let mut data = states
-                            .data_map
-                            .get::<RefCell<SurfaceData>>()
-                            .unwrap()
-                            .borrow_mut();
+                    let Some(wl_surface) = &self.window.wl_surface() else {
+                        warn!("Wl_surface not found on window {:?}", self.window);
+                        return;
+                    };
+                    with_states(wl_surface, |states| {
+                        let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
+                        else {
+                            warn!("No surface data found on surface {:?}", wl_surface);
+                            return;
+                        };
+                        let Ok(mut data) = surface_data.try_borrow_mut() else {
+                            warn!(
+                                "Cannot borrow surface data as mut of surface {:?}",
+                                wl_surface
+                            );
+                            return;
+                        };
                         if let ResizeState::Resizing(resize_data) = data.resize_state {
                             data.resize_state =
                                 ResizeState::WaitingForFinalAck(resize_data, event.serial);
                         } else {
-                            panic!("invalid resize state: {:?}", data.resize_state);
+                            warn!("Invalid resize state: {:?}", data.resize_state);
                         }
                     });
                 }
                 WindowElement::X11(x11) => {
-                    let mut location = data.space.element_location(&self.window).unwrap();
+                    let Some(mut location) = data.space.element_location(&self.window) else {
+                        warn!("Window {:?} not found in space", self.window);
+                        return;
+                    };
                     if self.edges.intersects(ResizeEdge::TOP_LEFT) {
                         let geometry = self.window.geometry();
 
@@ -403,26 +451,34 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
 
                         data.space.map_element(self.window.clone(), location, true);
                     }
-                    x11.configure(Rectangle::from_loc_and_size(
+                    if let Err(e) = x11.configure(Rectangle::from_loc_and_size(
                         location,
                         self.last_window_size,
-                    ))
-                    .unwrap();
+                    )) {
+                        error!(
+                            "Unable to configure new location on X11 surface {:?}: {}",
+                            x11, e
+                        );
+                    }
 
                     let Some(surface) = self.window.wl_surface() else {
                         // X11 Window got unmapped, abort
                         return;
                     };
                     with_states(&surface, |states| {
-                        let mut data = states
-                            .data_map
-                            .get::<RefCell<SurfaceData>>()
-                            .unwrap()
-                            .borrow_mut();
+                        let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
+                        else {
+                            warn!("No surface data found on surface {:?}", surface);
+                            return;
+                        };
+                        let Ok(mut data) = surface_data.try_borrow_mut() else {
+                            warn!("Cannot borrow surface data as mut of surface {:?}", surface);
+                            return;
+                        };
                         if let ResizeState::Resizing(resize_data) = data.resize_state {
                             data.resize_state = ResizeState::WaitingForCommit(resize_data);
                         } else {
-                            panic!("invalid resize state: {:?}", data.resize_state);
+                            warn!("Invalid resize state: {:?}", data.resize_state);
                         }
                     });
                 }

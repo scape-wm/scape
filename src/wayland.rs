@@ -2,6 +2,7 @@ use crate::{args::GlobalArgs, state::BackendData, State};
 use calloop::{EventLoop, LoopHandle};
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use std::{ffi::OsString, time::Duration};
+use tracing::error;
 
 pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let display = create_display()?;
@@ -59,7 +60,7 @@ fn start_xwayland(state: &State, loop_handle: LoopHandle<State>) {
         true,
         |_| {},
     ) {
-        tracing::error!("Failed to start XWayland: {}", e);
+        error!("Failed to start XWayland: {}", e);
     }
 }
 
@@ -68,7 +69,9 @@ fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Resu
     event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
         state.space.refresh();
         state.popups.cleanup();
-        state.display_handle.flush_clients().unwrap();
+        if let Err(e) = state.display_handle.flush_clients() {
+            error!("Unable to flush clients: {e}");
+        }
     })?;
 
     Ok(())
