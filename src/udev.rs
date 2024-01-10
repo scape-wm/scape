@@ -10,8 +10,6 @@ use anyhow::{anyhow, Result};
 use smithay::backend::drm::compositor::PrimaryPlaneElement;
 use smithay::backend::drm::DrmSurface;
 use smithay::backend::renderer::element::{RenderElement, RenderElementStates};
-use smithay::backend::renderer::sync::SyncPoint;
-#[cfg(feature = "egl")]
 use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
@@ -19,7 +17,6 @@ use smithay::backend::renderer::{ExportMem, ImportMemWl, Offscreen};
 use smithay::delegate_drm_lease;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
-use smithay::utils::{Physical, Rectangle};
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::drm_lease::{
     DrmLease, DrmLeaseBuilder, DrmLeaseHandler, DrmLeaseRequest, DrmLeaseState, LeaseRejected,
@@ -39,7 +36,7 @@ use smithay::{
         egl::{self, EGLDevice, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
-            damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
+            damage::Error as OutputDamageTrackerError,
             element::{texture::TextureBuffer, AsRenderElements},
             gles::{GlesRenderer, GlesTexture},
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
@@ -612,19 +609,12 @@ pub type GbmDrmCompositor = DrmCompositor<
 
 #[derive(Debug)]
 enum SurfaceComposition {
-    Surface {
-        surface: RenderSurface,
-        damage_tracker: OutputDamageTracker,
-        debug_flags: DebugFlags,
-    },
     Compositor(GbmDrmCompositor),
 }
 
 struct SurfaceCompositorRenderResult {
     rendered: bool,
     states: RenderElementStates,
-    sync: Option<SyncPoint>,
-    damage: Option<Vec<Rectangle<i32, Physical>>>,
 }
 
 impl SurfaceComposition {
@@ -636,44 +626,33 @@ impl SurfaceComposition {
             SurfaceComposition::Compositor(c) => {
                 c.frame_submitted().map_err(Into::<SwapBuffersError>::into)
             }
-            SurfaceComposition::Surface { surface, .. } => surface
-                .frame_submitted()
-                .map_err(Into::<SwapBuffersError>::into),
         }
     }
 
     fn format(&self) -> smithay::reexports::gbm::Format {
         match self {
             SurfaceComposition::Compositor(c) => c.format(),
-            SurfaceComposition::Surface { surface, .. } => surface.format(),
         }
     }
 
     fn surface(&self) -> &DrmSurface {
         match self {
             SurfaceComposition::Compositor(c) => c.surface(),
-            SurfaceComposition::Surface { surface, .. } => surface.surface(),
         }
     }
 
     fn reset_buffers(&mut self) {
         match self {
             SurfaceComposition::Compositor(c) => c.reset_buffers(),
-            SurfaceComposition::Surface { surface, .. } => surface.reset_buffers(),
         }
     }
 
     #[cfg_attr(feature = "profiling", profiling::function)]
     fn queue_frame(
         &mut self,
-        sync: Option<SyncPoint>,
-        damage: Option<Vec<Rectangle<i32, Physical>>>,
         user_data: Option<OutputPresentationFeedback>,
     ) -> Result<(), SwapBuffersError> {
         match self {
-            SurfaceComposition::Surface { surface, .. } => surface
-                .queue_buffer(sync, damage, user_data)
-                .map_err(Into::<SwapBuffersError>::into),
             SurfaceComposition::Compositor(c) => c
                 .queue_frame(user_data)
                 .map_err(Into::<SwapBuffersError>::into),
@@ -694,39 +673,6 @@ impl SurfaceComposition {
         E: RenderElement<R>,
     {
         match self {
-            SurfaceComposition::Surface {
-                surface,
-                damage_tracker,
-                debug_flags,
-            } => {
-                let (dmabuf, age) = surface
-                    .next_buffer()
-                    .map_err(Into::<SwapBuffersError>::into)?;
-                renderer
-                    .bind(dmabuf)
-                    .map_err(Into::<SwapBuffersError>::into)?;
-                let current_debug_flags = renderer.debug_flags();
-                renderer.set_debug_flags(*debug_flags);
-                let res = damage_tracker
-                    .render_output(renderer, age.into(), elements, clear_color)
-                    .map(|res| {
-                        #[cfg(feature = "renderer_sync")]
-                        res.sync.wait();
-                        let rendered = res.damage.is_some();
-                        SurfaceCompositorRenderResult {
-                            rendered,
-                            damage: res.damage,
-                            states: res.states,
-                            sync: rendered.then_some(res.sync),
-                        }
-                    })
-                    .map_err(|err| match err {
-                        OutputDamageTrackerError::Rendering(err) => err.into(),
-                        _ => unreachable!(),
-                    });
-                renderer.set_debug_flags(current_debug_flags);
-                res
-            }
             SurfaceComposition::Compositor(compositor) => compositor
                 .render_frame(renderer, elements, clear_color)
                 .map(|render_frame_result| {
@@ -738,9 +684,7 @@ impl SurfaceComposition {
                     }
                     SurfaceCompositorRenderResult {
                         rendered: render_frame_result.damage.is_some(),
-                        damage: None,
                         states: render_frame_result.states,
-                        sync: None,
                     }
                 })
                 .map_err(|err| match err {
@@ -750,21 +694,15 @@ impl SurfaceComposition {
                     smithay::backend::drm::compositor::RenderFrameError::RenderFrame(
                         OutputDamageTrackerError::Rendering(err),
                     ) => err.into(),
-                    _ => unreachable!(),
+                    smithay::backend::drm::compositor::RenderFrameError::RenderFrame(
+                        OutputDamageTrackerError::OutputNoMode(err),
+                    ) => SwapBuffersError::TemporaryFailure(err.into()),
                 }),
         }
     }
 
     fn set_debug_flags(&mut self, flags: DebugFlags) {
         match self {
-            SurfaceComposition::Surface {
-                surface,
-                debug_flags,
-                ..
-            } => {
-                *debug_flags = flags;
-                surface.reset_buffers();
-            }
             SurfaceComposition::Compositor(c) => c.set_debug_flags(flags),
         }
     }
@@ -1079,21 +1017,7 @@ fn connector_connected(
             SUPPORTED_FORMATS
         };
 
-        let compositor = if std::env::var("ANVIL_DISABLE_DRM_COMPOSITOR").is_ok() {
-            let gbm_surface =
-                match GbmBufferedSurface::new(surface, allocator, color_formats, render_formats) {
-                    Ok(renderer) => renderer,
-                    Err(err) => {
-                        warn!("Failed to create rendering surface: {}", err);
-                        return;
-                    }
-                };
-            SurfaceComposition::Surface {
-                surface: gbm_surface,
-                damage_tracker: OutputDamageTracker::from_output(&output),
-                debug_flags: udev_data.debug_flags,
-            }
-        } else {
+        let compositor = {
             let driver = match device.drm.get_driver() {
                 Ok(driver) => driver,
                 Err(err) => {
@@ -1771,7 +1695,7 @@ fn render_surface<'a, 'b>(
         let output_presentation_feedback = take_presentation_feedback(output, space, &res.states);
         surface
             .compositor
-            .queue_frame(res.sync, res.damage, Some(output_presentation_feedback))
+            .queue_frame(Some(output_presentation_feedback))
             .map_err(Into::<SwapBuffersError>::into)?;
     }
 
@@ -1785,7 +1709,7 @@ fn initial_render(
     surface
         .compositor
         .render_frame::<_, CustomRenderElements<_>, GlesTexture>(renderer, &[], CLEAR_COLOR)?;
-    surface.compositor.queue_frame(None, None, None)?;
+    surface.compositor.queue_frame(None)?;
     surface.compositor.reset_buffers();
 
     Ok(())
