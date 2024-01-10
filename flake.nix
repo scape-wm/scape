@@ -51,6 +51,7 @@
           glib # needed for puffin
           gtk3 # needed for puffin
           tracy # for profiling with tracy
+          just
         ];
         runtimeDependencies = with pkgs; [
           libglvnd
