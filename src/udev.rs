@@ -81,6 +81,7 @@ use smithay_drm_extras::{
     drm_scanner::{DrmScanEvent, DrmScanner},
     edid::EdidInfo,
 };
+use std::sync::atomic::AtomicIsize;
 use std::time::Instant;
 use std::{
     collections::{hash_map::HashMap, HashSet},
@@ -105,6 +106,8 @@ const SUPPORTED_FORMATS: &[Fourcc] = &[
     Fourcc::Argb8888,
 ];
 const SUPPORTED_FORMATS_8BIT_ONLY: &[Fourcc] = &[Fourcc::Abgr8888, Fourcc::Argb8888];
+
+pub const RENDER_SCHEDULE_COUNTER: AtomicIsize = AtomicIsize::new(0);
 
 type UdevRenderer<'a, 'b> =
     MultiRenderer<'a, 'a, 'b, GbmGlesBackend<GlesRenderer>, GbmGlesBackend<GlesRenderer>>;
@@ -342,8 +345,9 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
             };
             match event {
                 SessionEvent::PauseSession => {
-                    libinput_context.suspend();
                     info!("pausing session");
+                    state.session_paused = true;
+                    libinput_context.suspend();
                     for backend in udev_data.backends.values_mut() {
                         backend.drm.pause();
                         backend.active_leases.clear();
@@ -354,6 +358,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                 }
                 SessionEvent::ActivateSession => {
                     info!("resuming session");
+                    state.session_paused = false;
                     if let Err(err) = libinput_context.resume() {
                         error!("Failed to resume libinput context: {:?}", err);
                     }
@@ -376,6 +381,8 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                             // otherwise
                             surface.compositor.reset_buffers();
                         }
+
+                        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         state
                             .loop_handle
                             .insert_idle(move |state| render(state, node, None));
@@ -416,6 +423,10 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
             UdevEvent::Added { device_id, path } => {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
+                    .and_then(|node| {
+                        state.last_node = Some(node);
+                        Ok(node)
+                    })
                     .and_then(|node| device_added(state, node, &path))
                 {
                     error!("Skipping device {device_id}: {err}");
@@ -1240,11 +1251,14 @@ fn frame_finish(
         return;
     };
 
-    let schedule_render = match surface
+    let frame_submitted_result = surface
         .compositor
         .frame_submitted()
-        .map_err(Into::<SwapBuffersError>::into)
-    {
+        .map_err(Into::<SwapBuffersError>::into);
+    if frame_submitted_result.is_err() && state.session_paused {
+        return;
+    }
+    let schedule_render = match frame_submitted_result {
         Ok(user_data) => {
             if let Some(mut feedback) = user_data.flatten() {
                 let tp = metadata.as_ref().and_then(|metadata| match metadata.time {
@@ -1302,7 +1316,8 @@ fn frame_finish(
                     }) if source.kind() == io::ErrorKind::PermissionDenied
                 ),
                 SwapBuffersError::ContextLost(err) => {
-                    panic!("Rendering loop lost: {}", err)
+                    warn!("Rendering context lost: {}", err);
+                    panic!()
                 }
             }
         }
@@ -1359,6 +1374,7 @@ fn frame_finish(
             Timer::from_duration(repaint_delay)
         };
 
+        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
@@ -1370,7 +1386,7 @@ fn frame_finish(
 }
 
 // If crtc is `Some()`, render it, else render all crtcs
-fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
+pub fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
     let device_backend = match state.backend_data.udev_mut().backends.get_mut(&node) {
         Some(backend) => backend,
         None => {
@@ -1387,6 +1403,8 @@ fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
             render_surface_crtc(state, node, crtc);
         }
     };
+
+    RENDER_SCHEDULE_COUNTER.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
 }
 
 fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
@@ -1481,7 +1499,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         &pointer_image,
         &mut udev_data.pointer_element,
         &state.dnd_icon,
-        &mut state.cursor_status.lock().unwrap(),
+        &mut state.cursor_status,
         &state.clock,
         state.show_window_preview,
     );
@@ -1519,6 +1537,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
             crtc,
         );
         let timer = Timer::from_duration(reschedule_duration);
+        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
@@ -1602,13 +1621,17 @@ fn render_surface<'a, 'b>(
     if output_geometry.to_f64().contains(pointer_location) {
         let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = cursor_status {
             compositor::with_states(surface, |states| {
-                states
+                if let Ok(attr) = states
                     .data_map
                     .get::<Mutex<CursorImageAttributes>>()
                     .unwrap()
-                    .lock()
-                    .unwrap()
-                    .hotspot
+                    .try_lock()
+                {
+                    attr.hotspot
+                } else {
+                    warn!("Unable to get lock to cursor image attributes");
+                    (0, 0).into()
+                }
             })
         } else {
             (0, 0).into()

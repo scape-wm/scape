@@ -3,6 +3,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
+use smithay::backend::drm::DrmNode;
 use smithay::delegate_data_control;
 use smithay::desktop::space::SpaceElement;
 use smithay::input::keyboard::Keysym;
@@ -163,7 +164,7 @@ pub struct State {
 
     // input-related fields
     pub suppressed_keys: Vec<Keysym>,
-    pub cursor_status: Arc<Mutex<CursorImageStatus>>,
+    pub cursor_status: CursorImageStatus,
     pub seat_name: String,
     pub seat: Seat<State>,
     pub clock: Clock<Monotonic>,
@@ -177,6 +178,8 @@ pub struct State {
     pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
 
     pub show_window_preview: bool,
+    pub session_paused: bool,
+    pub last_node: Option<DrmNode>,
 }
 
 delegate_compositor!(State);
@@ -280,7 +283,7 @@ impl SeatHandler for State {
         set_primary_focus(dh, seat, focus);
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        *self.cursor_status.lock().unwrap() = image;
+        self.cursor_status = image;
     }
 }
 delegate_seat!(State);
@@ -334,6 +337,7 @@ delegate_relative_pointer!(State);
 
 impl PointerConstraintsHandler for State {
     fn new_constraint(&mut self, surface: &WlSurface, pointer: &PointerHandle<Self>) {
+        warn!("pointer constraint {:?} ", surface);
         // XXX region
         if pointer
             .current_focus()
@@ -341,10 +345,12 @@ impl PointerConstraintsHandler for State {
             .as_ref()
             == Some(surface)
         {
+            warn!("ok");
             with_pointer_constraint(surface, pointer, |constraint| {
                 constraint.unwrap().activate();
             });
         }
+        warn!("done")
     }
 }
 delegate_pointer_constraints!(State);
@@ -410,13 +416,17 @@ impl XdgDecorationHandler for State {
         });
 
         let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
-            states
+            if let Ok(data) = states
                 .data_map
                 .get::<XdgToplevelSurfaceData>()
                 .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
+                .try_lock()
+            {
+                data.initial_configure_sent
+            } else {
+                warn!("Unable to lock XdgToplevelSurfaceData in request mode");
+                true
+            }
         });
         if initial_configure_sent {
             toplevel.send_pending_configure();
@@ -429,13 +439,17 @@ impl XdgDecorationHandler for State {
             state.decoration_mode = Some(Mode::ClientSide);
         });
         let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
-            states
+            if let Ok(data) = states
                 .data_map
                 .get::<XdgToplevelSurfaceData>()
                 .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
+                .try_lock()
+            {
+                data.initial_configure_sent
+            } else {
+                warn!("Unable to lock XdgToplevelSurfaceData in unset mode");
+                true
+            }
         });
         if initial_configure_sent {
             toplevel.send_pending_configure();
@@ -616,7 +630,7 @@ impl State {
         };
         let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
 
-        let cursor_status = Arc::new(Mutex::new(CursorImageStatus::default_named()));
+        let cursor_status = CursorImageStatus::default_named();
         let pointer = seat.add_pointer();
         seat.add_keyboard(
             XkbConfig {
@@ -628,12 +642,13 @@ impl State {
         )
         .expect("Failed to initialize the keyboard");
 
-        let cursor_status2 = cursor_status.clone();
-        seat.tablet_seat()
-            .on_cursor_surface(move |_tool, new_status| {
-                // TODO: tablet tools should have their own cursors
-                *cursor_status2.lock().unwrap() = new_status;
-            });
+        // TODO: add tablet to seat and handle cursor event
+        // let cursor_status2 = cursor_status.clone();
+        // seat.tablet_seat()
+        //     .on_cursor_surface(move |_tool, new_status| {
+        //         // TODO: tablet tools should have their own cursors
+        //         *cursor_status2.lock().unwrap() = new_status;
+        //     });
 
         let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
 
@@ -717,6 +732,8 @@ impl State {
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
+            session_paused: false,
+            last_node: None,
         })
     }
 }

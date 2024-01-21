@@ -1,8 +1,8 @@
 use super::{
-    fullscreen_output_geometry, place_new_window, FullscreenSurface, MoveSurfaceGrab, ResizeData,
-    ResizeState, ResizeSurfaceGrab, SurfaceData, WindowElement,
+    fullscreen_output_geometry, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
+    ResizeSurfaceGrab, SurfaceData, WindowElement,
 };
-use crate::{focus::FocusTarget, state::State};
+use crate::{composition::place_window, focus::FocusTarget, state::State};
 use smithay::{
     desktop::{
         find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output,
@@ -41,12 +41,23 @@ impl XdgShellHandler for State {
         // Do not send a configure here, the initial configure
         // of a xdg_surface has to be sent during the commit if
         // the surface is not already configured
+        // smithay::wayland::compositor::with_states(surface.wl_surface(), |states| {
+        //     let x = states
+        //         .data_map
+        //         .get::<XdgToplevelSurfaceData>()
+        //         .unwrap()
+        //         .lock()
+        //         .unwrap();
+        //     warn!("app id is: {:?}", x.app_id);
+        //     warn!("title is: {:?}", x.title);
+        // });
         let window = WindowElement::Wayland(Window::new(surface));
-        place_new_window(
+        place_window(
             &mut self.space,
             self.pointer.current_location(),
             &window,
             true,
+            crate::composition::WindowPosition::New,
         );
     }
 
@@ -168,15 +179,20 @@ impl XdgShellHandler for State {
                 // the current state as the received acknowledge
                 // will no longer have the resize state set
                 let is_resizing = with_states(&surface, |states| {
-                    states
+                    if let Ok(data) = states
                         .data_map
                         .get::<XdgToplevelSurfaceData>()
                         .unwrap()
-                        .lock()
-                        .unwrap()
-                        .current
-                        .states
-                        .contains(xdg_toplevel::State::Resizing)
+                        .try_lock()
+                    {
+                        data.current.states.contains(xdg_toplevel::State::Resizing)
+                    } else {
+                        warn!(
+                            "Unable to lock XdgToplevelSurfaceData in ack_configure on {:?}",
+                            surface
+                        );
+                        false
+                    }
                 });
 
                 if configure.serial >= serial && is_resizing {

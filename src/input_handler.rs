@@ -1,4 +1,5 @@
 use crate::{
+    composition::{place_window, WindowPosition},
     focus::FocusTarget,
     shell::{FullscreenSurface, WindowElement},
     State,
@@ -113,7 +114,19 @@ impl State {
                     }
                 }
             }
-
+            KeyAction::MoveWindow(window_position) => {
+                let pointer_location = self.pointer.current_location();
+                if let Some((window, _)) = self.space.element_under(pointer_location) {
+                    let window = window.clone();
+                    place_window(
+                        &mut self.space,
+                        pointer_location,
+                        &window,
+                        true,
+                        window_position,
+                    );
+                }
+            }
             _ => unreachable!(
                 "Common key action handler encountered backend specific action {:?}",
                 action
@@ -488,6 +501,7 @@ impl State {
                     KeyAction::None
                     | KeyAction::Quit
                     | KeyAction::Run(_)
+                    | KeyAction::MoveWindow(_)
                     | KeyAction::TogglePreview => self.process_common_key_action(action),
 
                     _ => tracing::warn!(
@@ -701,6 +715,7 @@ impl State {
                     KeyAction::None
                     | KeyAction::Quit
                     | KeyAction::Run(_)
+                    | KeyAction::MoveWindow(_)
                     | KeyAction::TogglePreview => self.process_common_key_action(action),
 
                     _ => unreachable!(),
@@ -1188,6 +1203,7 @@ enum KeyAction {
     RotateOutput,
     ToggleTint,
     ToggleDecorations,
+    MoveWindow(WindowPosition),
     /// Do nothing more
     None,
 }
@@ -1221,6 +1237,18 @@ fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Optio
         Some(KeyAction::ToggleTint)
     } else if modifiers.logo && modifiers.shift && keysym == Keysym::X {
         Some(KeyAction::ToggleDecorations)
+    } else if modifiers.logo && keysym == Keysym::Left {
+        Some(KeyAction::MoveWindow(WindowPosition::Left))
+    } else if modifiers.ctrl && keysym == Keysym::_1 {
+        Some(KeyAction::MoveWindow(WindowPosition::Left))
+    } else if modifiers.logo && keysym == Keysym::Up {
+        Some(KeyAction::MoveWindow(WindowPosition::Mid))
+    } else if modifiers.ctrl && keysym == Keysym::_2 {
+        Some(KeyAction::MoveWindow(WindowPosition::Mid))
+    } else if modifiers.logo && keysym == Keysym::Right {
+        Some(KeyAction::MoveWindow(WindowPosition::Right))
+    } else if modifiers.ctrl && keysym == Keysym::_3 {
+        Some(KeyAction::MoveWindow(WindowPosition::Right))
     } else {
         None
     }

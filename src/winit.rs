@@ -286,20 +286,20 @@ fn run_tick(state: &mut State) {
         let backend = &mut winit_data.backend;
         let output = state.space.outputs().next().unwrap().clone();
 
-        let mut cursor_guard = state.cursor_status.lock().unwrap();
-
         // draw the cursor as relevant
         // reset the cursor if the surface is no longer alive
         let mut reset = false;
-        if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
+        if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
             reset = !surface.alive();
         }
         if reset {
-            *cursor_guard = CursorImageStatus::default_named();
+            state.cursor_status = CursorImageStatus::default_named();
         }
-        let cursor_visible = !matches!(*cursor_guard, CursorImageStatus::Surface(_));
+        let cursor_visible = !matches!(state.cursor_status, CursorImageStatus::Surface(_));
 
-        winit_data.pointer_element.set_status(cursor_guard.clone());
+        winit_data
+            .pointer_element
+            .set_status(state.cursor_status.clone());
 
         #[cfg(feature = "debug")]
         let mut fps_element = FpsElement::new(winit_data.fps_texture.clone());
@@ -318,15 +318,19 @@ fn run_tick(state: &mut State) {
         let dnd_icon = state.dnd_icon.as_ref();
 
         let scale = Scale::from(output.current_scale().fractional_scale());
-        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = *cursor_guard {
+        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
             smithay::wayland::compositor::with_states(surface, |states| {
-                states
+                if let Ok(attr) = states
                     .data_map
                     .get::<Mutex<CursorImageAttributes>>()
                     .unwrap()
-                    .lock()
-                    .unwrap()
-                    .hotspot
+                    .try_lock()
+                {
+                    attr.hotspot
+                } else {
+                    warn!("Unable to lock CursorImageAttributes in run_tick");
+                    (0, 0).into()
+                }
             })
         } else {
             (0, 0).into()

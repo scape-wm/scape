@@ -1,3 +1,4 @@
+use crate::composition::place_window;
 use crate::{ClientState, State};
 use smithay::xwayland::X11Wm;
 use smithay::{
@@ -34,7 +35,7 @@ use smithay::{
     xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
-use tracing::info;
+use tracing::{info, warn};
 
 mod element;
 mod grabs;
@@ -234,13 +235,17 @@ fn ensure_initial_configure(
         // send the initial configure if relevant
         if let WindowElement::Wayland(ref toplevel) = window {
             let initial_configure_sent = with_states(surface, |states| {
-                states
+                if let Ok(data) = states
                     .data_map
                     .get::<XdgToplevelSurfaceData>()
                     .unwrap()
-                    .lock()
-                    .unwrap()
-                    .initial_configure_sent
+                    .try_lock()
+                {
+                    data.initial_configure_sent
+                } else {
+                    warn!("Unable to lock XdgToplevelSurfaceData in ensure_initial_configure 1");
+                    true
+                }
             });
             if !initial_configure_sent {
                 toplevel.toplevel().send_configure();
@@ -273,13 +278,17 @@ fn ensure_initial_configure(
             }
         };
         let initial_configure_sent = with_states(surface, |states| {
-            states
+            if let Ok(data) = states
                 .data_map
                 .get::<XdgPopupSurfaceData>()
                 .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
+                .try_lock()
+            {
+                data.initial_configure_sent
+            } else {
+                warn!("Unable to lock XdgPopupSurfaceData in ensure_initial_configure 2");
+                true
+            }
         });
         if !initial_configure_sent {
             // NOTE: This should never fail as the initial configure is always
@@ -296,13 +305,17 @@ fn ensure_initial_configure(
             .is_some()
     }) {
         let initial_configure_sent = with_states(surface, |states| {
-            states
+            if let Ok(data) = states
                 .data_map
-                .get::<LayerSurfaceData>()
+                .get::<XdgToplevelSurfaceData>()
                 .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
+                .try_lock()
+            {
+                data.initial_configure_sent
+            } else {
+                warn!("Unable to lock XdgToplevelSurfaceData in ensure_initial_configure 3");
+                true
+            }
         });
 
         let mut map = layer_map_for_output(output);
@@ -320,48 +333,6 @@ fn ensure_initial_configure(
             layer.layer_surface().send_configure();
         }
     };
-}
-
-fn place_new_window(
-    space: &mut Space<WindowElement>,
-    pointer_location: Point<f64, Logical>,
-    window: &WindowElement,
-    activate: bool,
-) {
-    // place the window at a random location on the primary output
-    // or if there is not output in a [0;800]x[0;800] square
-    use rand::distributions::{Distribution, Uniform};
-
-    let output = space
-        .output_under(pointer_location)
-        .next()
-        .or_else(|| space.outputs().next())
-        .cloned();
-    let output_geometry = output
-        .and_then(|o| {
-            let geo = space.output_geometry(&o)?;
-            let map = layer_map_for_output(&o);
-            let zone = map.non_exclusive_zone();
-            Some(Rectangle::from_loc_and_size(geo.loc + zone.loc, zone.size))
-        })
-        .unwrap_or_else(|| Rectangle::from_loc_and_size((0, 0), (800, 800)));
-
-    // set the initial toplevel bounds
-    if let WindowElement::Wayland(window) = window {
-        window.toplevel().with_pending_state(|state| {
-            state.bounds = Some(output_geometry.size);
-        });
-    }
-
-    let max_x = output_geometry.loc.x + (((output_geometry.size.w as f32) / 3.0) * 2.0) as i32;
-    let max_y = output_geometry.loc.y + (((output_geometry.size.h as f32) / 3.0) * 2.0) as i32;
-    let x_range = Uniform::new(output_geometry.loc.x, max_x);
-    let y_range = Uniform::new(output_geometry.loc.y, max_y);
-    let mut rng = rand::thread_rng();
-    let x = x_range.sample(&mut rng);
-    let y = y_range.sample(&mut rng);
-
-    space.map_element(window.clone(), (x, y), activate);
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {
@@ -400,6 +371,12 @@ pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point
         }
     }
     for window in orphaned_windows.into_iter() {
-        place_new_window(space, pointer_location, &window, false);
+        place_window(
+            space,
+            pointer_location,
+            &window,
+            false,
+            crate::composition::WindowPosition::New,
+        );
     }
 }

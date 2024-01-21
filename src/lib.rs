@@ -1,10 +1,12 @@
 pub mod args;
 pub mod command;
+pub mod composition;
 pub mod config;
 pub mod cursor;
 pub mod drawing;
 pub mod focus;
 pub mod input_handler;
+pub mod protocols;
 pub mod render;
 pub mod shell;
 pub mod state;

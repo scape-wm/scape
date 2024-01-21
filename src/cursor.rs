@@ -5,6 +5,7 @@ use xcursor::{
     CursorTheme,
 };
 
+static FALLBACK_CURSOR: &[u8] = include_bytes!("../resources/cursor");
 static FALLBACK_CURSOR_DATA: &[u8] = include_bytes!("../resources/cursor.rgba");
 
 #[derive(Debug)]
@@ -24,8 +25,16 @@ impl Cursor {
             .unwrap_or(24);
 
         let theme = CursorTheme::load(&name);
+        warn!("loading complete {:?}", theme);
         let icons = load_icon(&theme)
             .map_err(|err| warn!("Unable to load xcursor: {}, using fallback cursor", err))
+            .or_else(|_| parse_xcursor(&FALLBACK_CURSOR).ok_or(Error::Parse))
+            .map_err(|err| {
+                warn!(
+                    "Still unable to load xcursor: {}, using fallback cursor",
+                    err
+                )
+            })
             .unwrap_or_else(|_| {
                 vec![Image {
                     size: 32,

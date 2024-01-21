@@ -1,8 +1,8 @@
 use super::{
-    place_new_window, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
-    ResizeSurfaceGrab, SurfaceData, WindowElement,
+    FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab, SurfaceData,
+    WindowElement,
 };
-use crate::{focus::FocusTarget, State};
+use crate::{composition::place_window, focus::FocusTarget, State};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -50,19 +50,21 @@ impl XwmHandler for State {
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::warn!("window is: {:?}", window);
         window.set_mapped(true).unwrap();
         let window = WindowElement::X11(window);
-        place_new_window(
+        let rect = place_window(
             &mut self.space,
             self.pointer.current_location(),
             &window,
             true,
+            crate::composition::WindowPosition::New,
         );
         let bbox = self.space.element_bbox(&window).unwrap();
         let WindowElement::X11(xsurface) = &window else {
             unreachable!()
         };
-        xsurface.configure(Some(bbox)).unwrap();
+        xsurface.configure(Some(rect)).unwrap();
         window.set_ssd(!xsurface.is_decorated());
     }
 

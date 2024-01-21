@@ -28,7 +28,9 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     render_elements,
-    utils::{user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial},
+    utils::{
+        user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size,
+    },
     wayland::{
         compositor::SurfaceData as WlSurfaceData, dmabuf::DmabufFeedback, seat::WaylandFocus,
     },
@@ -42,6 +44,7 @@ use smithay::{
     xwayland::X11Surface,
 };
 use std::time::Duration;
+use tracing::{error, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowElement {
@@ -180,6 +183,23 @@ impl WindowElement {
             WindowElement::X11(w) => w.user_data(),
         }
     }
+
+    // pub fn set_size(&self, size: Size<i32, Logical>) {
+    //     match &self {
+    //         WindowElement::Wayland(w) => {
+    //             let xdg = w.toplevel();
+    //             xdg.with_pending_state(|state| {
+    //                 state.size = Some(size);
+    //             });
+    //         }
+    //         WindowElement::X11(x11) => {
+    //             let target = Rectangle::from_loc_and_size((0, 0), size);
+    //             if let Err(e) = x11.configure(target) {
+    //                 error!("Unable to configure x11 surface: {e}");
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 impl IsAlive for WindowElement {

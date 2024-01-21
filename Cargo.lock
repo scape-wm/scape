@@ -1600,7 +1600,6 @@ dependencies = [
  "image",
  "profiling",
  "puffin_http",
- "rand",
  "renderdoc",
  "rlua",
  "smithay",

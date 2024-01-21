@@ -37,7 +37,8 @@ const CLOSE_COLOR: [f32; 4] = [1f32, 0.66f32, 0.612f32, 1f32];
 const MAX_COLOR_HOVER: [f32; 4] = [0.71f32, 0.624f32, 0f32, 1f32];
 const CLOSE_COLOR_HOVER: [f32; 4] = [0.75f32, 0.11f32, 0.016f32, 1f32];
 
-pub const HEADER_BAR_HEIGHT: i32 = 32;
+// pub const HEADER_BAR_HEIGHT: i32 = 32;
+pub const HEADER_BAR_HEIGHT: i32 = 0;
 const BUTTON_HEIGHT: u32 = HEADER_BAR_HEIGHT as u32;
 const BUTTON_WIDTH: u32 = 32;
 
@@ -233,7 +234,7 @@ impl WindowElement {
             .borrow_mut()
     }
 
-    pub fn set_ssd(&self, ssd: bool) {
-        self.decoration_state().is_ssd = ssd;
+    pub fn set_ssd(&self, _ssd: bool) {
+        self.decoration_state().is_ssd = false;
     }
 }

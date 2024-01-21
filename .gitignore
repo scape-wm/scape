@@ -1,3 +1,5 @@
 /target
 out.log
+debug.log
+release.log
 /result
