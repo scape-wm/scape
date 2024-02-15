@@ -66,6 +66,14 @@ impl XwmHandler for State {
         };
         xsurface.configure(Some(rect)).unwrap();
         window.set_ssd(!xsurface.is_decorated());
+
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(
+            self,
+            Some(WindowElement::X11(xsurface.to_owned()).into()),
+            serial,
+        );
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {

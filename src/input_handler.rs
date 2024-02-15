@@ -557,7 +557,6 @@ impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
-                #[cfg(feature = "udev")]
                 KeyAction::VtSwitch(vt) => {
                     info!(to = vt, "Trying to switch vt");
                     if let Err(err) = self.backend_data.switch_vt(vt) {

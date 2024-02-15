@@ -19,7 +19,7 @@ use smithay::{
             Resource,
         },
     },
-    utils::Serial,
+    utils::{Serial, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         seat::WaylandFocus,
@@ -59,6 +59,9 @@ impl XdgShellHandler for State {
             true,
             crate::composition::WindowPosition::New,
         );
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(self, Some(window.into()), serial);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {

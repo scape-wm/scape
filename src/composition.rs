@@ -1,6 +1,7 @@
 use smithay::{
     desktop::{layer_map_for_output, Space},
     utils::{Logical, Point, Rectangle},
+    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 use tracing::warn;
 
@@ -67,6 +68,25 @@ pub fn place_window(
         }
     }
 
+    warn!("config on {}", app_id(window));
+
     space.map_element(window.clone(), position, activate);
     Rectangle::from_loc_and_size(position, size)
+}
+
+pub fn app_id(ele: &WindowElement) -> String {
+    match ele {
+        WindowElement::Wayland(window) => with_states(window.toplevel().wl_surface(), |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .app_id
+                .clone()
+                .unwrap_or_default()
+        }),
+        WindowElement::X11(surface) => surface.class(),
+    }
 }
