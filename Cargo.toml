@@ -14,12 +14,12 @@ tracing = { version = "0.1.37", features = [
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 thiserror = "1"
 xcursor = { version = "0.3.4", optional = true }
-xkbcommon = "0.6.0"
+xkbcommon = "0.7.0"
 renderdoc = { version = "0.11.0", optional = true }
 clap = { version = "4.3.19", features = ["derive"] }
-rlua = "0.19.7"
+rlua = "0.20.0"
 anyhow = "1.0.72"
-puffin_http = { version = "0.15.0", optional = true }
+puffin_http = { version = "0.16.0", optional = true }
 profiling = { version = "1.0.13", optional = true }
 bincode = "1.3.3"
 calloop = { version = "*", features = ["executor"] }
@@ -27,22 +27,22 @@ calloop = { version = "*", features = ["executor"] }
 [dependencies.smithay]
 default-features = false
 features = ["desktop", "wayland_frontend"]
-git = "https://github.com/smithay/smithay"
-rev = "1ebe4e8fdcc910aba85e5222da1c1102d4f50e41"
-# path = "../smithay"
+# git = "https://github.com/smithay/smithay"
+# rev = "3b3e07952e471618fe8b590ba3223f4201cec10c"
+path = "../smithay"
 
 [dependencies.smithay-drm-extras]
 default-features = false
 optional = true
-git = "https://github.com/smithay/smithay"
-rev = "1ebe4e8fdcc910aba85e5222da1c1102d4f50e41"
-# path = "../smithay-drm-extras"
+# git = "https://github.com/smithay/smithay"
+# rev = "3b3e07952e471618fe8b590ba3223f4201cec10c"
+path = "../smithay/smithay-drm-extras"
 
 [dependencies.x11rb]
 default-features = false
 features = ["composite"]
 optional = true
-version = "0.12.0"
+version = "0.13.0"
 
 [build-dependencies]
 gl_generator = "0.14"
@@ -63,6 +63,7 @@ udev = [
     "smithay/backend_session_libseat",
     "image",
     "smithay/renderer_gl",
+    "smithay/renderer_pixman",
     "smithay/renderer_multi",
     "xcursor",
 ]

@@ -28,9 +28,7 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     render_elements,
-    utils::{
-        user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size,
-    },
+    utils::{user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial},
     wayland::{
         compositor::SurfaceData as WlSurfaceData, dmabuf::DmabufFeedback, seat::WaylandFocus,
     },
@@ -44,23 +42,22 @@ use smithay::{
     xwayland::X11Surface,
 };
 use std::time::Duration;
-use tracing::{error, warn};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum WindowElement {
+pub enum ApplicationWindow {
     Wayland(Window),
     X11(X11Surface),
 }
 
-impl WindowElement {
+impl ApplicationWindow {
     pub fn surface_under(
         &self,
         location: Point<f64, Logical>,
         window_type: WindowSurfaceType,
     ) -> Option<(WlSurface, Point<i32, Logical>)> {
         match self {
-            WindowElement::Wayland(w) => w.surface_under(location, window_type),
-            WindowElement::X11(w) => w
+            ApplicationWindow::Wayland(w) => w.surface_under(location, window_type),
+            ApplicationWindow::X11(w) => w
                 .wl_surface()
                 .and_then(|s| under_from_surface_tree(&s, location, (0, 0), window_type)),
         }
@@ -71,8 +68,8 @@ impl WindowElement {
         F: FnMut(&WlSurface, &WlSurfaceData),
     {
         match self {
-            WindowElement::Wayland(w) => w.with_surfaces(processor),
-            WindowElement::X11(w) => {
+            ApplicationWindow::Wayland(w) => w.with_surfaces(processor),
+            ApplicationWindow::X11(w) => {
                 if let Some(surface) = w.wl_surface() {
                     with_surfaces_surface_tree(&surface, processor);
                 }
@@ -91,10 +88,10 @@ impl WindowElement {
         F: FnMut(&WlSurface, &WlSurfaceData) -> Option<Output> + Copy,
     {
         match self {
-            WindowElement::Wayland(w) => {
+            ApplicationWindow::Wayland(w) => {
                 w.send_frame(output, time, throttle, primary_scan_out_output)
             }
-            WindowElement::X11(w) => {
+            ApplicationWindow::X11(w) => {
                 if let Some(surface) = w.wl_surface() {
                     send_frames_surface_tree(
                         &surface,
@@ -118,10 +115,10 @@ impl WindowElement {
         F: Fn(&WlSurface, &WlSurfaceData) -> &'a DmabufFeedback + Copy,
     {
         match self {
-            WindowElement::Wayland(w) => {
+            ApplicationWindow::Wayland(w) => {
                 w.send_dmabuf_feedback(output, primary_scan_out_output, select_dmabuf_feedback)
             }
-            WindowElement::X11(w) => {
+            ApplicationWindow::X11(w) => {
                 if let Some(surface) = w.wl_surface() {
                     send_dmabuf_feedback_surface_tree(
                         &surface,
@@ -144,12 +141,12 @@ impl WindowElement {
         F2: FnMut(&WlSurface, &WlSurfaceData) -> wp_presentation_feedback::Kind + Copy,
     {
         match self {
-            WindowElement::Wayland(w) => w.take_presentation_feedback(
+            ApplicationWindow::Wayland(w) => w.take_presentation_feedback(
                 output_feedback,
                 primary_scan_out_output,
                 presentation_feedback_flags,
             ),
-            WindowElement::X11(w) => {
+            ApplicationWindow::X11(w) => {
                 if let Some(surface) = w.wl_surface() {
                     take_presentation_feedback_surface_tree(
                         &surface,
@@ -163,24 +160,24 @@ impl WindowElement {
     }
 
     pub fn is_x11(&self) -> bool {
-        matches!(self, WindowElement::X11(_))
+        matches!(self, ApplicationWindow::X11(_))
     }
 
     pub fn is_wayland(&self) -> bool {
-        matches!(self, WindowElement::Wayland(_))
+        matches!(self, ApplicationWindow::Wayland(_))
     }
 
     pub fn wl_surface(&self) -> Option<WlSurface> {
         match self {
-            WindowElement::Wayland(w) => w.wl_surface(),
-            WindowElement::X11(w) => w.wl_surface(),
+            ApplicationWindow::Wayland(w) => w.wl_surface(),
+            ApplicationWindow::X11(w) => w.wl_surface(),
         }
     }
 
     pub fn user_data(&self) -> &UserDataMap {
         match self {
-            WindowElement::Wayland(w) => w.user_data(),
-            WindowElement::X11(w) => w.user_data(),
+            ApplicationWindow::Wayland(w) => w.user_data(),
+            ApplicationWindow::X11(w) => w.user_data(),
         }
     }
 
@@ -202,16 +199,16 @@ impl WindowElement {
     // }
 }
 
-impl IsAlive for WindowElement {
+impl IsAlive for ApplicationWindow {
     fn alive(&self) -> bool {
         match self {
-            WindowElement::Wayland(w) => w.alive(),
-            WindowElement::X11(w) => w.alive(),
+            ApplicationWindow::Wayland(w) => w.alive(),
+            ApplicationWindow::X11(w) => w.alive(),
         }
     }
 }
 
-impl PointerTarget<State> for WindowElement {
+impl PointerTarget<State> for ApplicationWindow {
     fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
@@ -222,16 +219,16 @@ impl PointerTarget<State> for WindowElement {
                 let mut event = event.clone();
                 event.location.y -= HEADER_BAR_HEIGHT as f64;
                 match self {
-                    WindowElement::Wayland(w) => PointerTarget::enter(w, seat, data, &event),
-                    WindowElement::X11(w) => PointerTarget::enter(w, seat, data, &event),
+                    ApplicationWindow::Wayland(w) => PointerTarget::enter(w, seat, data, &event),
+                    ApplicationWindow::X11(w) => PointerTarget::enter(w, seat, data, &event),
                 };
                 state.ptr_entered_window = true;
             }
         } else {
             state.ptr_entered_window = true;
             match self {
-                WindowElement::Wayland(w) => PointerTarget::enter(w, seat, data, event),
-                WindowElement::X11(w) => PointerTarget::enter(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => PointerTarget::enter(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::enter(w, seat, data, event),
             };
         }
     }
@@ -240,10 +237,10 @@ impl PointerTarget<State> for WindowElement {
         if state.is_ssd {
             if event.location.y < HEADER_BAR_HEIGHT as f64 {
                 match self {
-                    WindowElement::Wayland(w) => {
+                    ApplicationWindow::Wayland(w) => {
                         PointerTarget::leave(w, seat, data, event.serial, event.time)
                     }
-                    WindowElement::X11(w) => {
+                    ApplicationWindow::X11(w) => {
                         PointerTarget::leave(w, seat, data, event.serial, event.time)
                     }
                 };
@@ -255,21 +252,25 @@ impl PointerTarget<State> for WindowElement {
                 event.location.y -= HEADER_BAR_HEIGHT as f64;
                 if state.ptr_entered_window {
                     match self {
-                        WindowElement::Wayland(w) => PointerTarget::motion(w, seat, data, &event),
-                        WindowElement::X11(w) => PointerTarget::motion(w, seat, data, &event),
+                        ApplicationWindow::Wayland(w) => {
+                            PointerTarget::motion(w, seat, data, &event)
+                        }
+                        ApplicationWindow::X11(w) => PointerTarget::motion(w, seat, data, &event),
                     };
                 } else {
                     state.ptr_entered_window = true;
                     match self {
-                        WindowElement::Wayland(w) => PointerTarget::enter(w, seat, data, &event),
-                        WindowElement::X11(w) => PointerTarget::enter(w, seat, data, &event),
+                        ApplicationWindow::Wayland(w) => {
+                            PointerTarget::enter(w, seat, data, &event)
+                        }
+                        ApplicationWindow::X11(w) => PointerTarget::enter(w, seat, data, &event),
                     };
                 }
             }
         } else {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::motion(w, seat, data, event),
-                WindowElement::X11(w) => PointerTarget::motion(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => PointerTarget::motion(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::motion(w, seat, data, event),
             };
         }
     }
@@ -277,8 +278,10 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::relative_motion(w, seat, data, event),
-                WindowElement::X11(w) => PointerTarget::relative_motion(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => {
+                    PointerTarget::relative_motion(w, seat, data, event)
+                }
+                ApplicationWindow::X11(w) => PointerTarget::relative_motion(w, seat, data, event),
             }
         }
     }
@@ -287,16 +290,16 @@ impl PointerTarget<State> for WindowElement {
         if state.is_ssd {
             if state.ptr_entered_window {
                 match self {
-                    WindowElement::Wayland(w) => PointerTarget::button(w, seat, data, event),
-                    WindowElement::X11(w) => PointerTarget::button(w, seat, data, event),
+                    ApplicationWindow::Wayland(w) => PointerTarget::button(w, seat, data, event),
+                    ApplicationWindow::X11(w) => PointerTarget::button(w, seat, data, event),
                 };
             } else {
                 state.header_bar.clicked(seat, data, self, event.serial);
             }
         } else {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::button(w, seat, data, event),
-                WindowElement::X11(w) => PointerTarget::button(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => PointerTarget::button(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::button(w, seat, data, event),
             };
         }
     }
@@ -304,8 +307,8 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::axis(w, seat, data, frame),
-                WindowElement::X11(w) => PointerTarget::axis(w, seat, data, frame),
+                ApplicationWindow::Wayland(w) => PointerTarget::axis(w, seat, data, frame),
+                ApplicationWindow::X11(w) => PointerTarget::axis(w, seat, data, frame),
             }
         }
     }
@@ -313,8 +316,8 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::frame(w, seat, data),
-                WindowElement::X11(w) => PointerTarget::frame(w, seat, data),
+                ApplicationWindow::Wayland(w) => PointerTarget::frame(w, seat, data),
+                ApplicationWindow::X11(w) => PointerTarget::frame(w, seat, data),
             }
         }
     }
@@ -324,15 +327,17 @@ impl PointerTarget<State> for WindowElement {
             state.header_bar.pointer_leave();
             if state.ptr_entered_window {
                 match self {
-                    WindowElement::Wayland(w) => PointerTarget::leave(w, seat, data, serial, time),
-                    WindowElement::X11(w) => PointerTarget::leave(w, seat, data, serial, time),
+                    ApplicationWindow::Wayland(w) => {
+                        PointerTarget::leave(w, seat, data, serial, time)
+                    }
+                    ApplicationWindow::X11(w) => PointerTarget::leave(w, seat, data, serial, time),
                 };
                 state.ptr_entered_window = false;
             }
         } else {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::leave(w, seat, data, serial, time),
-                WindowElement::X11(w) => PointerTarget::leave(w, seat, data, serial, time),
+                ApplicationWindow::Wayland(w) => PointerTarget::leave(w, seat, data, serial, time),
+                ApplicationWindow::X11(w) => PointerTarget::leave(w, seat, data, serial, time),
             };
             state.ptr_entered_window = false;
         }
@@ -347,11 +352,13 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     PointerTarget::gesture_swipe_begin(w, seat, data, event)
                 }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_swipe_begin(w, seat, data, event),
+                ApplicationWindow::X11(w) => {
+                    PointerTarget::gesture_swipe_begin(w, seat, data, event)
+                }
             }
         }
     }
@@ -364,11 +371,13 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     PointerTarget::gesture_swipe_update(w, seat, data, event)
                 }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_swipe_update(w, seat, data, event),
+                ApplicationWindow::X11(w) => {
+                    PointerTarget::gesture_swipe_update(w, seat, data, event)
+                }
             }
         }
     }
@@ -381,9 +390,11 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::gesture_swipe_end(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => {
+                    PointerTarget::gesture_swipe_end(w, seat, data, event)
+                }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_swipe_end(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::gesture_swipe_end(w, seat, data, event),
             }
         }
     }
@@ -396,11 +407,13 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     PointerTarget::gesture_pinch_begin(w, seat, data, event)
                 }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_pinch_begin(w, seat, data, event),
+                ApplicationWindow::X11(w) => {
+                    PointerTarget::gesture_pinch_begin(w, seat, data, event)
+                }
             }
         }
     }
@@ -413,11 +426,13 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     PointerTarget::gesture_pinch_update(w, seat, data, event)
                 }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_pinch_update(w, seat, data, event),
+                ApplicationWindow::X11(w) => {
+                    PointerTarget::gesture_pinch_update(w, seat, data, event)
+                }
             }
         }
     }
@@ -430,9 +445,11 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::gesture_pinch_end(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => {
+                    PointerTarget::gesture_pinch_end(w, seat, data, event)
+                }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_pinch_end(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::gesture_pinch_end(w, seat, data, event),
             }
         }
     }
@@ -445,11 +462,13 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     PointerTarget::gesture_hold_begin(w, seat, data, event)
                 }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_hold_begin(w, seat, data, event),
+                ApplicationWindow::X11(w) => {
+                    PointerTarget::gesture_hold_begin(w, seat, data, event)
+                }
             }
         }
     }
@@ -457,15 +476,17 @@ impl PointerTarget<State> for WindowElement {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
             match self {
-                WindowElement::Wayland(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
+                ApplicationWindow::Wayland(w) => {
+                    PointerTarget::gesture_hold_end(w, seat, data, event)
+                }
                 #[cfg(feature = "xwayland")]
-                WindowElement::X11(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
+                ApplicationWindow::X11(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
             }
         }
     }
 }
 
-impl KeyboardTarget<State> for WindowElement {
+impl KeyboardTarget<State> for ApplicationWindow {
     fn enter(
         &self,
         seat: &Seat<State>,
@@ -474,14 +495,14 @@ impl KeyboardTarget<State> for WindowElement {
         serial: Serial,
     ) {
         match self {
-            WindowElement::Wayland(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
-            WindowElement::X11(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
+            ApplicationWindow::Wayland(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
+            ApplicationWindow::X11(w) => KeyboardTarget::enter(w, seat, data, keys, serial),
         }
     }
     fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial) {
         match self {
-            WindowElement::Wayland(w) => KeyboardTarget::leave(w, seat, data, serial),
-            WindowElement::X11(w) => KeyboardTarget::leave(w, seat, data, serial),
+            ApplicationWindow::Wayland(w) => KeyboardTarget::leave(w, seat, data, serial),
+            ApplicationWindow::X11(w) => KeyboardTarget::leave(w, seat, data, serial),
         }
     }
     fn key(
@@ -494,10 +515,12 @@ impl KeyboardTarget<State> for WindowElement {
         time: u32,
     ) {
         match self {
-            WindowElement::Wayland(w) => {
+            ApplicationWindow::Wayland(w) => {
                 KeyboardTarget::key(w, seat, data, key, state, serial, time)
             }
-            WindowElement::X11(w) => KeyboardTarget::key(w, seat, data, key, state, serial, time),
+            ApplicationWindow::X11(w) => {
+                KeyboardTarget::key(w, seat, data, key, state, serial, time)
+            }
         }
     }
     fn modifiers(
@@ -508,19 +531,21 @@ impl KeyboardTarget<State> for WindowElement {
         serial: Serial,
     ) {
         match self {
-            WindowElement::Wayland(w) => {
+            ApplicationWindow::Wayland(w) => {
                 KeyboardTarget::modifiers(w, seat, data, modifiers, serial)
             }
-            WindowElement::X11(w) => KeyboardTarget::modifiers(w, seat, data, modifiers, serial),
+            ApplicationWindow::X11(w) => {
+                KeyboardTarget::modifiers(w, seat, data, modifiers, serial)
+            }
         }
     }
 }
 
-impl SpaceElement for WindowElement {
+impl SpaceElement for ApplicationWindow {
     fn geometry(&self) -> Rectangle<i32, Logical> {
         let mut geo = match self {
-            WindowElement::Wayland(w) => SpaceElement::geometry(w),
-            WindowElement::X11(w) => SpaceElement::geometry(w),
+            ApplicationWindow::Wayland(w) => SpaceElement::geometry(w),
+            ApplicationWindow::X11(w) => SpaceElement::geometry(w),
         };
         if self.decoration_state().is_ssd {
             geo.size.h += HEADER_BAR_HEIGHT;
@@ -529,8 +554,8 @@ impl SpaceElement for WindowElement {
     }
     fn bbox(&self) -> Rectangle<i32, Logical> {
         let mut bbox = match self {
-            WindowElement::Wayland(w) => SpaceElement::bbox(w),
-            WindowElement::X11(w) => SpaceElement::bbox(w),
+            ApplicationWindow::Wayland(w) => SpaceElement::bbox(w),
+            ApplicationWindow::X11(w) => SpaceElement::bbox(w),
         };
         if self.decoration_state().is_ssd {
             bbox.size.h += HEADER_BAR_HEIGHT;
@@ -541,53 +566,53 @@ impl SpaceElement for WindowElement {
         if self.decoration_state().is_ssd {
             point.y < HEADER_BAR_HEIGHT as f64
                 || match self {
-                    WindowElement::Wayland(w) => SpaceElement::is_in_input_region(
+                    ApplicationWindow::Wayland(w) => SpaceElement::is_in_input_region(
                         w,
                         &(*point - Point::from((0.0, HEADER_BAR_HEIGHT as f64))),
                     ),
-                    WindowElement::X11(w) => SpaceElement::is_in_input_region(
+                    ApplicationWindow::X11(w) => SpaceElement::is_in_input_region(
                         w,
                         &(*point - Point::from((0.0, HEADER_BAR_HEIGHT as f64))),
                     ),
                 }
         } else {
             match self {
-                WindowElement::Wayland(w) => SpaceElement::is_in_input_region(w, point),
-                WindowElement::X11(w) => SpaceElement::is_in_input_region(w, point),
+                ApplicationWindow::Wayland(w) => SpaceElement::is_in_input_region(w, point),
+                ApplicationWindow::X11(w) => SpaceElement::is_in_input_region(w, point),
             }
         }
     }
     fn z_index(&self) -> u8 {
         match self {
-            WindowElement::Wayland(w) => SpaceElement::z_index(w),
-            WindowElement::X11(w) => SpaceElement::z_index(w),
+            ApplicationWindow::Wayland(w) => SpaceElement::z_index(w),
+            ApplicationWindow::X11(w) => SpaceElement::z_index(w),
         }
     }
 
     fn set_activate(&self, activated: bool) {
         match self {
-            WindowElement::Wayland(w) => SpaceElement::set_activate(w, activated),
-            WindowElement::X11(w) => SpaceElement::set_activate(w, activated),
+            ApplicationWindow::Wayland(w) => SpaceElement::set_activate(w, activated),
+            ApplicationWindow::X11(w) => SpaceElement::set_activate(w, activated),
         }
     }
     fn output_enter(&self, output: &Output, overlap: Rectangle<i32, Logical>) {
         match self {
-            WindowElement::Wayland(w) => SpaceElement::output_enter(w, output, overlap),
-            WindowElement::X11(w) => SpaceElement::output_enter(w, output, overlap),
+            ApplicationWindow::Wayland(w) => SpaceElement::output_enter(w, output, overlap),
+            ApplicationWindow::X11(w) => SpaceElement::output_enter(w, output, overlap),
         }
     }
     fn output_leave(&self, output: &Output) {
         match self {
-            WindowElement::Wayland(w) => SpaceElement::output_leave(w, output),
-            WindowElement::X11(w) => SpaceElement::output_leave(w, output),
+            ApplicationWindow::Wayland(w) => SpaceElement::output_leave(w, output),
+            ApplicationWindow::X11(w) => SpaceElement::output_leave(w, output),
         }
     }
 
     #[cfg_attr(feature = "profiling", profiling::function)]
     fn refresh(&self) {
         match self {
-            WindowElement::Wayland(w) => SpaceElement::refresh(w),
-            WindowElement::X11(w) => SpaceElement::refresh(w),
+            ApplicationWindow::Wayland(w) => SpaceElement::refresh(w),
+            ApplicationWindow::X11(w) => SpaceElement::refresh(w),
         }
     }
 }
@@ -608,7 +633,7 @@ impl<R: Renderer + std::fmt::Debug> std::fmt::Debug for WindowRenderElement<R> {
     }
 }
 
-impl<R> AsRenderElements<R> for WindowElement
+impl<R> AsRenderElements<R> for ApplicationWindow
 where
     R: Renderer + ImportAll + ImportMem,
     <R as Renderer>::TextureId: Texture + 'static,
@@ -623,14 +648,14 @@ where
         alpha: f32,
     ) -> Vec<C> {
         let window_bbox = match self {
-            WindowElement::Wayland(w) => SpaceElement::bbox(w),
-            WindowElement::X11(w) => SpaceElement::bbox(w),
+            ApplicationWindow::Wayland(w) => SpaceElement::bbox(w),
+            ApplicationWindow::X11(w) => SpaceElement::bbox(w),
         };
 
         if self.decoration_state().is_ssd && !window_bbox.is_empty() {
             let window_geo = match self {
-                WindowElement::Wayland(w) => SpaceElement::geometry(w),
-                WindowElement::X11(w) => SpaceElement::geometry(w),
+                ApplicationWindow::Wayland(w) => SpaceElement::geometry(w),
+                ApplicationWindow::X11(w) => SpaceElement::geometry(w),
             };
 
             let mut state = self.decoration_state();
@@ -647,27 +672,31 @@ where
             location.y += (scale.y * HEADER_BAR_HEIGHT as f64) as i32;
 
             let window_elements = match self {
-                WindowElement::Wayland(xdg) => {
+                ApplicationWindow::Wayland(xdg) => {
                     AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
                         xdg, renderer, location, scale, alpha,
                     )
                 }
-                WindowElement::X11(x11) => AsRenderElements::<R>::render_elements::<
-                    WindowRenderElement<R>,
-                >(x11, renderer, location, scale, alpha),
+                ApplicationWindow::X11(x11) => {
+                    AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                        x11, renderer, location, scale, alpha,
+                    )
+                }
             };
             vec.extend(window_elements);
             vec.into_iter().map(C::from).collect()
         } else {
             match self {
-                WindowElement::Wayland(xdg) => {
+                ApplicationWindow::Wayland(xdg) => {
                     AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
                         xdg, renderer, location, scale, alpha,
                     )
                 }
-                WindowElement::X11(x11) => AsRenderElements::<R>::render_elements::<
-                    WindowRenderElement<R>,
-                >(x11, renderer, location, scale, alpha),
+                ApplicationWindow::X11(x11) => {
+                    AsRenderElements::<R>::render_elements::<WindowRenderElement<R>>(
+                        x11, renderer, location, scale, alpha,
+                    )
+                }
             }
             .into_iter()
             .map(C::from)

@@ -26,8 +26,7 @@ use smithay::{
         dmabuf::get_dmabuf,
         shell::{
             wlr_layer::{
-                Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
-                WlrLayerShellState,
+                Layer, LayerSurface as WlrLayerSurface, WlrLayerShellHandler, WlrLayerShellState,
             },
             xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData},
         },
@@ -45,8 +44,6 @@ mod xdg;
 
 pub use self::element::*;
 pub use self::grabs::*;
-pub use self::x11::*;
-pub use self::xdg::*;
 
 fn fullscreen_output_geometry(
     wl_surface: &WlSurface,
@@ -58,18 +55,16 @@ fn fullscreen_output_geometry(
     wl_output
         .and_then(Output::from_resource)
         .or_else(|| {
-            let w = space
-                .elements()
-                .find(|window| {
-                    window
-                        .wl_surface()
-                        .map(|s| s == *wl_surface)
-                        .unwrap_or(false)
-                })
-                .cloned();
-            w.and_then(|w| space.outputs_for_element(&w).get(0).cloned())
+            let w = space.elements().find(|window| {
+                window
+                    .wl_surface()
+                    .map(|s| s == *wl_surface)
+                    .unwrap_or(false)
+            });
+            w.and_then(|w| space.outputs_for_element(w).first().cloned())
         })
-        .and_then(|o| space.output_geometry(&o))
+        .as_ref()
+        .and_then(|o| space.output_geometry(o))
 }
 
 #[derive(Default)]

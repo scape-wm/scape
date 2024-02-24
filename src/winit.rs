@@ -60,7 +60,7 @@ pub struct WinitData {
     backend: WinitGraphicsBackend<GlesRenderer>,
     damage_tracker: OutputDamageTracker,
     dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
-    pointer_element: PointerElement<GlesTexture>,
+    pointer_element: PointerElement,
     full_redraw: u8,
     winit_loop: WinitEventLoop,
     pending_input_events: Vec<InputEvent<WinitInput>>,
@@ -195,7 +195,7 @@ pub fn init_winit(
         info!("EGL hardware-acceleration enabled");
     };
 
-    let pointer_element = PointerElement::<GlesTexture>::default();
+    let pointer_element = PointerElement::default();
 
     let damage_tracker = OutputDamageTracker::from_output(&output);
 
@@ -256,6 +256,9 @@ fn run_tick(state: &mut State) {
             WinitEvent::Input(event) => {
                 winit_data.pending_input_events.push(event);
                 handle_events = true;
+            }
+            WinitEvent::Focus(false) => {
+                state.loop_handle.insert_idle(State::release_all_keys);
             }
             _ => (),
         })

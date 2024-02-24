@@ -551,6 +551,20 @@ impl State {
         );
         pointer.frame(self);
     }
+
+    pub fn release_all_keys(&mut self) {
+        let keyboard = self.seat.get_keyboard().unwrap();
+        for keycode in keyboard.pressed_keys() {
+            keyboard.input(
+                self,
+                keycode.raw(),
+                KeyState::Released,
+                SCOUNTER.next_serial(),
+                0,
+                |_, _, _| FilterResult::Forward::<bool>,
+            );
+        }
+    }
 }
 
 impl State {

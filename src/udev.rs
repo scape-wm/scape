@@ -8,15 +8,19 @@ use crate::{
 use anyhow::{anyhow, Result};
 #[cfg(feature = "renderer_sync")]
 use smithay::backend::drm::compositor::PrimaryPlaneElement;
-use smithay::backend::drm::DrmSurface;
+use smithay::backend::drm::{DrmAccessError, DrmSurface};
+use smithay::backend::input::InputEvent;
+use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::renderer::element::{RenderElement, RenderElementStates};
 use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::{ExportMem, ImportMemWl, Offscreen};
 use smithay::delegate_drm_lease;
+use smithay::input::keyboard::LedState;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
+use smithay::reexports::input::DeviceCapability;
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::drm_lease::{
     DrmLease, DrmLeaseBuilder, DrmLeaseHandler, DrmLeaseRequest, DrmLeaseState, LeaseRejected,
@@ -37,7 +41,7 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             damage::Error as OutputDamageTrackerError,
-            element::{texture::TextureBuffer, AsRenderElements},
+            element::AsRenderElements,
             gles::{GlesRenderer, GlesTexture},
             multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
             Bind, DebugFlags, ImportDma, Renderer,
@@ -85,7 +89,6 @@ use std::sync::atomic::AtomicIsize;
 use std::time::Instant;
 use std::{
     collections::{hash_map::HashMap, HashSet},
-    convert::TryInto,
     io,
     path::Path,
     sync::Mutex,
@@ -125,12 +128,13 @@ pub struct UdevData {
     allocator: Option<Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>>,
     gpus: GpuManager<GbmGlesBackend<GlesRenderer>>,
     backends: HashMap<DrmNode, DeviceData>,
-    pointer_images: Vec<(xcursor::parser::Image, TextureBuffer<MultiTexture>)>,
-    pointer_element: PointerElement<MultiTexture>,
+    pointer_images: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
+    pointer_element: PointerElement,
     #[cfg(feature = "debug")]
     fps_texture: Option<MultiTexture>,
     pointer_image: crate::cursor::Cursor,
     debug_flags: DebugFlags,
+    keyboards: Vec<smithay::reexports::input::Device>,
 }
 
 impl std::fmt::Debug for UdevData {
@@ -188,6 +192,12 @@ impl UdevData {
             .early_import(Some(self.primary_gpu), self.primary_gpu, surface)
         {
             tracing::warn!("Early buffer import failed: {}", err);
+        }
+    }
+
+    pub fn update_led_state(&mut self, led_state: LedState) {
+        for keyboard in self.keyboards.iter_mut() {
+            keyboard.led_update(led_state.into());
         }
     }
 
@@ -314,6 +324,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         #[cfg(feature = "debug")]
         fps_texture: None,
         debug_flags: DebugFlags::empty(),
+        keyboards: Vec::new(),
     };
 
     let mut libinput_context =
@@ -332,7 +343,27 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
     let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
     event_loop
         .handle()
-        .insert_source(libinput_backend, move |event, _, state| {
+        .insert_source(libinput_backend, move |mut event, _, state| {
+            if let InputEvent::DeviceAdded { device } = &mut event {
+                if device.has_capability(DeviceCapability::Keyboard) {
+                    if let Some(led_state) = state
+                        .seat
+                        .get_keyboard()
+                        .map(|keyboard| keyboard.led_state())
+                    {
+                        device.led_update(led_state.into());
+                    }
+                    state.backend_data.udev_mut().keyboards.push(device.clone());
+                }
+            } else if let InputEvent::DeviceRemoved { device } = &event {
+                if device.has_capability(DeviceCapability::Keyboard) {
+                    state
+                        .backend_data
+                        .udev_mut()
+                        .keyboards
+                        .retain(|item| item != device);
+                }
+            }
             state.process_input_event(event)
         })
         .unwrap();
@@ -367,12 +398,14 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                         .iter_mut()
                         .map(|(handle, backend)| (*handle, backend))
                     {
-                        backend.drm.activate();
+                        if let Err(err) = backend.drm.activate(false) {
+                            warn!(?err, "Unable to actiave drm");
+                        }
                         if let Some(lease_global) = backend.leasing_global.as_mut() {
                             lease_global.resume::<State>();
                         }
                         for surface in backend.surfaces.values_mut() {
-                            if let Err(err) = surface.compositor.surface().reset_state() {
+                            if let Err(err) = surface.compositor.reset_state() {
                                 warn!("Failed to reset drm surface state: {}", err);
                             }
                             // reset the buffers after resume to trigger a full redraw
@@ -658,6 +691,14 @@ impl SurfaceComposition {
         }
     }
 
+    fn reset_state(&mut self) -> Result<(), SwapBuffersError> {
+        match self {
+            SurfaceComposition::Compositor(c) => {
+                c.reset_state().map_err(Into::<SwapBuffersError>::into)
+            }
+        }
+    }
+
     #[cfg_attr(feature = "profiling", profiling::function)]
     fn queue_frame(
         &mut self,
@@ -694,7 +735,7 @@ impl SurfaceComposition {
                         element.sync.wait();
                     }
                     SurfaceCompositorRenderResult {
-                        rendered: render_frame_result.damage.is_some(),
+                        rendered: !render_frame_result.is_empty,
                         states: render_frame_result.states,
                     }
                 })
@@ -866,10 +907,11 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> Result<(), Dev
         })
         .unwrap();
 
-    let render_node = EGLDevice::device_for_display(&EGLDisplay::new(gbm.clone()).unwrap())
-        .ok()
-        .and_then(|x| x.try_get_render_node().ok().flatten())
-        .unwrap_or(node);
+    let render_node =
+        EGLDevice::device_for_display(&unsafe { EGLDisplay::new(gbm.clone()).unwrap() })
+            .ok()
+            .and_then(|x| x.try_get_render_node().ok().flatten())
+            .unwrap_or(node);
 
     udev_data
         .gpus
@@ -1310,10 +1352,10 @@ fn frame_finish(
                 }
                 SwapBuffersError::TemporaryFailure(err) => matches!(
                     err.downcast_ref::<DrmError>(),
-                    Some(DrmError::Access {
+                    Some(DrmError::Access(DrmAccessError {
                         source,
                         ..
-                    }) if source.kind() == io::ErrorKind::PermissionDenied
+                    })) if source.kind() == io::ErrorKind::PermissionDenied
                 ),
                 SwapBuffersError::ContextLost(err) => {
                     warn!("Rendering context lost: {}", err);
@@ -1428,7 +1470,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
     // TODO get scale from the rendersurface when supporting HiDPI
     let frame = udev_data
         .pointer_image
-        .get_image(1 /*scale*/, state.clock.now().try_into().unwrap());
+        .get_image(1 /*scale*/, state.clock.now().into());
 
     let render_node = surface.render_node;
     let primary_gpu = udev_data.primary_gpu;
@@ -1462,19 +1504,16 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
             }
         })
         .unwrap_or_else(|| {
-            let texture = TextureBuffer::from_memory(
-                &mut renderer,
+            let buffer = MemoryRenderBuffer::from_slice(
                 &frame.pixels_rgba,
-                Fourcc::Abgr8888,
+                Fourcc::Argb8888,
                 (frame.width as i32, frame.height as i32),
-                false,
                 1,
                 Transform::Normal,
                 None,
-            )
-            .expect("Failed to import cursor bitmap");
-            pointer_images.push((frame, texture.clone()));
-            texture
+            );
+            pointer_images.push((frame, buffer.clone()));
+            buffer
         });
 
     let output = if let Some(output) = state.space.outputs().find(|o| {
@@ -1511,7 +1550,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
                 SwapBuffersError::AlreadySwapped => false,
                 SwapBuffersError::TemporaryFailure(err) => match err.downcast_ref::<DrmError>() {
                     Some(DrmError::DeviceInactive) => true,
-                    Some(DrmError::Access { source, .. }) => {
+                    Some(DrmError::Access(DrmAccessError { source, .. })) => {
                         source.kind() == io::ErrorKind::PermissionDenied
                     }
                     _ => false,
@@ -1606,8 +1645,8 @@ fn render_surface<'a, 'b>(
     space: &Space<WindowElement>,
     output: &Output,
     pointer_location: Point<f64, Logical>,
-    pointer_image: &TextureBuffer<MultiTexture>,
-    pointer_element: &mut PointerElement<MultiTexture>,
+    pointer_image: &MemoryRenderBuffer,
+    pointer_element: &mut PointerElement,
     dnd_icon: &Option<wl_surface::WlSurface>,
     cursor_status: &mut CursorImageStatus,
     clock: &Clock<Monotonic>,
@@ -1640,7 +1679,7 @@ fn render_surface<'a, 'b>(
         let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
 
         // set cursor
-        pointer_element.set_texture(pointer_image.clone());
+        pointer_element.set_buffer(pointer_image.clone());
 
         // draw the cursor as relevant
         {

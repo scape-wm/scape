@@ -3,11 +3,11 @@
 use smithay::{
     backend::renderer::{
         element::{
+            memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
             surface::WaylandSurfaceRenderElement,
-            texture::{TextureBuffer, TextureRenderElement},
             AsRenderElements, Kind,
         },
-        ImportAll, Renderer, Texture,
+        ImportAll, ImportMem, Renderer, Texture,
     },
     input::pointer::CursorImageStatus,
     render_elements,
@@ -27,50 +27,49 @@ pub static CLEAR_COLOR: [f32; 4] = [0.8, 0.8, 0.9, 1.0];
 pub static CLEAR_COLOR_FULLSCREEN: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 
 #[derive(Debug)]
-pub struct PointerElement<T: Texture> {
-    texture: Option<TextureBuffer<T>>,
+pub struct PointerElement {
+    buffer: Option<MemoryRenderBuffer>,
     status: CursorImageStatus,
 }
 
-impl<T: Texture> Default for PointerElement<T> {
+impl Default for PointerElement {
     fn default() -> Self {
         Self {
-            texture: Default::default(),
+            buffer: Default::default(),
             status: CursorImageStatus::default_named(),
         }
     }
 }
 
-impl<T: Texture> PointerElement<T> {
+impl PointerElement {
     pub fn set_status(&mut self, status: CursorImageStatus) {
         self.status = status;
     }
 
-    pub fn set_texture(&mut self, texture: TextureBuffer<T>) {
-        self.texture = Some(texture);
+    pub fn set_buffer(&mut self, buffer: MemoryRenderBuffer) {
+        self.buffer = Some(buffer);
     }
 }
 
 render_elements! {
-    pub PointerRenderElement<R> where
-        R: ImportAll;
+    pub PointerRenderElement<R> where R: ImportAll + ImportMem;
     Surface=WaylandSurfaceRenderElement<R>,
-    Texture=TextureRenderElement<<R as Renderer>::TextureId>,
+    Memory=MemoryRenderBufferRenderElement<R>,
 }
 
 impl<R: Renderer> std::fmt::Debug for PointerRenderElement<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Surface(arg0) => f.debug_tuple("Surface").field(arg0).finish(),
-            Self::Texture(arg0) => f.debug_tuple("Texture").field(arg0).finish(),
+            Self::Memory(arg0) => f.debug_tuple("Memory").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
 }
 
-impl<T: Texture + Clone + 'static, R> AsRenderElements<R> for PointerElement<T>
+impl<T: Texture + 'static, R> AsRenderElements<R> for PointerElement
 where
-    R: Renderer<TextureId = T> + ImportAll,
+    R: Renderer<TextureId = T> + ImportAll + ImportMem,
 {
     type RenderElement = PointerRenderElement<R>;
     fn render_elements<E>(
@@ -87,16 +86,18 @@ where
             CursorImageStatus::Hidden => vec![],
             CursorImageStatus::Named(_) => {
                 // TODO: find cursor based on name
-                if let Some(texture) = self.texture.as_ref() {
+                if let Some(buffer) = self.buffer.as_ref() {
                     vec![PointerRenderElement::<R>::from(
-                        TextureRenderElement::from_texture_buffer(
+                        MemoryRenderBufferRenderElement::from_buffer(
+                            renderer,
                             location.to_f64(),
-                            texture,
+                            buffer,
                             None,
                             None,
                             None,
                             Kind::Cursor,
-                        ),
+                        )
+                        .expect("Lost system pointer buffer"),
                     )
                     .into()]
                 } else {

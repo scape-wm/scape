@@ -60,7 +60,7 @@ impl XwmHandler for State {
             true,
             crate::composition::WindowPosition::New,
         );
-        let bbox = self.space.element_bbox(&window).unwrap();
+        let _bbox = self.space.element_bbox(&window).unwrap();
         let WindowElement::X11(xsurface) = &window else {
             unreachable!()
         };

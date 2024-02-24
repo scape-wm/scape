@@ -1,14 +1,5 @@
-use crate::{
-    args::GlobalArgs,
-    render,
-    state::BackendData,
-    udev::{render, RENDER_SCHEDULE_COUNTER},
-    State,
-};
-use calloop::{
-    timer::{TimeoutAction, Timer},
-    EventLoop, LoopHandle,
-};
+use crate::{args::GlobalArgs, state::BackendData, State};
+use calloop::{EventLoop, LoopHandle};
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use std::{ffi::OsString, time::Duration};
 use tracing::error;
@@ -21,7 +12,7 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let mut state = State::init(display, backend_data, &mut event_loop)?;
 
     start_xwayland(&mut state, event_loop.handle());
-    run_loop(state, &mut event_loop, !args.winit_backend)
+    run_loop(state, &mut event_loop)
 }
 
 fn create_display() -> anyhow::Result<Display<State>> {
@@ -73,11 +64,7 @@ fn start_xwayland(state: &State, loop_handle: LoopHandle<State>) {
     }
 }
 
-fn run_loop(
-    mut state: State,
-    event_loop: &mut EventLoop<State>,
-    is_udev: bool,
-) -> anyhow::Result<()> {
+fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Result<()> {
     tracing::info!("Starting main loop");
     event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
         state.space.refresh();
@@ -85,27 +72,6 @@ fn run_loop(
         if let Err(e) = state.display_handle.flush_clients() {
             error!("Unable to flush clients: {e}");
         }
-
-        // if !is_udev {
-        //     return;
-        // }
-        //
-        // let val = RENDER_SCHEDULE_COUNTER.load(std::sync::atomic::Ordering::SeqCst);
-        // tracing::warn!("current val is {}", val);
-        // if val <= 0 {
-        //     state
-        //         .loop_handle
-        //         .insert_source(
-        //             Timer::from_duration(Duration::from_secs(10)),
-        //             move |_, _, state| {
-        //                 if RENDER_SCHEDULE_COUNTER.load(std::sync::atomic::Ordering::SeqCst) <= 0 {
-        //                     render(state, state.last_node.unwrap(), None);
-        //                 }
-        //                 TimeoutAction::Drop
-        //             },
-        //         )
-        //         .unwrap();
-        // }
     })?;
 
     Ok(())

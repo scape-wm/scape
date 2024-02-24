@@ -6,8 +6,9 @@ use calloop::{EventLoop, LoopSignal};
 use smithay::backend::drm::DrmNode;
 use smithay::delegate_data_control;
 use smithay::desktop::space::SpaceElement;
-use smithay::input::keyboard::Keysym;
+use smithay::input::keyboard::{Keysym, LedState};
 use smithay::wayland::dmabuf::ImportNotifier;
+use smithay::wayland::output::OutputHandler;
 use smithay::wayland::selection::primary_selection::set_primary_focus;
 use smithay::wayland::selection::primary_selection::{
     PrimarySelectionHandler, PrimarySelectionState,
@@ -99,7 +100,6 @@ use smithay::{
         },
         shm::{ShmHandler, ShmState},
         socket::ListeningSocketSource,
-        tablet_manager::TabletSeatTrait,
         text_input::TextInputManagerState,
         viewporter::ViewporterState,
         virtual_keyboard::VirtualKeyboardManagerState,
@@ -110,11 +110,7 @@ use smithay::{
     },
     xwayland::{X11Wm, XWayland, XWaylandEvent},
 };
-use std::{
-    os::unix::io::OwnedFd,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{os::unix::io::OwnedFd, sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 #[derive(Debug, Default)]
@@ -210,6 +206,7 @@ impl ServerDndGrabHandler for State {
 }
 delegate_data_device!(State);
 
+impl OutputHandler for State {}
 delegate_output!(State);
 
 impl SelectionHandler for State {
@@ -284,6 +281,10 @@ impl SeatHandler for State {
     }
     fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
         self.cursor_status = image;
+    }
+
+    fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {
+        self.backend_data.update_led_state(led_state)
     }
 }
 delegate_seat!(State);
@@ -919,6 +920,13 @@ impl BackendData {
         match self {
             BackendData::Udev(ref mut udev_data) => udev_data.dmabuf_state(),
             BackendData::Winit(ref mut winit_data) => winit_data.dmabuf_state(),
+        }
+    }
+
+    pub fn update_led_state(&mut self, led_state: LedState) {
+        match self {
+            BackendData::Udev(ref mut udev_data) => udev_data.update_led_state(led_state),
+            _ => {}
         }
     }
 
