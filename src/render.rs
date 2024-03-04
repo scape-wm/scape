@@ -2,7 +2,7 @@
 use crate::drawing::FpsElement;
 use crate::{
     drawing::{PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN},
-    shell::{FullscreenSurface, WindowElement, WindowRenderElement},
+    shell::{ApplicationWindow, FullscreenSurface, WindowRenderElement},
 };
 use smithay::{
     backend::renderer::{
@@ -74,7 +74,7 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
 
 pub fn space_preview_elements<'a, R, C>(
     renderer: &'a mut R,
-    space: &'a Space<WindowElement>,
+    space: &'a Space<ApplicationWindow>,
     output: &'a Output,
 ) -> impl Iterator<Item = C> + 'a
 where
@@ -139,7 +139,7 @@ where
 #[cfg_attr(feature = "profiling", profiling::function)]
 pub fn output_elements<R>(
     output: &Output,
-    space: &Space<WindowElement>,
+    space: &Space<ApplicationWindow>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
@@ -181,12 +181,11 @@ where
             output_render_elements.extend(space_preview_elements(renderer, space, output));
         }
 
-        let space_elements = smithay::desktop::space::space_render_elements::<_, WindowElement, _>(
-            renderer,
-            [space],
-            output,
-            1.0,
-        )
+        let space_elements = smithay::desktop::space::space_render_elements::<
+            _,
+            ApplicationWindow,
+            _,
+        >(renderer, [space], output, 1.0)
         .expect("output without mode?");
         output_render_elements.extend(space_elements.into_iter().map(OutputRenderElements::Space));
 
@@ -197,7 +196,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn render_output<'a, R>(
     output: &Output,
-    space: &'a Space<WindowElement>,
+    space: &'a Space<ApplicationWindow>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     damage_tracker: &mut OutputDamageTracker,

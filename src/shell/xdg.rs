@@ -1,6 +1,6 @@
 use super::{
-    fullscreen_output_geometry, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
-    ResizeSurfaceGrab, SurfaceData, WindowElement,
+    fullscreen_output_geometry, ApplicationWindow, FullscreenSurface, MoveSurfaceGrab, ResizeData,
+    ResizeState, ResizeSurfaceGrab, SurfaceData,
 };
 use crate::{composition::place_window, focus::FocusTarget, state::State};
 use smithay::{
@@ -51,7 +51,7 @@ impl XdgShellHandler for State {
         //     warn!("app id is: {:?}", x.app_id);
         //     warn!("title is: {:?}", x.title);
         // });
-        let window = WindowElement::Wayland(Window::new(surface));
+        let window = ApplicationWindow::Wayland(Window::new(surface));
         place_window(
             &mut self.space,
             self.pointer.current_location(),

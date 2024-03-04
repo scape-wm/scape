@@ -80,6 +80,7 @@ profile-with-puffin = [
     "puffin_http",
 ]
 profile-with-tracy = ["profiling", "profiling/profile-with-tracy"]
+# TODO: find out if this is useful
 renderer_sync = []
 
 [profile.release-with-debug]

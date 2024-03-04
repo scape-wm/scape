@@ -28,9 +28,14 @@ use smithay::{
         wayland_server::protocol::wl_surface::WlSurface,
     },
     render_elements,
-    utils::{user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial},
+    utils::{
+        user_data::UserDataMap, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size,
+    },
     wayland::{
-        compositor::SurfaceData as WlSurfaceData, dmabuf::DmabufFeedback, seat::WaylandFocus,
+        compositor::{with_states, SurfaceData as WlSurfaceData},
+        dmabuf::DmabufFeedback,
+        seat::WaylandFocus,
+        shell::xdg::XdgToplevelSurfaceData,
     },
 };
 use smithay::{
@@ -42,6 +47,7 @@ use smithay::{
     xwayland::X11Surface,
 };
 use std::time::Duration;
+use tracing::error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplicationWindow {
@@ -181,22 +187,41 @@ impl ApplicationWindow {
         }
     }
 
-    // pub fn set_size(&self, size: Size<i32, Logical>) {
-    //     match &self {
-    //         WindowElement::Wayland(w) => {
-    //             let xdg = w.toplevel();
-    //             xdg.with_pending_state(|state| {
-    //                 state.size = Some(size);
-    //             });
-    //         }
-    //         WindowElement::X11(x11) => {
-    //             let target = Rectangle::from_loc_and_size((0, 0), size);
-    //             if let Err(e) = x11.configure(target) {
-    //                 error!("Unable to configure x11 surface: {e}");
-    //             }
-    //         }
-    //     }
-    // }
+    pub fn set_size(&self, size: Size<i32, Logical>) {
+        match &self {
+            ApplicationWindow::Wayland(w) => {
+                let xdg = w.toplevel();
+                xdg.with_pending_state(|state| {
+                    state.size = Some(size);
+                });
+            }
+            ApplicationWindow::X11(x11) => {
+                let target = Rectangle::from_loc_and_size((0, 0), size);
+                if let Err(e) = x11.configure(target) {
+                    error!("Unable to configure x11 surface: {e}");
+                }
+            }
+        }
+    }
+
+    pub fn app_id(&self) -> String {
+        match self {
+            ApplicationWindow::Wayland(window) => {
+                with_states(window.toplevel().wl_surface(), |states| {
+                    states
+                        .data_map
+                        .get::<XdgToplevelSurfaceData>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .app_id
+                        .clone()
+                        .unwrap_or_default()
+                })
+            }
+            ApplicationWindow::X11(surface) => surface.class(),
+        }
+    }
 }
 
 impl IsAlive for ApplicationWindow {
@@ -232,6 +257,7 @@ impl PointerTarget<State> for ApplicationWindow {
             };
         }
     }
+
     fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
@@ -274,6 +300,7 @@ impl PointerTarget<State> for ApplicationWindow {
             };
         }
     }
+
     fn relative_motion(&self, seat: &Seat<State>, data: &mut State, event: &RelativeMotionEvent) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
@@ -285,6 +312,7 @@ impl PointerTarget<State> for ApplicationWindow {
             }
         }
     }
+
     fn button(&self, seat: &Seat<State>, data: &mut State, event: &ButtonEvent) {
         let mut state = self.decoration_state();
         if state.is_ssd {
@@ -303,6 +331,7 @@ impl PointerTarget<State> for ApplicationWindow {
             };
         }
     }
+
     fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
@@ -312,6 +341,7 @@ impl PointerTarget<State> for ApplicationWindow {
             }
         }
     }
+
     fn frame(&self, seat: &Seat<State>, data: &mut State) {
         let state = self.decoration_state();
         if !state.is_ssd || state.ptr_entered_window {
@@ -321,6 +351,7 @@ impl PointerTarget<State> for ApplicationWindow {
             }
         }
     }
+
     fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
         let mut state = self.decoration_state();
         if state.is_ssd {

@@ -1,9 +1,10 @@
+use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::state::{BackendData, SurfaceDmabufFeedback};
 use crate::{
     drawing::*,
     render::*,
-    shell::WindowElement,
-    state::{post_repaint, take_presentation_feedback, State},
+    shell::ApplicationWindow,
+    state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
 #[cfg(feature = "renderer_sync")]
@@ -1597,7 +1598,7 @@ fn schedule_initial_render(
     udev_data: &mut UdevData,
     node: DrmNode,
     crtc: crtc::Handle,
-    evt_handle: LoopHandle<'static, State>,
+    loop_handle: LoopHandle<'static, State>,
 ) {
     let device = if let Some(device) = udev_data.backends.get_mut(&node) {
         device
@@ -1623,8 +1624,8 @@ fn schedule_initial_render(
             SwapBuffersError::TemporaryFailure(err) => {
                 // TODO dont reschedule after 3(?) retries
                 warn!("Failed to submit page_flip: {}", err);
-                let handle = evt_handle.clone();
-                evt_handle.insert_idle(move |state| {
+                let handle = loop_handle.clone();
+                loop_handle.insert_idle(move |state| {
                     let BackendData::Udev(udev_data) = &mut state.backend_data else {
                         error!("Received non udev backend data");
                         return;
@@ -1642,7 +1643,7 @@ fn schedule_initial_render(
 fn render_surface<'a, 'b>(
     surface: &'a mut SurfaceData,
     renderer: &mut UdevRenderer<'a, 'b>,
-    space: &Space<WindowElement>,
+    space: &Space<ApplicationWindow>,
     output: &Output,
     pointer_location: Point<f64, Logical>,
     pointer_image: &MemoryRenderBuffer,

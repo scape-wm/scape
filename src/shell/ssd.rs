@@ -1,4 +1,4 @@
-use super::WindowElement;
+use super::ApplicationWindow;
 use crate::State;
 use smithay::{
     backend::renderer::{
@@ -55,22 +55,22 @@ impl HeaderBar {
         &mut self,
         seat: &Seat<State>,
         state: &mut State,
-        window: &WindowElement,
+        window: &ApplicationWindow,
         serial: Serial,
     ) {
         match self.pointer_loc.as_ref() {
             Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
                 match window {
-                    WindowElement::Wayland(w) => w.toplevel().send_close(),
-                    WindowElement::X11(w) => {
+                    ApplicationWindow::Wayland(w) => w.toplevel().send_close(),
+                    ApplicationWindow::X11(w) => {
                         let _ = w.close();
                     }
                 };
             }
             Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
                 match window {
-                    WindowElement::Wayland(w) => state.maximize_request(w.toplevel().clone()),
-                    WindowElement::X11(w) => {
+                    ApplicationWindow::Wayland(w) => state.maximize_request(w.toplevel().clone()),
+                    ApplicationWindow::X11(w) => {
                         let surface = w.clone();
                         state
                             .loop_handle
@@ -80,14 +80,14 @@ impl HeaderBar {
             }
             Some(_) => {
                 match window {
-                    WindowElement::Wayland(w) => {
+                    ApplicationWindow::Wayland(w) => {
                         let seat = seat.clone();
                         let toplevel = w.toplevel().clone();
                         state.loop_handle.insert_idle(move |state| {
                             state.move_request_xdg(&toplevel, &seat, serial)
                         });
                     }
-                    WindowElement::X11(w) => {
+                    ApplicationWindow::X11(w) => {
                         let window = w.clone();
                         state
                             .loop_handle
@@ -210,7 +210,7 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
     }
 }
 
-impl WindowElement {
+impl ApplicationWindow {
     pub fn decoration_state(&self) -> RefMut<'_, WindowState> {
         self.user_data().insert_if_missing(|| {
             RefCell::new(WindowState {

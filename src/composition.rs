@@ -1,11 +1,10 @@
 use smithay::{
     desktop::{layer_map_for_output, Space},
     utils::{Logical, Point, Rectangle},
-    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 use tracing::warn;
 
-use crate::shell::WindowElement;
+use crate::shell::ApplicationWindow;
 
 #[derive(Debug)]
 pub struct Zone {
@@ -21,9 +20,9 @@ pub enum WindowPosition {
 }
 
 pub fn place_window(
-    space: &mut Space<WindowElement>,
+    space: &mut Space<ApplicationWindow>,
     pointer_location: Point<f64, Logical>,
-    window: &WindowElement,
+    window: &ApplicationWindow,
     activate: bool,
     window_position: WindowPosition,
 ) -> Rectangle<i32, Logical> {
@@ -49,7 +48,7 @@ pub fn place_window(
 
     // set the initial toplevel bounds
     match window {
-        WindowElement::Wayland(window) => {
+        ApplicationWindow::Wayland(window) => {
             window.toplevel().with_pending_state(|state| {
                 state.bounds = Some(output_geometry.size);
                 // state.bounds = Some(size.into());
@@ -59,7 +58,7 @@ pub fn place_window(
                 window.toplevel().send_pending_configure();
             }
         }
-        WindowElement::X11(window) => {
+        ApplicationWindow::X11(window) => {
             if window_position != WindowPosition::New {
                 window
                     .configure(Some(Rectangle::from_loc_and_size(position, size)))
@@ -68,25 +67,6 @@ pub fn place_window(
         }
     }
 
-    warn!("config on {}", app_id(window));
-
     space.map_element(window.clone(), position, activate);
     Rectangle::from_loc_and_size(position, size)
-}
-
-pub fn app_id(ele: &WindowElement) -> String {
-    match ele {
-        WindowElement::Wayland(window) => with_states(window.toplevel().wl_surface(), |states| {
-            states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .app_id
-                .clone()
-                .unwrap_or_default()
-        }),
-        WindowElement::X11(surface) => surface.class(),
-    }
 }

@@ -1,4 +1,4 @@
-use super::{SurfaceData, WindowElement};
+use super::{ApplicationWindow, SurfaceData};
 use crate::{focus::FocusTarget, state::State};
 use smithay::{
     desktop::space::SpaceElement,
@@ -18,7 +18,7 @@ use tracing::{error, warn};
 
 pub struct MoveSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
-    pub window: WindowElement,
+    pub window: ApplicationWindow,
     pub initial_window_location: Point<i32, Logical>,
 }
 
@@ -257,7 +257,7 @@ impl Default for ResizeState {
 
 pub struct ResizeSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
-    pub window: WindowElement,
+    pub window: ApplicationWindow,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
     pub initial_window_size: Size<i32, Logical>,
@@ -333,7 +333,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
         self.last_window_size = (new_window_width, new_window_height).into();
 
         match &self.window {
-            WindowElement::Wayland(w) => {
+            ApplicationWindow::Wayland(w) => {
                 let xdg = w.toplevel();
                 xdg.with_pending_state(|state| {
                     state.states.set(xdg_toplevel::State::Resizing);
@@ -341,7 +341,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                 });
                 xdg.send_pending_configure();
             }
-            WindowElement::X11(x11) => {
+            ApplicationWindow::X11(x11) => {
                 let Some(location) = data.space.element_location(&self.window) else {
                     warn!("Surface to move was not found in the space");
                     return;
@@ -381,7 +381,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
             }
 
             match &self.window {
-                WindowElement::Wayland(w) => {
+                ApplicationWindow::Wayland(w) => {
                     let xdg = w.toplevel();
                     xdg.with_pending_state(|state| {
                         state.states.unset(xdg_toplevel::State::Resizing);
@@ -432,7 +432,7 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                         }
                     });
                 }
-                WindowElement::X11(x11) => {
+                ApplicationWindow::X11(x11) => {
                     let Some(mut location) = data.space.element_location(&self.window) else {
                         warn!("Window {:?} not found in space", self.window);
                         return;

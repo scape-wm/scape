@@ -48,7 +48,7 @@ pub use self::grabs::*;
 fn fullscreen_output_geometry(
     wl_surface: &WlSurface,
     wl_output: Option<&wl_output::WlOutput>,
-    space: &mut Space<WindowElement>,
+    space: &mut Space<ApplicationWindow>,
 ) -> Option<Rectangle<i32, Logical>> {
     // First test if a specific output has been requested
     // if the requested output is not found ignore the request
@@ -68,18 +68,18 @@ fn fullscreen_output_geometry(
 }
 
 #[derive(Default)]
-pub struct FullscreenSurface(RefCell<Option<WindowElement>>);
+pub struct FullscreenSurface(RefCell<Option<ApplicationWindow>>);
 
 impl FullscreenSurface {
-    pub fn set(&self, window: WindowElement) {
+    pub fn set(&self, window: ApplicationWindow) {
         *self.0.borrow_mut() = Some(window);
     }
 
-    pub fn get(&self) -> Option<WindowElement> {
+    pub fn get(&self) -> Option<ApplicationWindow> {
         self.0.borrow().clone()
     }
 
-    pub fn clear(&self) -> Option<WindowElement> {
+    pub fn clear(&self) -> Option<ApplicationWindow> {
         self.0.borrow_mut().take()
     }
 }
@@ -145,7 +145,7 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(WindowElement::Wayland(window)) = self.window_for_surface(&root) {
+            if let Some(ApplicationWindow::Wayland(window)) = self.window_for_surface(&root) {
                 window.on_commit();
             }
         }
@@ -191,7 +191,7 @@ impl WlrLayerShellHandler for State {
 }
 
 impl State {
-    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
+    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<ApplicationWindow> {
         self.space
             .elements()
             .find(|window| window.wl_surface().map(|s| s == *surface).unwrap_or(false))
@@ -207,7 +207,7 @@ pub struct SurfaceData {
 
 fn ensure_initial_configure(
     surface: &WlSurface,
-    space: &Space<WindowElement>,
+    space: &Space<ApplicationWindow>,
     popups: &mut PopupManager,
 ) {
     with_surface_tree_upward(
@@ -228,7 +228,7 @@ fn ensure_initial_configure(
         .cloned()
     {
         // send the initial configure if relevant
-        if let WindowElement::Wayland(ref toplevel) = window {
+        if let ApplicationWindow::Wayland(ref toplevel) = window {
             let initial_configure_sent = with_states(surface, |states| {
                 if let Ok(data) = states
                     .data_map
@@ -330,7 +330,10 @@ fn ensure_initial_configure(
     };
 }
 
-pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {
+pub fn fixup_positions(
+    space: &mut Space<ApplicationWindow>,
+    pointer_location: Point<f64, Logical>,
+) {
     // fixup outputs
     let mut offset = Point::<i32, Logical>::from((0, 0));
     for output in space.outputs().cloned().collect::<Vec<_>>().into_iter() {

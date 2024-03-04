@@ -1,7 +1,7 @@
 use crate::{
     composition::{place_window, WindowPosition},
     focus::FocusTarget,
-    shell::{FullscreenSurface, WindowElement},
+    shell::{ApplicationWindow, FullscreenSurface},
     State,
 };
 use smithay::backend::input::GesturePinchUpdateEvent;
@@ -82,7 +82,7 @@ impl State {
             KeyAction::ToggleDecorations => {
                 for element in self.space.elements() {
                     #[allow(irrefutable_let_patterns)]
-                    if let WindowElement::Wayland(window) = element {
+                    if let ApplicationWindow::Wayland(window) = element {
                         let toplevel = window.toplevel();
                         let mode_changed = toplevel.with_pending_state(|state| {
                             if let Some(current_mode) = state.decoration_mode {
@@ -278,7 +278,7 @@ impl State {
                         self.pointer.current_location() - output_geo.loc.to_f64(),
                         WindowSurfaceType::ALL,
                     ) {
-                        if let WindowElement::X11(surf) = &window {
+                        if let ApplicationWindow::X11(surf) = &window {
                             self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
                         }
                         keyboard.set_focus(self, Some(window.into()), serial);
@@ -312,7 +312,7 @@ impl State {
             {
                 self.space.raise_element(&window, true);
                 keyboard.set_focus(self, Some(window.clone().into()), serial);
-                if let WindowElement::X11(surf) = &window {
+                if let ApplicationWindow::X11(surf) = &window {
                     self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
                 }
                 return;

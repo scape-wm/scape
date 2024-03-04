@@ -1,6 +1,6 @@
 use super::{
-    FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab, SurfaceData,
-    WindowElement,
+    ApplicationWindow, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
+    ResizeSurfaceGrab, SurfaceData,
 };
 use crate::{composition::place_window, focus::FocusTarget, State};
 use smithay::{
@@ -52,7 +52,7 @@ impl XwmHandler for State {
     fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
         tracing::warn!("window is: {:?}", window);
         window.set_mapped(true).unwrap();
-        let window = WindowElement::X11(window);
+        let window = ApplicationWindow::X11(window);
         let rect = place_window(
             &mut self.space,
             self.pointer.current_location(),
@@ -61,7 +61,7 @@ impl XwmHandler for State {
             crate::composition::WindowPosition::New,
         );
         let _bbox = self.space.element_bbox(&window).unwrap();
-        let WindowElement::X11(xsurface) = &window else {
+        let ApplicationWindow::X11(xsurface) = &window else {
             unreachable!()
         };
         xsurface.configure(Some(rect)).unwrap();
@@ -71,14 +71,14 @@ impl XwmHandler for State {
         let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(
             self,
-            Some(WindowElement::X11(xsurface.to_owned()).into()),
+            Some(ApplicationWindow::X11(xsurface.to_owned()).into()),
             serial,
         );
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
         let location = window.geometry().loc;
-        let window = WindowElement::X11(window);
+        let window = ApplicationWindow::X11(window);
         self.space.map_element(window, location, true);
     }
 
@@ -86,7 +86,7 @@ impl XwmHandler for State {
         let maybe = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
             .cloned();
         if let Some(elem) = maybe {
             self.space.unmap_elem(&elem)
@@ -129,7 +129,7 @@ impl XwmHandler for State {
         let Some(elem) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
             .cloned()
         else {
             return;
@@ -147,7 +147,7 @@ impl XwmHandler for State {
         let Some(elem) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
             .cloned()
         else {
             return;
@@ -168,7 +168,7 @@ impl XwmHandler for State {
         if let Some(elem) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
         {
             let outputs_for_window = self.space.outputs_for_element(elem);
             let output = outputs_for_window
@@ -198,7 +198,7 @@ impl XwmHandler for State {
         if let Some(elem) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
         {
             window.set_fullscreen(false).unwrap();
             elem.set_ssd(!window.is_decorated());
@@ -234,7 +234,7 @@ impl XwmHandler for State {
         let Some(element) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == &window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &window))
         else {
             return;
         };
@@ -276,7 +276,8 @@ impl XwmHandler for State {
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         if let Some(keyboard) = self.seat.get_keyboard() {
             // check that an X11 window is focused
-            if let Some(FocusTarget::Window(WindowElement::X11(surface))) = keyboard.current_focus()
+            if let Some(FocusTarget::Window(ApplicationWindow::X11(surface))) =
+                keyboard.current_focus()
             {
                 if surface.xwm_id().unwrap() == xwm {
                     return true;
@@ -347,7 +348,7 @@ impl State {
         let Some(elem) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == window))
             .cloned()
         else {
             return;
@@ -383,7 +384,7 @@ impl State {
         let Some(element) = self
             .space
             .elements()
-            .find(|e| matches!(e, WindowElement::X11(w) if w == window))
+            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == window))
         else {
             return;
         };
