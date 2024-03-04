@@ -1,10 +1,8 @@
+use crate::shell::ApplicationWindow;
 use smithay::{
     desktop::{layer_map_for_output, Space},
     utils::{Logical, Point, Rectangle},
 };
-use tracing::warn;
-
-use crate::shell::ApplicationWindow;
 
 #[derive(Debug)]
 pub struct Zone {

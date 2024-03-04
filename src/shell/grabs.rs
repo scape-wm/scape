@@ -238,8 +238,10 @@ pub struct ResizeData {
 
 /// State of the resize operation.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Default)]
 pub enum ResizeState {
     /// The surface is not being resized.
+    #[default]
     NotResizing,
     /// The surface is currently being resized.
     Resizing(ResizeData),
@@ -249,11 +251,7 @@ pub enum ResizeState {
     WaitingForCommit(ResizeData),
 }
 
-impl Default for ResizeState {
-    fn default() -> Self {
-        ResizeState::NotResizing
-    }
-}
+
 
 pub struct ResizeSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,

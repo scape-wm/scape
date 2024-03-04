@@ -9,9 +9,9 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let mut event_loop = create_event_loop()?;
     let backend_data = create_backend_data(args, &mut event_loop, display.handle())?;
 
-    let mut state = State::init(display, backend_data, &mut event_loop)?;
+    let state = State::init(display, backend_data, &mut event_loop)?;
 
-    start_xwayland(&mut state, event_loop.handle());
+    start_xwayland(&state, event_loop.handle());
     run_loop(state, &mut event_loop)
 }
 

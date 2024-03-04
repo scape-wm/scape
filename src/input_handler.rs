@@ -1250,17 +1250,11 @@ fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Optio
         Some(KeyAction::ToggleTint)
     } else if modifiers.logo && modifiers.shift && keysym == Keysym::X {
         Some(KeyAction::ToggleDecorations)
-    } else if modifiers.logo && keysym == Keysym::Left {
+    } else if modifiers.logo && keysym == Keysym::Left || modifiers.ctrl && keysym == Keysym::_1 {
         Some(KeyAction::MoveWindow(WindowPosition::Left))
-    } else if modifiers.ctrl && keysym == Keysym::_1 {
-        Some(KeyAction::MoveWindow(WindowPosition::Left))
-    } else if modifiers.logo && keysym == Keysym::Up {
+    } else if modifiers.logo && keysym == Keysym::Up || modifiers.ctrl && keysym == Keysym::_2 {
         Some(KeyAction::MoveWindow(WindowPosition::Mid))
-    } else if modifiers.ctrl && keysym == Keysym::_2 {
-        Some(KeyAction::MoveWindow(WindowPosition::Mid))
-    } else if modifiers.logo && keysym == Keysym::Right {
-        Some(KeyAction::MoveWindow(WindowPosition::Right))
-    } else if modifiers.ctrl && keysym == Keysym::_3 {
+    } else if modifiers.logo && keysym == Keysym::Right || modifiers.ctrl && keysym == Keysym::_3 {
         Some(KeyAction::MoveWindow(WindowPosition::Right))
     } else {
         None

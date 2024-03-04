@@ -28,7 +28,7 @@ impl Cursor {
         warn!("loading complete {:?}", theme);
         let icons = load_icon(&theme)
             .map_err(|err| warn!("Unable to load xcursor: {}, using fallback cursor", err))
-            .or_else(|_| parse_xcursor(&FALLBACK_CURSOR).ok_or(Error::Parse))
+            .or_else(|_| parse_xcursor(FALLBACK_CURSOR).ok_or(Error::Parse))
             .map_err(|err| {
                 warn!(
                     "Still unable to load xcursor: {}, using fallback cursor",

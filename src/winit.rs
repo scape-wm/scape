@@ -273,10 +273,7 @@ fn run_tick(state: &mut State) {
             .loop_handle
             .insert_source(Timer::immediate(), |_, _, state| {
                 let display_handle = state.display_handle.clone();
-                let pending_events = std::mem::replace(
-                    &mut state.backend_data.winit_mut().pending_input_events,
-                    vec![],
-                );
+                let pending_events = std::mem::take(&mut state.backend_data.winit_mut().pending_input_events);
                 for event in pending_events {
                     state.process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
                 }

@@ -86,7 +86,6 @@ use smithay_drm_extras::{
     drm_scanner::{DrmScanEvent, DrmScanner},
     edid::EdidInfo,
 };
-use std::sync::atomic::AtomicIsize;
 use std::time::Instant;
 use std::{
     collections::{hash_map::HashMap, HashSet},
@@ -110,8 +109,6 @@ const SUPPORTED_FORMATS: &[Fourcc] = &[
     Fourcc::Argb8888,
 ];
 const SUPPORTED_FORMATS_8BIT_ONLY: &[Fourcc] = &[Fourcc::Abgr8888, Fourcc::Argb8888];
-
-pub const RENDER_SCHEDULE_COUNTER: AtomicIsize = AtomicIsize::new(0);
 
 type UdevRenderer<'a, 'b> =
     MultiRenderer<'a, 'a, 'b, GbmGlesBackend<GlesRenderer>, GbmGlesBackend<GlesRenderer>>;
@@ -416,7 +413,6 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                             surface.compositor.reset_buffers();
                         }
 
-                        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         state
                             .loop_handle
                             .insert_idle(move |state| render(state, node, None));
@@ -457,9 +453,9 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
             UdevEvent::Added { device_id, path } => {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
-                    .and_then(|node| {
+                    .map(|node| {
                         state.last_node = Some(node);
-                        Ok(node)
+                        node
                     })
                     .and_then(|node| device_added(state, node, &path))
                 {
@@ -479,7 +475,6 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         })
         .unwrap();
 
-    let primary_gpu = primary_gpu.clone();
     event_loop
         .handle()
         .insert_source(Timer::immediate(), move |_, _, state| {
@@ -713,10 +708,10 @@ impl SurfaceComposition {
     }
 
     #[cfg_attr(feature = "profiling", profiling::function)]
-    fn render_frame<'a, R, E, Target>(
+    fn render_frame<R, E, Target>(
         &mut self,
         renderer: &mut R,
-        elements: &'a [E],
+        elements: &[E],
         clear_color: [f32; 4],
     ) -> Result<SurfaceCompositorRenderResult, SwapBuffersError>
     where
@@ -1417,7 +1412,6 @@ fn frame_finish(
             Timer::from_duration(repaint_delay)
         };
 
-        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
@@ -1446,8 +1440,6 @@ pub fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
             render_surface_crtc(state, node, crtc);
         }
     };
-
-    RENDER_SCHEDULE_COUNTER.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
 }
 
 fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
@@ -1577,7 +1569,6 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
             crtc,
         );
         let timer = Timer::from_duration(reschedule_duration);
-        RENDER_SCHEDULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {

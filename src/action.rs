@@ -1,7 +1,7 @@
 use crate::State;
 
 #[derive(Debug)]
-enum Action {
+pub enum Action {
     /// Quit the compositor
     Quit,
     /// Trigger a vt-switch
@@ -21,15 +21,20 @@ enum Action {
 }
 
 impl State {
-    fn execute(&mut self, action: Action) {
+    pub fn execute(&mut self, action: Action) {
         match action {
             Action::Quit => self.stop_loop(),
             Action::VtSwitch(_) => todo!(),
-            Action::Run { command } => todo!(),
-            Action::ChangeScale { percentage_points } => todo!(),
-            Action::SetScale { percentage } => todo!(),
-            Action::RotateOutput { output, rotation } => todo!(),
-            Action::MoveWindow { window, zone } => todo!(),
+            Action::Run { command: _ } => todo!(),
+            Action::ChangeScale {
+                percentage_points: _,
+            } => todo!(),
+            Action::SetScale { percentage: _ } => todo!(),
+            Action::RotateOutput {
+                output: _,
+                rotation: _,
+            } => todo!(),
+            Action::MoveWindow { window: _, zone: _ } => todo!(),
             Action::None => todo!(),
         }
     }

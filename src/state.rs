@@ -484,9 +484,8 @@ impl BackendData {
     }
 
     pub fn update_led_state(&mut self, led_state: LedState) {
-        match self {
-            BackendData::Udev(ref mut udev_data) => udev_data.update_led_state(led_state),
-            _ => {}
+        if let BackendData::Udev(ref mut udev_data) = self {
+            udev_data.update_led_state(led_state)
         }
     }
 
