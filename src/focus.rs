@@ -1,4 +1,5 @@
-use crate::{shell::ApplicationWindow, state::State};
+use crate::application_window::ApplicationWindow;
+use crate::state::State;
 use smithay::input::pointer::{
     GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
     GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,

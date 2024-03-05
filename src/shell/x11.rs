@@ -1,8 +1,9 @@
 use super::{
-    ApplicationWindow, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
-    ResizeSurfaceGrab, SurfaceData,
+    FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab, SurfaceData,
 };
-use crate::{composition::place_window, focus::FocusTarget, State};
+use crate::{
+    application_window::ApplicationWindow, composition::place_window, focus::FocusTarget, State,
+};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,

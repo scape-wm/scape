@@ -1,4 +1,4 @@
-use crate::shell::ApplicationWindow;
+use crate::application_window::ApplicationWindow;
 use smithay::{
     desktop::{layer_map_for_output, Space},
     utils::{Logical, Point, Rectangle},

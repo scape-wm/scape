@@ -1,4 +1,5 @@
-use crate::{cursor::Cursor, shell::ApplicationWindow, udev::UdevData, winit::WinitData};
+use crate::application_window::ApplicationWindow;
+use crate::{cursor::Cursor, udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
 use smithay::backend::drm::DrmNode;

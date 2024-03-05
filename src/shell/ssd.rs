@@ -1,5 +1,4 @@
-use super::ApplicationWindow;
-use crate::State;
+use crate::{application_window::ApplicationWindow, State};
 use smithay::{
     backend::renderer::{
         element::{

@@ -1,8 +1,9 @@
+use crate::application_window::{ApplicationWindow, WindowRenderElement};
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
 use crate::{
     drawing::{PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN},
-    shell::{ApplicationWindow, FullscreenSurface, WindowRenderElement},
+    shell::FullscreenSurface,
 };
 use smithay::{
     backend::renderer::{

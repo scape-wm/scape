@@ -1,4 +1,4 @@
-use crate::{shell::ApplicationWindow, State};
+use crate::{application_window::ApplicationWindow, State};
 use smithay::{
     backend::renderer::element::RenderElementStates,
     delegate_presentation,

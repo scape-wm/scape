@@ -1,9 +1,9 @@
+use crate::application_window::ApplicationWindow;
 use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::state::{BackendData, SurfaceDmabufFeedback};
 use crate::{
     drawing::*,
     render::*,
-    shell::ApplicationWindow,
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};

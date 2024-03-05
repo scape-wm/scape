@@ -1,8 +1,11 @@
 use super::{
-    fullscreen_output_geometry, ApplicationWindow, FullscreenSurface, MoveSurfaceGrab, ResizeData,
-    ResizeState, ResizeSurfaceGrab, SurfaceData,
+    fullscreen_output_geometry, FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState,
+    ResizeSurfaceGrab, SurfaceData,
 };
-use crate::{composition::place_window, focus::FocusTarget, state::State};
+use crate::{
+    application_window::ApplicationWindow, composition::place_window, focus::FocusTarget,
+    state::State,
+};
 use smithay::{
     desktop::{
         find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output,

@@ -1,3 +1,4 @@
+use crate::application_window::ApplicationWindow;
 use crate::composition::place_window;
 use crate::{ClientState, State};
 use smithay::xwayland::X11Wm;
@@ -36,13 +37,11 @@ use smithay::{
 use std::cell::RefCell;
 use tracing::{info, warn};
 
-mod element;
 mod grabs;
 pub(crate) mod ssd;
 mod x11;
 mod xdg;
 
-pub use self::element::*;
 pub use self::grabs::*;
 
 fn fullscreen_output_geometry(
