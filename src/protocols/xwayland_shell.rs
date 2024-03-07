@@ -1,6 +1,5 @@
-use super::{
-    FullscreenSurface, MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab, SurfaceData,
-};
+use crate::grabs::{MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab};
+use crate::shell::{FullscreenSurface, SurfaceData};
 use crate::{
     application_window::ApplicationWindow, composition::place_window, focus::FocusTarget, State,
 };

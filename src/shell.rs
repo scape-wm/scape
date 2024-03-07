@@ -1,18 +1,18 @@
 use crate::application_window::ApplicationWindow;
 use crate::composition::place_window;
+use crate::grabs::ResizeState;
 use crate::{ClientState, State};
 use smithay::xwayland::X11Wm;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     desktop::{
-        layer_map_for_output, space::SpaceElement, LayerSurface, PopupKind, PopupManager, Space,
+        layer_map_for_output, space::SpaceElement, PopupKind, PopupManager, Space,
         WindowSurfaceType,
     },
-    output::Output,
     reexports::{
         calloop::Interest,
         wayland_server::{
-            protocol::{wl_buffer::WlBuffer, wl_output, wl_surface::WlSurface},
+            protocol::{wl_buffer::WlBuffer, wl_surface::WlSurface},
             Client, Resource,
         },
     },
@@ -25,46 +25,12 @@ use smithay::{
             CompositorState, SurfaceAttributes, TraversalAction,
         },
         dmabuf::get_dmabuf,
-        shell::{
-            wlr_layer::{
-                Layer, LayerSurface as WlrLayerSurface, WlrLayerShellHandler, WlrLayerShellState,
-            },
-            xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData},
-        },
+        shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData},
     },
     xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
 use tracing::{info, warn};
-
-mod grabs;
-pub(crate) mod ssd;
-mod x11;
-mod xdg;
-
-pub use self::grabs::*;
-
-fn fullscreen_output_geometry(
-    wl_surface: &WlSurface,
-    wl_output: Option<&wl_output::WlOutput>,
-    space: &mut Space<ApplicationWindow>,
-) -> Option<Rectangle<i32, Logical>> {
-    // First test if a specific output has been requested
-    // if the requested output is not found ignore the request
-    wl_output
-        .and_then(Output::from_resource)
-        .or_else(|| {
-            let w = space.elements().find(|window| {
-                window
-                    .wl_surface()
-                    .map(|s| s == *wl_surface)
-                    .unwrap_or(false)
-            });
-            w.and_then(|w| space.outputs_for_element(w).first().cloned())
-        })
-        .as_ref()
-        .and_then(|o| space.output_geometry(o))
-}
 
 #[derive(Default)]
 pub struct FullscreenSurface(RefCell<Option<ApplicationWindow>>);
@@ -151,41 +117,6 @@ impl CompositorHandler for State {
         self.popups.commit(surface);
 
         ensure_initial_configure(surface, &self.space, &mut self.popups)
-    }
-}
-
-impl WlrLayerShellHandler for State {
-    fn shell_state(&mut self) -> &mut WlrLayerShellState {
-        &mut self.layer_shell_state
-    }
-
-    fn new_layer_surface(
-        &mut self,
-        surface: WlrLayerSurface,
-        wl_output: Option<wl_output::WlOutput>,
-        _layer: Layer,
-        namespace: String,
-    ) {
-        let output = wl_output
-            .as_ref()
-            .and_then(Output::from_resource)
-            .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
-        let mut map = layer_map_for_output(&output);
-        map.map_layer(&LayerSurface::new(surface, namespace))
-            .unwrap();
-    }
-
-    fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        if let Some((mut map, layer)) = self.space.outputs().find_map(|o| {
-            let map = layer_map_for_output(o);
-            let layer = map
-                .layers()
-                .find(|&layer| layer.layer_surface() == &surface)
-                .cloned();
-            layer.map(|layer| (map, layer))
-        }) {
-            map.unmap_layer(&layer);
-        }
     }
 }
 

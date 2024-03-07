@@ -1,5 +1,6 @@
-use super::{ApplicationWindow, SurfaceData};
-use crate::{focus::FocusTarget, state::State};
+use crate::{
+    application_window::ApplicationWindow, focus::FocusTarget, shell::SurfaceData, state::State,
+};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::{
@@ -237,8 +238,7 @@ pub struct ResizeData {
 }
 
 /// State of the resize operation.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
 pub enum ResizeState {
     /// The surface is not being resized.
     #[default]
@@ -250,8 +250,6 @@ pub enum ResizeState {
     /// The resize has finished, and the surface needs to commit its final state.
     WaitingForCommit(ResizeData),
 }
-
-
 
 pub struct ResizeSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,

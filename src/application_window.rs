@@ -1,4 +1,4 @@
-use crate::shell::ssd::HEADER_BAR_HEIGHT;
+use crate::ssd::HEADER_BAR_HEIGHT;
 use crate::State;
 use smithay::{
     backend::{
