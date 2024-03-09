@@ -252,7 +252,8 @@ fn run_tick(state: &mut State) {
                 };
                 output.change_current_state(Some(mode), None, None, None);
                 output.set_preferred(mode);
-                crate::shell::fixup_positions(&mut state.space, state.pointer.current_location());
+                let location = state.pointer.as_ref().unwrap().current_location();
+                crate::shell::fixup_positions(&mut state.space, location);
             }
             WinitEvent::Input(event) => {
                 winit_data.pending_input_events.push(event);
@@ -273,7 +274,8 @@ fn run_tick(state: &mut State) {
             .loop_handle
             .insert_source(Timer::immediate(), |_, _, state| {
                 let display_handle = state.display_handle.clone();
-                let pending_events = std::mem::take(&mut state.backend_data.winit_mut().pending_input_events);
+                let pending_events =
+                    std::mem::take(&mut state.backend_data.winit_mut().pending_input_events);
                 for event in pending_events {
                     state.process_input_event_windowed(&display_handle, event, OUTPUT_NAME);
                 }
@@ -336,7 +338,8 @@ fn run_tick(state: &mut State) {
         } else {
             (0, 0).into()
         };
-        let cursor_pos = state.pointer.current_location() - cursor_hotspot.to_f64();
+        let cursor_pos =
+            state.pointer.as_ref().unwrap().current_location() - cursor_hotspot.to_f64();
         let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
 
         #[cfg(feature = "debug")]

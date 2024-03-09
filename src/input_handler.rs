@@ -47,7 +47,7 @@ use smithay::{
         tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
 };
-use std::{convert::TryInto, process::Command};
+use std::convert::TryInto;
 use tracing::{debug, error, info};
 
 impl State {
@@ -63,17 +63,17 @@ impl State {
             KeyAction::Run(cmd) => {
                 info!(cmd, "Starting program");
 
-                if let Err(e) = Command::new(&cmd)
-                    .envs(
-                        Some(self.socket_name.clone())
-                            .map(|v| ("WAYLAND_DISPLAY", v))
-                            .into_iter()
-                            .chain(self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v)))),
-                    )
-                    .spawn()
-                {
-                    error!(cmd, err = %e, "Failed to start program");
-                }
+                // if let Err(e) = Command::new(&cmd)
+                //     .envs(
+                //         Some(self.socket_name.clone())
+                //             .map(|v| ("WAYLAND_DISPLAY", v))
+                //             .into_iter()
+                //             .chain(self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v)))),
+                //     )
+                //     .spawn()
+                // {
+                //     error!(cmd, err = %e, "Failed to start program");
+                // }
             }
 
             KeyAction::TogglePreview => {
@@ -116,7 +116,7 @@ impl State {
                 }
             }
             KeyAction::MoveWindow(window_position) => {
-                let pointer_location = self.pointer.current_location();
+                let pointer_location = self.pointer_location();
                 if let Some((window, _)) = self.space.element_under(pointer_location) {
                     let window = window.clone();
                     place_window(
@@ -142,7 +142,10 @@ impl State {
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let Some(seat) = &self.seat else {
+            return KeyAction::None;
+        };
+        let keyboard = seat.get_keyboard().unwrap();
 
         for layer in self.layer_shell_state.layer_surfaces().rev() {
             let data = with_states(layer.wl_surface(), |states| {
@@ -168,10 +171,12 @@ impl State {
 
         let inhibited = self
             .space
-            .element_under(self.pointer.current_location())
+            .element_under(self.pointer_location())
             .and_then(|(window, _)| {
                 let surface = window.wl_surface()?;
-                self.seat.keyboard_shortcuts_inhibitor_for_surface(&surface)
+                self.seat
+                    .as_ref()?
+                    .keyboard_shortcuts_inhibitor_for_surface(&surface)
             })
             .map(|inhibitor| inhibitor.is_active())
             .unwrap_or(false);
@@ -236,7 +241,9 @@ impl State {
         if wl_pointer::ButtonState::Pressed == state {
             self.update_keyboard_focus(serial);
         };
-        let pointer = self.pointer.clone();
+        let Some(pointer) = self.pointer.clone() else {
+            return;
+        };
         pointer.button(
             self,
             &ButtonEvent {
@@ -250,9 +257,12 @@ impl State {
     }
 
     fn update_keyboard_focus(&mut self, serial: Serial) {
-        let pointer = self.seat.get_pointer().unwrap();
-        let keyboard = self.seat.get_keyboard().unwrap();
-        let input_method = self.seat.input_method();
+        let Some(seat) = &self.seat else {
+            return;
+        };
+        let pointer = seat.get_pointer().unwrap();
+        let keyboard = seat.get_keyboard().unwrap();
+        let input_method = seat.input_method();
         // change the keyboard focus unless the pointer or keyboard is grabbed
         // We test for any matching surface type here but always use the root
         // (in case of a window the toplevel) surface for the focus.
@@ -265,7 +275,7 @@ impl State {
         if !pointer.is_grabbed() && (!keyboard.is_grabbed() || input_method.keyboard_grabbed()) {
             let output = self
                 .space
-                .output_under(self.pointer.current_location())
+                .output_under(self.pointer_location())
                 .next()
                 .cloned();
             if let Some(output) = output.as_ref() {
@@ -276,11 +286,18 @@ impl State {
                     .and_then(|f| f.get())
                 {
                     if let Some((_, _)) = window.surface_under(
-                        self.pointer.current_location() - output_geo.loc.to_f64(),
+                        self.pointer_location() - output_geo.loc.to_f64(),
                         WindowSurfaceType::ALL,
                     ) {
                         if let ApplicationWindow::X11(surf) = &window {
-                            self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
+                            if let Some(ref mut xwayland_state) = &mut self.xwayland_state {
+                                xwayland_state
+                                    .wm
+                                    .as_mut()
+                                    .unwrap()
+                                    .raise_window(surf)
+                                    .unwrap();
+                            }
                         }
                         keyboard.set_focus(self, Some(window.into()), serial);
                         return;
@@ -289,12 +306,12 @@ impl State {
 
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
-                    .layer_under(WlrLayer::Overlay, self.pointer.current_location())
-                    .or_else(|| layers.layer_under(WlrLayer::Top, self.pointer.current_location()))
+                    .layer_under(WlrLayer::Overlay, self.pointer_location())
+                    .or_else(|| layers.layer_under(WlrLayer::Top, self.pointer_location()))
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
-                            self.pointer.current_location()
+                            self.pointer_location()
                                 - output_geo.loc.to_f64()
                                 - layers.layer_geometry(layer).unwrap().loc.to_f64(),
                             WindowSurfaceType::ALL,
@@ -308,13 +325,21 @@ impl State {
 
             if let Some((window, _)) = self
                 .space
-                .element_under(self.pointer.current_location())
+                .element_under(self.pointer_location())
                 .map(|(w, p)| (w.clone(), p))
             {
                 self.space.raise_element(&window, true);
                 keyboard.set_focus(self, Some(window.clone().into()), serial);
                 if let ApplicationWindow::X11(surf) = &window {
-                    self.xwm.as_mut().unwrap().raise_window(surf).unwrap();
+                    let Some(ref mut xwayland_state) = &mut self.xwayland_state else {
+                        return;
+                    };
+                    xwayland_state
+                        .wm
+                        .as_mut()
+                        .unwrap()
+                        .raise_window(surf)
+                        .unwrap();
                 }
                 return;
             }
@@ -323,14 +348,12 @@ impl State {
                 let output_geo = self.space.output_geometry(output).unwrap();
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
-                    .layer_under(WlrLayer::Bottom, self.pointer.current_location())
-                    .or_else(|| {
-                        layers.layer_under(WlrLayer::Background, self.pointer.current_location())
-                    })
+                    .layer_under(WlrLayer::Bottom, self.pointer_location())
+                    .or_else(|| layers.layer_under(WlrLayer::Background, self.pointer_location()))
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
-                            self.pointer.current_location()
+                            self.pointer_location()
                                 - output_geo.loc.to_f64()
                                 - layers.layer_geometry(layer).unwrap().loc.to_f64(),
                             WindowSurfaceType::ALL,
@@ -419,7 +442,7 @@ impl State {
                     frame = frame.stop(Axis::Vertical);
                 }
             }
-            let pointer = self.pointer.clone();
+            let pointer = self.pointer.clone().unwrap();
             pointer.axis(self, frame);
             pointer.frame(self);
         }
@@ -452,7 +475,8 @@ impl State {
                         None,
                     );
 
-                    crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                    let location = self.pointer_location();
+                    crate::shell::fixup_positions(&mut self.space, location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -473,7 +497,8 @@ impl State {
                         None,
                     );
 
-                    crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                    let location = self.pointer_location();
+                    crate::shell::fixup_positions(&mut self.space, location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -494,7 +519,8 @@ impl State {
                         _ => Transform::Normal,
                     };
                     output.change_current_state(None, Some(new_transform), None, None);
-                    crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                    let location = self.pointer_location();
+                    crate::shell::fixup_positions(&mut self.space, location);
                     self.backend_data.reset_buffers(&output);
                 }
 
@@ -539,7 +565,7 @@ impl State {
         let pos = evt.position_transformed(output_geo.size) + output_geo.loc.to_f64();
         let serial = SCOUNTER.next_serial();
 
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         let under = self.surface_under(pos);
         pointer.motion(
             self,
@@ -554,7 +580,7 @@ impl State {
     }
 
     pub fn release_all_keys(&mut self) {
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         for keycode in keyboard.pressed_keys() {
             keyboard.input(
                 self,
@@ -589,7 +615,7 @@ impl State {
                         let x = geometry.loc.x as f64 + geometry.size.w as f64 / 2.0;
                         let y = geometry.size.h as f64 / 2.0;
                         let location = (x, y).into();
-                        let pointer = self.pointer.clone();
+                        let pointer = self.pointer.clone().unwrap();
                         let under = self.surface_under(location);
                         pointer.motion(
                             self,
@@ -604,7 +630,7 @@ impl State {
                     }
                 }
                 KeyAction::ScaleUp => {
-                    let pos = self.pointer.current_location().to_i32_round();
+                    let pos = self.pointer_location().to_i32_round();
                     let output = self
                         .space
                         .outputs()
@@ -626,14 +652,13 @@ impl State {
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location =
-                            self.pointer.current_location() - output_location;
+                        let mut pointer_output_location = self.pointer_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
 
                         crate::shell::fixup_positions(&mut self.space, pointer_location);
-                        let pointer = self.pointer.clone();
+                        let pointer = self.pointer.clone().unwrap();
                         let under = self.surface_under(pointer_location);
                         pointer.motion(
                             self,
@@ -649,7 +674,7 @@ impl State {
                     }
                 }
                 KeyAction::ScaleDown => {
-                    let pos = self.pointer.current_location().to_i32_round();
+                    let pos = self.pointer_location().to_i32_round();
                     let output = self
                         .space
                         .outputs()
@@ -671,14 +696,13 @@ impl State {
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location =
-                            self.pointer.current_location() - output_location;
+                        let mut pointer_output_location = self.pointer_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
 
                         crate::shell::fixup_positions(&mut self.space, pointer_location);
-                        let pointer = self.pointer.clone();
+                        let pointer = self.pointer.clone().unwrap();
                         let under = self.surface_under(pointer_location);
                         pointer.motion(
                             self,
@@ -694,7 +718,7 @@ impl State {
                     }
                 }
                 KeyAction::RotateOutput => {
-                    let pos = self.pointer.current_location().to_i32_round();
+                    let pos = self.pointer_location().to_i32_round();
                     let output = self
                         .space
                         .outputs()
@@ -711,10 +735,8 @@ impl State {
                             _ => Transform::Normal,
                         };
                         output.change_current_state(None, Some(new_transform), None, None);
-                        crate::shell::fixup_positions(
-                            &mut self.space,
-                            self.pointer.current_location(),
-                        );
+                        let location = self.pointer_location();
+                        crate::shell::fixup_positions(&mut self.space, location);
                         self.backend_data.reset_buffers(&output);
                     }
                 }
@@ -762,13 +784,15 @@ impl State {
             InputEvent::DeviceAdded { device } => {
                 if device.has_capability(DeviceCapability::TabletTool) {
                     self.seat
+                        .as_ref()
+                        .unwrap()
                         .tablet_seat()
                         .add_tablet::<Self>(&self.display_handle, &TabletDescriptor::from(&device));
                 }
             }
             InputEvent::DeviceRemoved { device } => {
                 if device.has_capability(DeviceCapability::TabletTool) {
-                    let tablet_seat = self.seat.tablet_seat();
+                    let tablet_seat = self.seat.as_ref().unwrap().tablet_seat();
 
                     tablet_seat.remove_tablet(&TabletDescriptor::from(&device));
 
@@ -785,11 +809,11 @@ impl State {
     }
 
     fn on_pointer_move<B: InputBackend>(&mut self, evt: B::PointerMotionEvent) {
-        let mut pointer_location = self.pointer.current_location();
+        let mut pointer_location = self.pointer_location();
 
         let serial = SCOUNTER.next_serial();
 
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         let under = self.surface_under(pointer_location);
 
         let mut pointer_locked = false;
@@ -914,7 +938,7 @@ impl State {
         // clamp to screen limits
         pointer_location = self.clamp_coords(pointer_location);
 
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         let under = self.surface_under(pointer_location);
 
         pointer.motion(
@@ -930,7 +954,7 @@ impl State {
     }
 
     fn on_tablet_tool_axis<B: InputBackend>(&mut self, evt: B::TabletToolAxisEvent) {
-        let tablet_seat = self.seat.tablet_seat();
+        let tablet_seat = self.seat.as_ref().unwrap().tablet_seat();
 
         let output_geometry = self
             .space
@@ -941,7 +965,7 @@ impl State {
         if let Some(rect) = output_geometry {
             let pointer_location = evt.position_transformed(rect.size) + rect.loc.to_f64();
 
-            let pointer = self.pointer.clone();
+            let pointer = self.pointer.clone().unwrap();
             let under = self.surface_under(pointer_location);
             let tablet = tablet_seat.get_tablet(&TabletDescriptor::from(&evt.device()));
             let tool = tablet_seat.get_tool(&evt.tool());
@@ -989,7 +1013,7 @@ impl State {
     }
 
     fn on_tablet_tool_proximity<B: InputBackend>(&mut self, evt: B::TabletToolProximityEvent) {
-        let tablet_seat = self.seat.tablet_seat();
+        let tablet_seat = self.seat.as_ref().unwrap().tablet_seat();
 
         let output_geometry = self
             .space
@@ -1003,7 +1027,7 @@ impl State {
 
             let pointer_location = evt.position_transformed(rect.size) + rect.loc.to_f64();
 
-            let pointer = self.pointer.clone();
+            let pointer = self.pointer.clone().unwrap();
             let under = self.surface_under(pointer_location);
             let tablet = tablet_seat.get_tablet(&TabletDescriptor::from(&evt.device()));
             let tool = tablet_seat.get_tool(&tool);
@@ -1039,7 +1063,12 @@ impl State {
     }
 
     fn on_tablet_tool_tip<B: InputBackend>(&mut self, evt: B::TabletToolTipEvent) {
-        let tool = self.seat.tablet_seat().get_tool(&evt.tool());
+        let tool = self
+            .seat
+            .as_ref()
+            .unwrap()
+            .tablet_seat()
+            .get_tool(&evt.tool());
 
         if let Some(tool) = tool {
             match evt.tip_state() {
@@ -1058,7 +1087,12 @@ impl State {
     }
 
     fn on_tablet_button<B: InputBackend>(&mut self, evt: B::TabletToolButtonEvent) {
-        let tool = self.seat.tablet_seat().get_tool(&evt.tool());
+        let tool = self
+            .seat
+            .as_ref()
+            .unwrap()
+            .tablet_seat()
+            .get_tool(&evt.tool());
 
         if let Some(tool) = tool {
             tool.button(
@@ -1072,7 +1106,7 @@ impl State {
 
     fn on_gesture_swipe_begin<B: InputBackend>(&mut self, evt: B::GestureSwipeBeginEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_swipe_begin(
             self,
             &GestureSwipeBeginEvent {
@@ -1084,7 +1118,7 @@ impl State {
     }
 
     fn on_gesture_swipe_update<B: InputBackend>(&mut self, evt: B::GestureSwipeUpdateEvent) {
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_swipe_update(
             self,
             &pointer::GestureSwipeUpdateEvent {
@@ -1096,7 +1130,7 @@ impl State {
 
     fn on_gesture_swipe_end<B: InputBackend>(&mut self, evt: B::GestureSwipeEndEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_swipe_end(
             self,
             &GestureSwipeEndEvent {
@@ -1109,7 +1143,7 @@ impl State {
 
     fn on_gesture_pinch_begin<B: InputBackend>(&mut self, evt: B::GesturePinchBeginEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_pinch_begin(
             self,
             &GesturePinchBeginEvent {
@@ -1121,7 +1155,7 @@ impl State {
     }
 
     fn on_gesture_pinch_update<B: InputBackend>(&mut self, evt: B::GesturePinchUpdateEvent) {
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_pinch_update(
             self,
             &pointer::GesturePinchUpdateEvent {
@@ -1135,7 +1169,7 @@ impl State {
 
     fn on_gesture_pinch_end<B: InputBackend>(&mut self, evt: B::GesturePinchEndEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_pinch_end(
             self,
             &GesturePinchEndEvent {
@@ -1148,7 +1182,7 @@ impl State {
 
     fn on_gesture_hold_begin<B: InputBackend>(&mut self, evt: B::GestureHoldBeginEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_hold_begin(
             self,
             &GestureHoldBeginEvent {
@@ -1161,7 +1195,7 @@ impl State {
 
     fn on_gesture_hold_end<B: InputBackend>(&mut self, evt: B::GestureHoldEndEvent) {
         let serial = SCOUNTER.next_serial();
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.gesture_hold_end(
             self,
             &GestureHoldEndEvent {

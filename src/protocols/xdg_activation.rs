@@ -15,8 +15,8 @@ impl XdgActivationHandler for State {
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
         if let Some((serial, seat)) = data.serial {
-            let keyboard = self.seat.get_keyboard().unwrap();
-            Seat::from_resource(&seat) == Some(self.seat.clone())
+            let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+            Seat::from_resource(&seat) == Some(self.seat.as_ref().unwrap().clone())
                 && keyboard
                     .last_enter()
                     .map(|last_enter| serial.is_no_older_than(&last_enter))

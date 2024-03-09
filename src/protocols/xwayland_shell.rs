@@ -43,7 +43,7 @@ impl OldGeometry {
 
 impl XwmHandler for State {
     fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
-        self.xwm.as_mut().unwrap()
+        self.xwayland_state.as_mut().unwrap().wm.as_mut().unwrap()
     }
 
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
@@ -53,9 +53,10 @@ impl XwmHandler for State {
         tracing::warn!("window is: {:?}", window);
         window.set_mapped(true).unwrap();
         let window = ApplicationWindow::X11(window);
+        let location = self.pointer_location();
         let rect = place_window(
             &mut self.space,
-            self.pointer.current_location(),
+            location,
             &window,
             true,
             crate::composition::WindowPosition::New,
@@ -67,7 +68,7 @@ impl XwmHandler for State {
         xsurface.configure(Some(rect)).unwrap();
         window.set_ssd(!xsurface.is_decorated());
 
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(
             self,
@@ -229,7 +230,7 @@ impl XwmHandler for State {
         edges: X11ResizeEdge,
     ) {
         // luckily anvil only supports one seat anyway...
-        let start_data = self.pointer.grab_start_data().unwrap();
+        let start_data = self.pointer.as_ref().unwrap().grab_start_data().unwrap();
 
         let Some(element) = self
             .space
@@ -265,7 +266,7 @@ impl XwmHandler for State {
             last_window_size: initial_window_size,
         };
 
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 
@@ -274,7 +275,7 @@ impl XwmHandler for State {
     }
 
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
-        if let Some(keyboard) = self.seat.get_keyboard() {
+        if let Some(keyboard) = self.seat.as_ref().unwrap().get_keyboard() {
             // check that an X11 window is focused
             if let Some(FocusTarget::Window(ApplicationWindow::X11(surface))) =
                 keyboard.current_focus()
@@ -296,7 +297,9 @@ impl XwmHandler for State {
     ) {
         match selection {
             SelectionTarget::Clipboard => {
-                if let Err(err) = request_data_device_client_selection(&self.seat, mime_type, fd) {
+                if let Err(err) =
+                    request_data_device_client_selection(self.seat.as_ref().unwrap(), mime_type, fd)
+                {
                     error!(
                         ?err,
                         "Failed to request current wayland clipboard for Xwayland",
@@ -304,7 +307,9 @@ impl XwmHandler for State {
                 }
             }
             SelectionTarget::Primary => {
-                if let Err(err) = request_primary_client_selection(&self.seat, mime_type, fd) {
+                if let Err(err) =
+                    request_primary_client_selection(self.seat.as_ref().unwrap(), mime_type, fd)
+                {
                     error!(
                         ?err,
                         "Failed to request current wayland primary selection for Xwayland",
@@ -318,25 +323,31 @@ impl XwmHandler for State {
         trace!(?selection, ?mime_types, "Got Selection from X11",);
         // TODO check, that focused windows is X11 window before doing this
         match selection {
-            SelectionTarget::Clipboard => {
-                set_data_device_selection(&self.display_handle, &self.seat, mime_types, ())
-            }
-            SelectionTarget::Primary => {
-                set_primary_selection(&self.display_handle, &self.seat, mime_types, ())
-            }
+            SelectionTarget::Clipboard => set_data_device_selection(
+                &self.display_handle,
+                self.seat.as_ref().unwrap(),
+                mime_types,
+                (),
+            ),
+            SelectionTarget::Primary => set_primary_selection(
+                &self.display_handle,
+                self.seat.as_ref().unwrap(),
+                mime_types,
+                (),
+            ),
         }
     }
 
     fn cleared_selection(&mut self, _xwm: XwmId, selection: SelectionTarget) {
         match selection {
             SelectionTarget::Clipboard => {
-                if current_data_device_selection_userdata(&self.seat).is_some() {
-                    clear_data_device_selection(&self.display_handle, &self.seat)
+                if current_data_device_selection_userdata(self.seat.as_ref().unwrap()).is_some() {
+                    clear_data_device_selection(&self.display_handle, self.seat.as_ref().unwrap())
                 }
             }
             SelectionTarget::Primary => {
-                if current_primary_selection_userdata(&self.seat).is_some() {
-                    clear_primary_selection(&self.display_handle, &self.seat)
+                if current_primary_selection_userdata(self.seat.as_ref().unwrap()).is_some() {
+                    clear_primary_selection(&self.display_handle, self.seat.as_ref().unwrap())
                 }
             }
         }
@@ -377,7 +388,7 @@ impl State {
 
     pub fn move_request_x11(&mut self, window: &X11Surface) {
         // luckily anvil only supports one seat anyway...
-        let Some(start_data) = self.pointer.grab_start_data() else {
+        let Some(start_data) = self.pointer.as_ref().unwrap().grab_start_data() else {
             return;
         };
 
@@ -394,7 +405,7 @@ impl State {
         // If surface is maximized then unmaximize it
         if window.is_maximized() {
             window.set_maximized(false).unwrap();
-            let pos = self.pointer.current_location();
+            let pos = self.pointer_location();
             initial_window_location = (pos.x as i32, pos.y as i32).into();
             if let Some(old_geo) = window
                 .user_data()
@@ -416,7 +427,7 @@ impl State {
             initial_window_location,
         };
 
-        let pointer = self.pointer.clone();
+        let pointer = self.pointer.clone().unwrap();
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
     }
 }

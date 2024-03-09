@@ -45,14 +45,15 @@ impl XdgShellHandler for State {
         // of a xdg_surface has to be sent during the commit if
         // the surface is not already configured
         let window = ApplicationWindow::Wayland(Window::new(surface));
+        let location = self.pointer_location();
         place_window(
             &mut self.space,
-            self.pointer.current_location(),
+            location,
             &window,
             true,
             crate::composition::WindowPosition::New,
         );
-        let keyboard = self.seat.get_keyboard().unwrap();
+        let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(self, Some(window.into()), serial);
     }

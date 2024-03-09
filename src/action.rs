@@ -1,3 +1,7 @@
+use std::process::Command;
+
+use tracing::{error, info};
+
 use crate::State;
 
 #[derive(Debug)]
@@ -6,8 +10,8 @@ pub enum Action {
     Quit,
     /// Trigger a vt-switch
     VtSwitch(i32),
-    /// Run a command
-    Run { command: String },
+    /// Spawn a command
+    Spawn { command: String },
     /// Scales output up/down
     ChangeScale { percentage_points: isize },
     /// Sets output scale
@@ -22,10 +26,11 @@ pub enum Action {
 
 impl State {
     pub fn execute(&mut self, action: Action) {
+        info!(?action, "Executing action");
         match action {
             Action::Quit => self.stop_loop(),
             Action::VtSwitch(_) => todo!(),
-            Action::Run { command: _ } => todo!(),
+            Action::Spawn { command } => self.spawn(&command),
             Action::ChangeScale {
                 percentage_points: _,
             } => todo!(),
@@ -36,6 +41,28 @@ impl State {
             } => todo!(),
             Action::MoveWindow { window: _, zone: _ } => todo!(),
             Action::None => todo!(),
+        }
+    }
+
+    fn spawn(&self, command: &str) {
+        info!(command, "Starting program");
+
+        if let Err(e) = Command::new(command)
+            .envs(
+                self.socket_name
+                    .clone()
+                    .map(|v| ("WAYLAND_DISPLAY", v))
+                    .into_iter()
+                    .chain(
+                        self.xwayland_state
+                            .as_ref()
+                            .and_then(|v| v.display)
+                            .map(|v| ("DISPLAY", format!(":{}", v))),
+                    ),
+            )
+            .spawn()
+        {
+            error!(command, err = %e, "Failed to start program");
         }
     }
 }

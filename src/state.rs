@@ -1,9 +1,12 @@
 use crate::application_window::ApplicationWindow;
-use crate::{cursor::Cursor, udev::UdevData, winit::WinitData};
+use crate::config::Config;
+use crate::xwayland::XWaylandState;
+use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
 use smithay::backend::drm::DrmNode;
 use smithay::input::keyboard::{Keysym, LedState};
+use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::selection::wlr_data_control::DataControlState;
@@ -38,7 +41,7 @@ use smithay::{
             Display, DisplayHandle,
         },
     },
-    utils::{Clock, Monotonic, Point, Size},
+    utils::{Clock, Monotonic, Point},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         dmabuf::{DmabufFeedback, DmabufGlobal, DmabufState},
@@ -62,12 +65,10 @@ use smithay::{
         viewporter::ViewporterState,
         virtual_keyboard::VirtualKeyboardManagerState,
         xdg_activation::XdgActivationState,
-        xwayland_keyboard_grab::XWaylandKeyboardGrabState,
     },
-    xwayland::{X11Wm, XWayland, XWaylandEvent},
 };
 use std::{sync::Arc, time::Duration};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Default)]
 pub struct ClientState {
@@ -84,7 +85,6 @@ impl ClientData for ClientState {
 
 #[derive(Debug)]
 pub struct State {
-    pub socket_name: String,
     pub display_handle: DisplayHandle,
     pub loop_handle: LoopHandle<'static, Self>,
     pub loop_signal: LoopSignal,
@@ -117,14 +117,11 @@ pub struct State {
     // input-related fields
     pub suppressed_keys: Vec<Keysym>,
     pub cursor_status: CursorImageStatus,
-    pub seat_name: String,
-    pub seat: Seat<State>,
+    pub seat: Option<Seat<State>>,
     pub clock: Clock<Monotonic>,
-    pub pointer: PointerHandle<State>,
+    pub pointer: Option<PointerHandle<State>>,
 
-    pub xwayland: XWayland,
-    pub xwm: Option<X11Wm>,
-    pub xdisplay: Option<u32>,
+    pub xwayland_state: Option<XWaylandState>,
 
     #[cfg(feature = "debug")]
     pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
@@ -132,6 +129,10 @@ pub struct State {
     pub show_window_preview: bool,
     pub session_paused: bool,
     pub last_node: Option<DrmNode>,
+
+    pub config: Config,
+
+    pub socket_name: Option<String>,
 }
 
 impl State {
@@ -142,161 +143,65 @@ impl State {
 }
 
 impl State {
-    pub fn init(
-        display: Display<State>,
-        backend_data: BackendData,
+    pub fn new(
+        display: &Display<State>,
         event_loop: &mut EventLoop<'static, State>,
     ) -> anyhow::Result<State> {
-        info!("Initializing state");
-        let clock = Clock::new();
+        let display_handle = display.handle();
         let loop_handle = event_loop.handle();
+        let loop_signal = event_loop.get_signal();
 
-        // init wayland clients
-        let source = ListeningSocketSource::new_auto()?;
-        let socket_name = source.socket_name().to_string_lossy().into_owned();
-        loop_handle
-            .insert_source(source, |client_stream, _, state| {
-                if let Err(err) = state
-                    .display_handle
-                    .insert_client(client_stream, Arc::new(ClientState::default()))
-                {
-                    warn!("Error adding wayland client: {}", err);
-                };
-            })
-            .expect("Failed to init wayland socket source");
-        info!(socket_name, "Listening on wayland socket");
-        ::std::env::set_var("WAYLAND_DISPLAY", &socket_name);
-
-        let dh = display.handle();
-
-        loop_handle
-            .insert_source(
-                Generic::new(display, Interest::READ, Mode::Level),
-                |_, display, state| {
-                    #[cfg(feature = "profiling")]
-                    profiling::scope!("dispatch_clients");
-
-                    // Safety: the display is not dropped
-                    unsafe {
-                        display.get_mut().dispatch_clients(state).unwrap();
-                    }
-                    Ok(PostAction::Continue)
-                },
-            )
-            .expect("Failed to init wayland server source");
+        let clock = Clock::new();
 
         // init globals
-        let compositor_state = CompositorState::new::<Self>(&dh);
-        let data_device_state = DataDeviceState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
-        let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
-        let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
-        let data_control_state =
-            DataControlState::new::<Self, _>(&dh, Some(&primary_selection_state), |_| true);
-        let mut seat_state = SeatState::new();
-        let shm_state = ShmState::new::<Self>(&dh, vec![]);
-        let viewporter_state = ViewporterState::new::<Self>(&dh);
-        let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
-        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
-        let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let presentation_state = PresentationState::new::<Self>(&dh, clock.id() as u32);
-        let fractional_scale_manager_state = FractionalScaleManagerState::new::<Self>(&dh);
-        let _text_input_manager_state = TextInputManagerState::new::<Self>(&dh);
-        let _input_method_manager_state = InputMethodManagerState::new::<Self, _>(&dh, |_client| {
-            // TODO: implement filtering based on the client
-            true
-        });
+        let compositor_state = CompositorState::new::<Self>(&display_handle);
+        let data_device_state = DataDeviceState::new::<Self>(&display_handle);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&display_handle);
+        let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&display_handle);
+        let primary_selection_state = PrimarySelectionState::new::<Self>(&display_handle);
+        let data_control_state = DataControlState::new::<Self, _>(
+            &display_handle,
+            Some(&primary_selection_state),
+            |_| true,
+        );
+        let seat_state = SeatState::new();
+        let shm_state = ShmState::new::<Self>(&display_handle, vec![]);
+        let viewporter_state = ViewporterState::new::<Self>(&display_handle);
+        let xdg_activation_state = XdgActivationState::new::<Self>(&display_handle);
+        let xdg_decoration_state = XdgDecorationState::new::<Self>(&display_handle);
+        let xdg_shell_state = XdgShellState::new::<Self>(&display_handle);
+        let presentation_state = PresentationState::new::<Self>(&display_handle, clock.id() as u32);
+        let fractional_scale_manager_state =
+            FractionalScaleManagerState::new::<Self>(&display_handle);
+        let _text_input_manager_state = TextInputManagerState::new::<Self>(&display_handle);
+        let _input_method_manager_state =
+            InputMethodManagerState::new::<Self, _>(&display_handle, |_client| {
+                // TODO: implement filtering based on the client
+                true
+            });
         let _virtual_keyboard_manager_state =
-            VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
-        let _relative_pointer_manager_state = RelativePointerManagerState::new::<Self>(&dh);
-        PointerConstraintsState::new::<Self>(&dh);
-        let _pointer_gestures_state = PointerGesturesState::new::<Self>(&dh);
-        let _tablet_manager_state = TabletManagerState::new::<Self>(&dh);
-        SecurityContextState::new::<Self, _>(&dh, |client| {
+            VirtualKeyboardManagerState::new::<Self, _>(&display_handle, |_client| true);
+        let _relative_pointer_manager_state =
+            RelativePointerManagerState::new::<Self>(&display_handle);
+        PointerConstraintsState::new::<Self>(&display_handle);
+        let _pointer_gestures_state = PointerGesturesState::new::<Self>(&display_handle);
+        let _tablet_manager_state = TabletManagerState::new::<Self>(&display_handle);
+        SecurityContextState::new::<Self, _>(&display_handle, |client| {
             client
                 .get_data::<ClientState>()
                 .map_or(true, |client_state| client_state.security_context.is_none())
         });
 
-        // init input
-        let seat_name = match &backend_data {
-            BackendData::Udev(udev_data) => udev_data.seat_name(),
-            BackendData::Winit(winit_data) => winit_data.seat_name(),
-        };
-        let mut seat = seat_state.new_wl_seat(&dh, seat_name.clone());
+        let keyboard_shortcuts_inhibit_state =
+            KeyboardShortcutsInhibitState::new::<Self>(&display_handle);
 
         let cursor_status = CursorImageStatus::default_named();
-        let pointer = seat.add_pointer();
-        seat.add_keyboard(
-            XkbConfig {
-                layout: "de",
-                ..Default::default()
-            },
-            200,
-            25,
-        )
-        .expect("Failed to initialize the keyboard");
-
-        // TODO: add tablet to seat and handle cursor event
-        // let cursor_status2 = cursor_status.clone();
-        // seat.tablet_seat()
-        //     .on_cursor_surface(move |_tool, new_status| {
-        //         // TODO: tablet tools should have their own cursors
-        //         *cursor_status2.lock().unwrap() = new_status;
-        //     });
-
-        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
-
-        let xwayland = {
-            XWaylandKeyboardGrabState::new::<Self>(&dh);
-
-            let (xwayland, channel) = XWayland::new(&dh);
-            let ret = loop_handle.insert_source(channel, move |event, _, state| match event {
-                XWaylandEvent::Ready {
-                    connection,
-                    client,
-                    client_fd: _,
-                    display,
-                } => {
-                    let mut wm = X11Wm::start_wm(
-                        state.loop_handle.clone(),
-                        state.display_handle.clone(),
-                        connection,
-                        client,
-                    )
-                    .expect("Failed to attach X11 Window Manager");
-                    let cursor = Cursor::load();
-                    let image = cursor.get_image(1, Duration::ZERO);
-                    wm.set_cursor(
-                        &image.pixels_rgba,
-                        Size::from((image.width as u16, image.height as u16)),
-                        Point::from((image.xhot as u16, image.yhot as u16)),
-                    )
-                    .expect("Failed to set xwayland default cursor");
-                    state.xwm = Some(wm);
-                    state.xdisplay = Some(display);
-                }
-                XWaylandEvent::Exited => {
-                    let _ = state.xwm.take();
-                }
-            });
-            if let Err(e) = ret {
-                tracing::error!(
-                    "Failed to insert the XWaylandSource into the event loop: {}",
-                    e
-                );
-            }
-            xwayland
-        };
-
-        let loop_signal = event_loop.get_signal();
 
         Ok(State {
-            display_handle: dh,
+            display_handle,
             loop_handle,
             loop_signal,
-            backend_data,
-            socket_name,
+            backend_data: BackendData::None,
             space: Space::default(),
             popups: PopupManager::default(),
             compositor_state,
@@ -317,19 +222,99 @@ impl State {
             dnd_icon: None,
             suppressed_keys: Vec::new(),
             cursor_status,
-            seat_name,
-            seat,
-            pointer,
+            seat: None,
+            pointer: None,
             clock,
-            xwayland,
-            xwm: None,
-            xdisplay: None,
+            xwayland_state: None,
             #[cfg(feature = "debug")]
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
             session_paused: false,
             last_node: None,
+            config: Config::new(),
+            socket_name: None,
         })
+    }
+
+    pub fn init(
+        &mut self,
+        display: Display<State>,
+        backend_data: BackendData,
+    ) -> anyhow::Result<()> {
+        info!("Initializing state");
+
+        // init wayland clients
+        let source = ListeningSocketSource::new_auto()?;
+        let socket_name = source.socket_name().to_string_lossy().into_owned();
+        self.loop_handle
+            .insert_source(source, |client_stream, _, state| {
+                if let Err(err) = state
+                    .display_handle
+                    .insert_client(client_stream, Arc::new(ClientState::default()))
+                {
+                    warn!("Error adding wayland client: {}", err);
+                };
+            })
+            .expect("Failed to init wayland socket source");
+        info!(socket_name, "Listening on wayland socket");
+        ::std::env::set_var("WAYLAND_DISPLAY", &socket_name);
+        self.socket_name = Some(socket_name);
+
+        self.loop_handle
+            .insert_source(
+                Generic::new(display, Interest::READ, Mode::Level),
+                |_, display, state| {
+                    #[cfg(feature = "profiling")]
+                    profiling::scope!("dispatch_clients");
+
+                    // Safety: the display is not dropped
+                    unsafe {
+                        display.get_mut().dispatch_clients(state).unwrap();
+                    }
+                    Ok(PostAction::Continue)
+                },
+            )
+            .expect("Failed to init wayland server source");
+
+        // init input
+        let seat_name = backend_data.seat_name();
+        let mut seat = self
+            .seat_state
+            .new_wl_seat(&self.display_handle, seat_name.clone());
+
+        let pointer = seat.add_pointer();
+        seat.add_keyboard(
+            XkbConfig {
+                layout: "de",
+                ..Default::default()
+            },
+            200,
+            25,
+        )
+        .expect("Failed to initialize the keyboard");
+
+        self.seat = Some(seat);
+        self.pointer = Some(pointer);
+
+        // TODO: add tablet to seat and handle cursor event
+        // let cursor_status2 = cursor_status.clone();
+        // seat.tablet_seat()
+        //     .on_cursor_surface(move |_tool, new_status| {
+        //         // TODO: tablet tools should have their own cursors
+        //         *cursor_status2.lock().unwrap() = new_status;
+        //     });
+
+        self.backend_data = backend_data;
+
+        if let Err(e) = self.start_xwayland() {
+            error!(err = %e, "Failed to start XWayland");
+        }
+
+        Ok(())
+    }
+
+    pub fn pointer_location(&self) -> Point<f64, Logical> {
+        self.pointer.as_ref().unwrap().current_location()
     }
 }
 
@@ -423,6 +408,7 @@ pub fn post_repaint(
 
 #[derive(Debug)]
 pub enum BackendData {
+    None,
     Udev(UdevData),
     Winit(WinitData),
 }
@@ -445,14 +431,14 @@ impl BackendData {
     pub fn winit(&self) -> &WinitData {
         match self {
             BackendData::Winit(winit_data) => winit_data,
-            _ => unreachable!("Requeted winit_data, but is not winit backend data"),
+            _ => unreachable!("Requested winit_data, but is not winit backend data"),
         }
     }
 
     pub fn winit_mut(&mut self) -> &mut WinitData {
         match self {
             BackendData::Winit(winit_data) => winit_data,
-            _ => unreachable!("Requeted mut winit_data, but is not udev backend data"),
+            _ => unreachable!("Requested mut winit_data, but is not udev backend data"),
         }
     }
 
@@ -460,6 +446,7 @@ impl BackendData {
         match self {
             BackendData::Udev(ref udev_data) => udev_data.seat_name(),
             BackendData::Winit(ref winit_data) => winit_data.seat_name(),
+            BackendData::None => unreachable!("Requested seat name, but no backend data is set"),
         }
     }
 
@@ -467,6 +454,9 @@ impl BackendData {
         match self {
             BackendData::Udev(ref mut udev_data) => udev_data.reset_buffers(output),
             BackendData::Winit(ref mut winit_data) => winit_data.reset_buffers(output),
+            BackendData::None => {
+                unreachable!("Requested to reset buffers, but no backend data is set")
+            }
         }
     }
 
@@ -474,6 +464,9 @@ impl BackendData {
         match self {
             BackendData::Udev(ref mut udev_data) => udev_data.early_import(surface),
             BackendData::Winit(ref mut winit_data) => winit_data.early_import(surface),
+            BackendData::None => {
+                unreachable!("Requested to early import, but no backend data is set")
+            }
         }
     }
 
@@ -481,6 +474,9 @@ impl BackendData {
         match self {
             BackendData::Udev(ref mut udev_data) => udev_data.dmabuf_state(),
             BackendData::Winit(ref mut winit_data) => winit_data.dmabuf_state(),
+            BackendData::None => {
+                unreachable!("Requested to get dmabuf state, but no backend data is set")
+            }
         }
     }
 
@@ -503,6 +499,9 @@ impl BackendData {
             BackendData::Winit(ref mut winit_data) => {
                 winit_data.dmabuf_imported(global, dmabuf, notifier)
             }
+            BackendData::None => {
+                unreachable!("Requested dmabuf import notifier, but no backend data is set")
+            }
         }
     }
 
@@ -510,6 +509,9 @@ impl BackendData {
         match self {
             BackendData::Udev(ref mut udev_data) => udev_data.set_debug_flags(flags),
             BackendData::Winit(_) => (),
+            BackendData::None => {
+                unreachable!("Requested set debug flags, but no backend data is set")
+            }
         }
     }
 
@@ -517,6 +519,9 @@ impl BackendData {
         match self {
             BackendData::Udev(ref udev_data) => udev_data.debug_flags(),
             BackendData::Winit(_) => DebugFlags::empty(),
+            BackendData::None => {
+                unreachable!("Requested to get debug flags, but no backend data is set")
+            }
         }
     }
 

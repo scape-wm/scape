@@ -1,7 +1,7 @@
 use crate::{args::GlobalArgs, state::BackendData, State};
-use calloop::{EventLoop, LoopHandle};
+use calloop::EventLoop;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use std::{ffi::OsString, time::Duration};
+use std::time::Duration;
 use tracing::error;
 
 pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
@@ -9,20 +9,20 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let mut event_loop = create_event_loop()?;
     let backend_data = create_backend_data(args, &mut event_loop, display.handle())?;
 
-    let state = State::init(display, backend_data, &mut event_loop)?;
+    let mut state = State::new(&display, &mut event_loop)?;
+    state.load_config()?;
+    state.init(display, backend_data)?;
 
-    start_xwayland(&state, event_loop.handle());
     run_loop(state, &mut event_loop)
 }
 
 fn create_display() -> anyhow::Result<Display<State>> {
     tracing::info!("Creating new display");
-    let display = Display::new().map_err(|e| {
+    let display = Display::new().inspect_err(|e| {
         tracing::error!(
-            "Unable to create display. libwayland-server.so is probably missing: {}",
-            e
+        err = %e,
+            "Unable to create display. libwayland-server.so is probably missing",
         );
-        e
     })?;
     tracing::info!("Created display successfully");
     Ok(display)
@@ -30,9 +30,8 @@ fn create_display() -> anyhow::Result<Display<State>> {
 
 fn create_event_loop() -> anyhow::Result<EventLoop<'static, State>> {
     tracing::info!("Creating new event loop");
-    let event_loop = EventLoop::try_new().map_err(|e| {
-        tracing::error!("Unable to create event loop: {}", e);
-        e
+    let event_loop = EventLoop::try_new().inspect_err(|e| {
+        tracing::error!(err = %e, "Unable to create event loop");
     })?;
     tracing::info!("Created event loop successfully");
     Ok(event_loop)
@@ -52,25 +51,16 @@ fn create_backend_data(
     }
 }
 
-fn start_xwayland(state: &State, loop_handle: LoopHandle<State>) {
-    if let Err(e) = state.xwayland.start(
-        loop_handle.clone(),
-        None,
-        std::iter::empty::<(OsString, OsString)>(), // TODO: Add configuration option
-        true,
-        |_| {},
-    ) {
-        error!("Failed to start XWayland: {}", e);
-    }
-}
-
 fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Result<()> {
+    state.loop_handle.clone().insert_idle(move |state| {
+        state.on_startup();
+    });
     tracing::info!("Starting main loop");
     event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
         state.space.refresh();
         state.popups.cleanup();
         if let Err(e) = state.display_handle.flush_clients() {
-            error!("Unable to flush clients: {e}");
+            error!(err = %e, "Unable to flush clients");
         }
     })?;
 

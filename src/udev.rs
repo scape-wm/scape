@@ -332,7 +332,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         .handle()
         .insert_source(Timer::immediate(), move |_event, &mut (), state| {
             libinput_context_2
-                .udev_assign_seat(&state.seat_name)
+                .udev_assign_seat(&state.backend_data.seat_name())
                 .unwrap();
             TimeoutAction::Drop
         })
@@ -346,7 +346,8 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                 if device.has_capability(DeviceCapability::Keyboard) {
                     if let Some(led_state) = state
                         .seat
-                        .get_keyboard()
+                        .as_ref()
+                        .and_then(|seat| seat.get_keyboard())
                         .map(|keyboard| keyboard.led_state())
                     {
                         device.led_update(led_state.into());
@@ -1208,7 +1209,8 @@ fn device_changed(state: &mut State, node: DrmNode) {
         }
     }
     // fixup window coordinates
-    crate::shell::fixup_positions(&mut state.space, state.pointer.current_location());
+    let location = state.pointer_location();
+    crate::shell::fixup_positions(&mut state.space, location);
 }
 
 fn device_removed(state: &mut State, node: DrmNode) {
@@ -1247,7 +1249,8 @@ fn device_removed(state: &mut State, node: DrmNode) {
         tracing::debug!("Dropping device");
     }
 
-    crate::shell::fixup_positions(&mut state.space, state.pointer.current_location());
+    let location = state.pointer_location();
+    crate::shell::fixup_positions(&mut state.space, location);
 }
 
 fn frame_finish(
@@ -1443,6 +1446,7 @@ pub fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
 }
 
 fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
+    let location = state.pointer_location();
     #[cfg(feature = "profiling")]
     profiling::scope!("render_surface", &format!("{crtc:?}"));
     let udev_data = state.backend_data.udev_mut();
@@ -1527,7 +1531,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         &mut renderer,
         &state.space,
         &output,
-        state.pointer.current_location(),
+        location,
         &pointer_image,
         &mut udev_data.pointer_element,
         &state.dnd_icon,
