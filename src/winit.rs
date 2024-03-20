@@ -2,7 +2,7 @@ use crate::{
     drawing::*,
     protocols::presentation_time::take_presentation_feedback,
     render::CustomRenderElements,
-    state::{post_repaint, BackendData, State},
+    state::{post_repaint, ActiveSpace, BackendData, State},
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
@@ -204,7 +204,8 @@ pub fn init_winit(
         .handle()
         .insert_source(Timer::immediate(), |_event, &mut (), state| {
             let output = state.backend_data.winit().output.clone();
-            state.space.map_output(&output, (0, 0));
+            state.outputs.insert("winit".into(), output);
+            state.on_connector_change();
             TimeoutAction::Drop
         })
         .unwrap();
@@ -236,24 +237,30 @@ pub fn init_winit(
 fn run_tick(state: &mut State) {
     let winit_data = state.backend_data.winit_mut();
     let mut handle_events = false;
+    let mut stop_rendering = false;
     if let PumpStatus::Exit(_) = winit_data
         .winit_loop
         .dispatch_new_events(|event| match event {
             WinitEvent::Resized { size, .. } => {
                 // We only have one output
-                let output = state.space.outputs().next().unwrap().clone();
+                let output = state.outputs.values().next().unwrap().clone();
                 state
                     .shm_state
                     .update_formats(winit_data.backend.renderer().shm_formats());
-                state.space.map_output(&output, (0, 0));
                 let mode = Mode {
                     size,
                     refresh: 60_000,
                 };
                 output.change_current_state(Some(mode), None, None, None);
                 output.set_preferred(mode);
-                let location = state.pointer.as_ref().unwrap().current_location();
-                crate::shell::fixup_positions(&mut state.space, location);
+                state
+                    .loop_handle
+                    .insert_source(Timer::immediate(), |_, _, state| {
+                        state.on_connector_change();
+                        TimeoutAction::Drop
+                    })
+                    .unwrap();
+                stop_rendering = true;
             }
             WinitEvent::Input(event) => {
                 winit_data.pending_input_events.push(event);
@@ -266,6 +273,10 @@ fn run_tick(state: &mut State) {
         })
     {
         // TODO: probably exit the main loop
+        return;
+    }
+
+    if stop_rendering {
         return;
     }
 
@@ -287,7 +298,7 @@ fn run_tick(state: &mut State) {
     // drawing logic
     {
         let backend = &mut winit_data.backend;
-        let output = state.space.outputs().next().unwrap().clone();
+        let output = state.outputs.values().next().unwrap().clone();
 
         // draw the cursor as relevant
         // reset the cursor if the surface is no longer alive
@@ -314,7 +325,10 @@ fn run_tick(state: &mut State) {
 
         let full_redraw = &mut winit_data.full_redraw;
         *full_redraw = full_redraw.saturating_sub(1);
-        let space = &mut state.space;
+        let space = state
+            .spaces
+            .get_mut(&output.user_data().get::<ActiveSpace>().unwrap().0)
+            .unwrap();
         let damage_tracker = &mut winit_data.damage_tracker;
         let show_window_preview = state.show_window_preview;
 
@@ -439,20 +453,11 @@ fn run_tick(state: &mut State) {
 
                 // Send frame events so that client start drawing their next frame
                 let time = state.clock.now();
-                post_repaint(
-                    &output,
-                    &render_output_result.states,
-                    &state.space,
-                    None,
-                    time,
-                );
+                post_repaint(&output, &render_output_result.states, &space, None, time);
 
                 if has_rendered {
-                    let mut output_presentation_feedback = take_presentation_feedback(
-                        &output,
-                        &state.space,
-                        &render_output_result.states,
-                    );
+                    let mut output_presentation_feedback =
+                        take_presentation_feedback(&output, &space, &render_output_result.states);
                     output_presentation_feedback.presented(
                         time,
                         output

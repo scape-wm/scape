@@ -1,10 +1,13 @@
-use crate::State;
+use crate::{state::ActiveSpace, State};
 use smithay::{
     delegate_xdg_activation,
     input::Seat,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    wayland::xdg_activation::{
-        XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
+    wayland::{
+        compositor::with_states,
+        xdg_activation::{
+            XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
+        },
     },
 };
 
@@ -34,13 +37,23 @@ impl XdgActivationHandler for State {
     ) {
         if token_data.timestamp.elapsed().as_secs() < 10 {
             // Just grant the wish
-            let w = self
-                .space
+            let space_name = with_states(&surface, |surface_data| {
+                surface_data
+                    .data_map
+                    .get::<ActiveSpace>()
+                    .unwrap()
+                    .0
+                    .to_owned()
+            });
+            let w = self.spaces[&space_name]
                 .elements()
                 .find(|window| window.wl_surface().map(|s| s == surface).unwrap_or(false))
                 .cloned();
             if let Some(window) = w {
-                self.space.raise_element(&window, true);
+                self.spaces
+                    .get_mut(&space_name)
+                    .unwrap()
+                    .raise_element(&window, true);
             }
         }
     }

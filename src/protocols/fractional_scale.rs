@@ -35,18 +35,28 @@ impl FractionalScaleHandler for State {
                     if root != surface {
                         with_states(&root, |states| {
                             surface_primary_scanout_output(&root, states).or_else(|| {
-                                self.window_for_surface(&root).and_then(|window| {
-                                    self.space.outputs_for_element(&window).first().cloned()
-                                })
+                                self.window_and_space_for_surface(&root).and_then(
+                                    |(window, space_name)| {
+                                        self.spaces[&space_name]
+                                            .outputs_for_element(&window)
+                                            .first()
+                                            .cloned()
+                                    },
+                                )
                             })
                         })
                     } else {
-                        self.window_for_surface(&root).and_then(|window| {
-                            self.space.outputs_for_element(&window).first().cloned()
-                        })
+                        self.window_and_space_for_surface(&root).and_then(
+                            |(window, window_name)| {
+                                self.spaces[&window_name]
+                                    .outputs_for_element(&window)
+                                    .first()
+                                    .cloned()
+                            },
+                        )
                     }
                 })
-                .or_else(|| self.space.outputs().next().cloned());
+                .or_else(|| self.outputs.iter().next().map(|v| v.1.to_owned()));
             if let Some(output) = primary_scanout_output {
                 with_fractional_scale(states, |fractional_scale| {
                     fractional_scale.set_preferred_scale(output.current_scale().fractional_scale());

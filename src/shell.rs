@@ -1,6 +1,7 @@
 use crate::application_window::ApplicationWindow;
 use crate::composition::place_window;
 use crate::grabs::ResizeState;
+use crate::state::ActiveSpace;
 use crate::{ClientState, State};
 use smithay::xwayland::X11Wm;
 use smithay::{
@@ -69,6 +70,19 @@ impl CompositorHandler for State {
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
+        with_states(surface, |surface_data| {
+            surface_data.data_map.insert_if_missing_threadsafe(|| {
+                ActiveSpace(
+                    self.spaces
+                        .iter()
+                        .next()
+                        .expect("There should always be a space")
+                        .0
+                        .to_owned(),
+                )
+            })
+        });
+
         add_pre_commit_hook::<Self, _>(surface, move |state, _dh, surface| {
             let maybe_dmabuf = with_states(surface, |surface_data| {
                 surface_data
@@ -110,22 +124,41 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(ApplicationWindow::Wayland(window)) = self.window_for_surface(&root) {
+            if let Some((ApplicationWindow::Wayland(window), _)) =
+                self.window_and_space_for_surface(&root)
+            {
                 window.on_commit();
             }
         }
         self.popups.commit(surface);
 
-        ensure_initial_configure(surface, &self.space, &mut self.popups)
+        let space_name = with_states(surface, |surface_data| {
+            surface_data
+                .data_map
+                .get::<ActiveSpace>()
+                .unwrap()
+                .0
+                .to_owned()
+        });
+
+        ensure_initial_configure(surface, &self.spaces[&space_name], &mut self.popups)
     }
 }
 
 impl State {
-    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<ApplicationWindow> {
-        self.space
-            .elements()
-            .find(|window| window.wl_surface().map(|s| s == *surface).unwrap_or(false))
-            .cloned()
+    pub fn window_and_space_for_surface(
+        &self,
+        surface: &WlSurface,
+    ) -> Option<(ApplicationWindow, String)> {
+        self.spaces
+            .iter()
+            .map(|(space_name, space)| {
+                space
+                    .elements()
+                    .find(|window| window.wl_surface().map(|s| s == *surface).unwrap_or(false))
+                    .map(|window| (window.to_owned(), space_name.clone()))
+            })
+            .next()?
     }
 }
 

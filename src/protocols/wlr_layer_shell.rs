@@ -24,14 +24,14 @@ impl WlrLayerShellHandler for State {
         let output = wl_output
             .as_ref()
             .and_then(Output::from_resource)
-            .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
+            .unwrap_or_else(|| self.outputs.values().next().unwrap().clone());
         let mut map = layer_map_for_output(&output);
         map.map_layer(&LayerSurface::new(surface, namespace))
             .unwrap();
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        if let Some((mut map, layer)) = self.space.outputs().find_map(|o| {
+        if let Some((mut map, layer)) = self.outputs.values().find_map(|o| {
             let map = layer_map_for_output(o);
             let layer = map
                 .layers()

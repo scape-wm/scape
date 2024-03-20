@@ -56,6 +56,8 @@ impl State {
                     }
 
                     info!("XWayland started");
+
+                    state.xwayland_ready();
                 }
                 XWaylandEvent::Exited => {
                     info!("XWayland exited");

@@ -5,6 +5,7 @@ use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
 use smithay::backend::drm::DrmNode;
+use smithay::desktop::space::SpaceElement;
 use smithay::input::keyboard::{Keysym, LedState};
 use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
@@ -67,6 +68,7 @@ use smithay::{
         xdg_activation::XdgActivationState,
     },
 };
+use std::collections::HashMap;
 use std::{sync::Arc, time::Duration};
 use tracing::{error, info, warn};
 
@@ -83,6 +85,15 @@ impl ClientData for ClientState {
     fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
 }
 
+#[derive(Debug, Default)]
+pub struct ReadyState {
+    backend_ready: bool,
+    xwayland_ready: bool,
+}
+
+#[derive(Debug)]
+pub struct ActiveSpace(pub String);
+
 #[derive(Debug)]
 pub struct State {
     pub display_handle: DisplayHandle,
@@ -92,8 +103,9 @@ pub struct State {
     pub backend_data: BackendData,
 
     // desktop
-    pub space: Space<ApplicationWindow>,
     pub popups: PopupManager,
+    pub outputs: HashMap<String, Output>,
+    pub spaces: HashMap<String, Space<ApplicationWindow>>,
 
     // smithay state
     pub compositor_state: CompositorState,
@@ -133,6 +145,8 @@ pub struct State {
     pub config: Config,
 
     pub socket_name: Option<String>,
+
+    pub ready_state: ReadyState,
 }
 
 impl State {
@@ -202,7 +216,6 @@ impl State {
             loop_handle,
             loop_signal,
             backend_data: BackendData::None,
-            space: Space::default(),
             popups: PopupManager::default(),
             compositor_state,
             data_device_state,
@@ -233,6 +246,9 @@ impl State {
             last_node: None,
             config: Config::new(),
             socket_name: None,
+            ready_state: ReadyState::default(),
+            outputs: HashMap::new(),
+            spaces: HashMap::new(),
         })
     }
 
@@ -315,6 +331,22 @@ impl State {
 
     pub fn pointer_location(&self) -> Point<f64, Logical> {
         self.pointer.as_ref().unwrap().current_location()
+    }
+
+    pub fn check_readyness(&mut self) {
+        if self.ready_state.backend_ready && self.ready_state.xwayland_ready {
+            self.on_startup();
+        }
+    }
+
+    pub fn backend_ready(&mut self) {
+        self.ready_state.backend_ready = true;
+        self.check_readyness();
+    }
+
+    pub fn xwayland_ready(&mut self) {
+        self.ready_state.xwayland_ready = true;
+        self.check_readyness();
     }
 }
 

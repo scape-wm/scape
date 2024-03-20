@@ -52,12 +52,14 @@ fn create_backend_data(
 }
 
 fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Result<()> {
-    state.loop_handle.clone().insert_idle(move |state| {
-        state.on_startup();
-    });
+    state.loop_handle.insert_idle(State::backend_ready);
+
     tracing::info!("Starting main loop");
     event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
-        state.space.refresh();
+        // TODO: Only refresh spaces that are active
+        for space in state.spaces.values_mut() {
+            space.refresh();
+        }
         state.popups.cleanup();
         if let Err(e) = state.display_handle.flush_clients() {
             error!(err = %e, "Unable to flush clients");

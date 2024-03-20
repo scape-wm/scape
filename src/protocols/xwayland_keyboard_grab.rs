@@ -6,11 +6,8 @@ use smithay::{
 
 impl XWaylandKeyboardGrabHandler for State {
     fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<FocusTarget> {
-        let elem = self
-            .space
-            .elements()
-            .find(|elem| elem.wl_surface().as_ref() == Some(surface))?;
-        Some(FocusTarget::Window(elem.clone()))
+        let (window, _) = self.window_and_space_for_surface(surface)?;
+        Some(FocusTarget::Window(window))
     }
 }
 

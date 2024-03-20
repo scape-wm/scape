@@ -20,6 +20,7 @@ use tracing::{error, warn};
 pub struct MoveSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
     pub window: ApplicationWindow,
+    pub space_name: String,
     pub initial_window_location: Point<i32, Logical>,
 }
 
@@ -37,8 +38,11 @@ impl PointerGrab<State> for MoveSurfaceGrab {
         let delta = event.location - self.start_data.location;
         let new_location = self.initial_window_location.to_f64() + delta;
 
-        data.space
-            .map_element(self.window.clone(), new_location.to_i32_round(), true);
+        data.spaces.get_mut(&self.space_name).unwrap().map_element(
+            self.window.clone(),
+            new_location.to_i32_round(),
+            true,
+        );
     }
 
     fn relative_motion(
@@ -254,6 +258,7 @@ pub enum ResizeState {
 pub struct ResizeSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
     pub window: ApplicationWindow,
+    pub space_name: String,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
     pub initial_window_size: Size<i32, Logical>,
@@ -338,7 +343,8 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                 xdg.send_pending_configure();
             }
             ApplicationWindow::X11(x11) => {
-                let Some(location) = data.space.element_location(&self.window) else {
+                let Some(location) = data.spaces[&self.space_name].element_location(&self.window)
+                else {
                     warn!("Surface to move was not found in the space");
                     return;
                 };
@@ -386,7 +392,9 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                     xdg.send_pending_configure();
                     if self.edges.intersects(ResizeEdge::TOP_LEFT) {
                         let geometry = self.window.geometry();
-                        let Some(mut location) = data.space.element_location(&self.window) else {
+                        let Some(mut location) =
+                            data.spaces[&self.space_name].element_location(&self.window)
+                        else {
                             warn!("Window not found in space: {:?}", self.window);
                             return;
                         };
@@ -400,7 +408,11 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                                 + (self.initial_window_size.h - geometry.size.h);
                         }
 
-                        data.space.map_element(self.window.clone(), location, true);
+                        data.spaces.get_mut(&self.space_name).unwrap().map_element(
+                            self.window.clone(),
+                            location,
+                            true,
+                        );
                     }
 
                     let Some(wl_surface) = &self.window.wl_surface() else {
@@ -429,7 +441,9 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                     });
                 }
                 ApplicationWindow::X11(x11) => {
-                    let Some(mut location) = data.space.element_location(&self.window) else {
+                    let Some(mut location) =
+                        data.spaces[&self.space_name].element_location(&self.window)
+                    else {
                         warn!("Window {:?} not found in space", self.window);
                         return;
                     };
@@ -445,7 +459,11 @@ impl PointerGrab<State> for ResizeSurfaceGrab {
                                 + (self.initial_window_size.h - geometry.size.h);
                         }
 
-                        data.space.map_element(self.window.clone(), location, true);
+                        data.spaces.get_mut(&self.space_name).unwrap().map_element(
+                            self.window.clone(),
+                            location,
+                            true,
+                        );
                     }
                     if let Err(e) = x11.configure(Rectangle::from_loc_and_size(
                         location,

@@ -46,8 +46,9 @@ impl XdgShellHandler for State {
         // the surface is not already configured
         let window = ApplicationWindow::Wayland(Window::new(surface));
         let location = self.pointer_location();
+        // TODO: Handle multiple spaces
         place_window(
-            &mut self.space,
+            &mut self.spaces.values_mut().next().unwrap(),
             location,
             &window,
             true,
@@ -109,7 +110,11 @@ impl XdgShellHandler for State {
 
         // If the client disconnects after requesting a move
         // we can just ignore the request
-        let Some(window) = self.window_for_surface(surface.wl_surface()) else {
+        let Some((window, space_name)) = self.window_and_space_for_surface(surface.wl_surface())
+        else {
+            return;
+        };
+        let Some(space) = self.spaces.get(&space_name) else {
             return;
         };
 
@@ -126,7 +131,7 @@ impl XdgShellHandler for State {
         }
 
         let geometry = window.geometry();
-        let loc = self.space.element_location(&window).unwrap();
+        let loc = space.element_location(&window).unwrap();
         let (initial_window_location, initial_window_size) = (loc, geometry.size);
 
         with_states(surface.wl_surface(), move |states| {
@@ -145,6 +150,7 @@ impl XdgShellHandler for State {
         let grab = ResizeSurfaceGrab {
             start_data,
             window,
+            space_name,
             edges: edges.into(),
             initial_window_location,
             initial_window_size,
@@ -207,19 +213,17 @@ impl XdgShellHandler for State {
                     });
                 }
             }
-            let window = self
-                .space
-                .elements()
-                .find(|element| element.wl_surface().as_ref() == Some(&surface));
-            if let Some(window) = window {
-                use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
-                let is_ssd = configure
-                    .state
-                    .decoration_mode
-                    .map(|mode| mode == Mode::ServerSide)
-                    .unwrap_or(false);
-                window.set_ssd(is_ssd);
-            }
+
+            let Some((window, _)) = self.window_and_space_for_surface(&surface) else {
+                return;
+            };
+            use xdg_decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
+            let is_ssd = configure
+                .state
+                .decoration_mode
+                .map(|mode| mode == Mode::ServerSide)
+                .unwrap_or(false);
+            window.set_ssd(is_ssd);
         }
     }
 
@@ -238,28 +242,24 @@ impl XdgShellHandler for State {
             // independently from its buffer size
             let wl_surface = surface.wl_surface();
 
-            let output_geometry =
-                fullscreen_output_geometry(wl_surface, wl_output.as_ref(), &mut self.space);
+            let Some((window, space_name)) = self.window_and_space_for_surface(wl_surface) else {
+                return;
+            };
+            let Some(space) = self.spaces.get_mut(&space_name) else {
+                return;
+            };
+
+            let output_geometry = fullscreen_output_geometry(wl_surface, wl_output.as_ref(), space);
 
             if let Some(geometry) = output_geometry {
                 let output = wl_output
                     .as_ref()
                     .and_then(Output::from_resource)
-                    .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
+                    .unwrap_or_else(|| space.outputs().next().unwrap().clone());
                 let client = self.display_handle.get_client(wl_surface.id()).unwrap();
                 for output in output.client_outputs(&client) {
                     wl_output = Some(output);
                 }
-                let window = self
-                    .space
-                    .elements()
-                    .find(|window| {
-                        window
-                            .wl_surface()
-                            .map(|s| s == *wl_surface)
-                            .unwrap_or(false)
-                    })
-                    .unwrap();
 
                 surface.with_pending_state(|state| {
                     state.states.set(xdg_toplevel::State::Fullscreen);
@@ -315,21 +315,24 @@ impl XdgShellHandler for State {
             .capabilities
             .contains(xdg_toplevel::WmCapabilities::Maximize)
         {
-            let window = self.window_for_surface(surface.wl_surface()).unwrap();
-            let outputs_for_window = self.space.outputs_for_element(&window);
+            let (window, space_name) = self
+                .window_and_space_for_surface(surface.wl_surface())
+                .unwrap();
+            let space = self.spaces.get_mut(&space_name).unwrap();
+            let outputs_for_window = space.outputs_for_element(&window);
             let output = outputs_for_window
                 .first()
                 // The window hasn't been mapped yet, use the primary output instead
-                .or_else(|| self.space.outputs().next())
+                .or_else(|| space.outputs().next())
                 // Assumes that at least one output exists
                 .expect("No outputs found");
-            let geometry = self.space.output_geometry(output).unwrap();
+            let geometry = space.output_geometry(output).unwrap();
 
             surface.with_pending_state(|state| {
                 state.states.set(xdg_toplevel::State::Maximized);
                 state.size = Some(geometry.size);
             });
-            self.space.map_element(window, geometry.loc, true);
+            space.map_element(window, geometry.loc, true);
         }
 
         // The protocol demands us to always reply with a configure,
@@ -357,13 +360,20 @@ impl XdgShellHandler for State {
         let seat: Seat<State> = Seat::from_resource(&seat).unwrap();
         let kind = PopupKind::Xdg(surface);
         if let Some(root) = find_popup_root_surface(&kind).ok().and_then(|root| {
-            self.space
+            // TODO: Properly handle multiple spaces
+            self.spaces
+                .values()
+                .next()
+                .unwrap()
                 .elements()
                 .find(|w| w.wl_surface().map(|s| s == root).unwrap_or(false))
                 .cloned()
                 .map(FocusTarget::Window)
                 .or_else(|| {
-                    self.space
+                    self.spaces
+                        .values()
+                        .next()
+                        .unwrap()
                         .outputs()
                         .find_map(|o| {
                             let map = layer_map_for_output(o);
@@ -442,7 +452,9 @@ impl State {
 
         let start_data = pointer.grab_start_data().unwrap();
 
-        let window = self.window_for_surface(surface.wl_surface()).unwrap();
+        let (window, space_name) = self
+            .window_and_space_for_surface(surface.wl_surface())
+            .unwrap();
 
         // If the focus was for a different surface, ignore the request.
         if start_data.focus.is_none()
@@ -456,7 +468,8 @@ impl State {
             return;
         }
 
-        let mut initial_window_location = self.space.element_location(&window).unwrap();
+        let mut initial_window_location =
+            self.spaces[&space_name].element_location(&window).unwrap();
 
         // If surface is maximized then unmaximize it
         let current_state = surface.current_state();
@@ -489,6 +502,7 @@ impl State {
         let grab = MoveSurfaceGrab {
             start_data,
             window,
+            space_name,
             initial_window_location,
         };
 
@@ -499,25 +513,26 @@ impl State {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
         };
-        let Some(window) = self.window_for_surface(&root) else {
+        let Some((window, space_name)) = self.window_and_space_for_surface(&root) else {
             return;
         };
 
-        let mut outputs_for_window = self.space.outputs_for_element(&window);
+        let space = &self.spaces[&space_name];
+
+        let mut outputs_for_window = space.outputs_for_element(&window);
         if outputs_for_window.is_empty() {
             return;
         }
 
         // Get a union of all outputs' geometries.
-        let mut outputs_geo = self
-            .space
+        let mut outputs_geo = space
             .output_geometry(&outputs_for_window.pop().unwrap())
             .unwrap();
         for output in outputs_for_window {
-            outputs_geo = outputs_geo.merge(self.space.output_geometry(&output).unwrap());
+            outputs_geo = outputs_geo.merge(space.output_geometry(&output).unwrap());
         }
 
-        let window_geo = self.space.element_geometry(&window).unwrap();
+        let window_geo = space.element_geometry(&window).unwrap();
 
         // The target geometry for the positioner should be relative to its parent's geometry, so
         // we will compute that here.

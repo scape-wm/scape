@@ -1,6 +1,6 @@
 use crate::application_window::ApplicationWindow;
 use crate::protocols::presentation_time::take_presentation_feedback;
-use crate::state::{BackendData, SurfaceDmabufFeedback};
+use crate::state::{ActiveSpace, BackendData, SurfaceDmabufFeedback};
 use crate::{
     drawing::*,
     render::*,
@@ -1029,7 +1029,7 @@ fn connector_connected(
 
         let (phys_w, phys_h) = connector.size().unwrap_or((0, 0));
         let output = Output::new(
-            output_name,
+            output_name.clone(),
             PhysicalProperties {
                 size: (phys_w as i32, phys_h as i32).into(),
                 subpixel: Subpixel::Unknown,
@@ -1039,19 +1039,15 @@ fn connector_connected(
         );
         let global = output.create_global::<State>(&state.display_handle);
 
-        let x = state.space.outputs().fold(0, |acc, o| {
-            acc + state.space.output_geometry(o).unwrap().size.w
-        });
-        let position = (x, 0).into();
-
         output.set_preferred(wl_mode);
-        output.change_current_state(Some(wl_mode), None, None, Some(position));
-        state.space.map_output(&output, position);
+        output.change_current_state(Some(wl_mode), None, None, None);
 
-        output.user_data().insert_if_missing(|| UdevOutputId {
-            crtc,
-            device_id: node,
-        });
+        output
+            .user_data()
+            .insert_if_missing_threadsafe(|| UdevOutputId {
+                crtc,
+                device_id: node,
+            });
 
         #[cfg(feature = "debug")]
         let fps_element = udev_data.fps_texture.clone().map(FpsElement::new);
@@ -1137,6 +1133,10 @@ fn connector_connected(
         device.surfaces.insert(crtc, surface);
 
         schedule_initial_render(udev_data, node, crtc, state.loop_handle.clone());
+
+        state.outputs.insert(output_name, output);
+
+        state.on_connector_change();
     }
 }
 
@@ -1166,8 +1166,8 @@ fn connector_disconnected(
         device.surfaces.remove(&crtc);
 
         let output = state
-            .space
-            .outputs()
+            .outputs
+            .values()
             .find(|o| {
                 o.user_data()
                     .get::<UdevOutputId>()
@@ -1177,8 +1177,10 @@ fn connector_disconnected(
             .cloned();
 
         if let Some(output) = output {
-            state.space.unmap_output(&output);
+            state.outputs.retain(|_, o| o != &output);
         }
+
+        state.on_connector_change();
     }
 }
 
@@ -1208,9 +1210,6 @@ fn device_changed(state: &mut State, node: DrmNode) {
             _ => {}
         }
     }
-    // fixup window coordinates
-    let location = state.pointer_location();
-    crate::shell::fixup_positions(&mut state.space, location);
 }
 
 fn device_removed(state: &mut State, node: DrmNode) {
@@ -1248,9 +1247,6 @@ fn device_removed(state: &mut State, node: DrmNode) {
 
         tracing::debug!("Dropping device");
     }
-
-    let location = state.pointer_location();
-    crate::shell::fixup_positions(&mut state.space, location);
 }
 
 fn frame_finish(
@@ -1279,7 +1275,7 @@ fn frame_finish(
         }
     };
 
-    let output = if let Some(output) = state.space.outputs().find(|o| {
+    let output = if let Some(output) = state.outputs.values().find(|o| {
         o.user_data().get::<UdevOutputId>()
             == Some(&UdevOutputId {
                 device_id: surface.device_id,
@@ -1513,7 +1509,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
             buffer
         });
 
-    let output = if let Some(output) = state.space.outputs().find(|o| {
+    let output = if let Some(output) = state.outputs.values().find(|o| {
         o.user_data().get::<UdevOutputId>()
             == Some(&UdevOutputId {
                 device_id: surface.device_id,
@@ -1526,10 +1522,12 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         return;
     };
 
+    let space = &state.spaces[&output.user_data().get::<ActiveSpace>().unwrap().0];
+
     let result = render_surface(
         surface,
         &mut renderer,
-        &state.space,
+        space,
         &output,
         location,
         &pointer_image,
