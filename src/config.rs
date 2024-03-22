@@ -42,14 +42,18 @@ impl State {
     }
 
     pub fn on_connector_change(&mut self) {
-        info!("running on connector change");
-        if let Some(on_connector_change) = &self.config.on_connector_change {
-            let config_outputs = self.outputs.values().map(Into::into).collect();
+        self.loop_handle.insert_idle(|state| {
+            info!("running on connector change");
+            if let Some(on_connector_change) = &state.config.on_connector_change {
+                let config_outputs = state.outputs.values().map(Into::into).collect();
 
-            on_connector_change
-                .call::<Vec<ConfigOutput>, ()>(config_outputs)
-                .unwrap();
-        }
+                on_connector_change
+                    .call::<Vec<ConfigOutput>, ()>(config_outputs)
+                    .unwrap();
+            } else {
+                info!("No on_connector_change callback set");
+            }
+        });
     }
 }
 
@@ -98,6 +102,7 @@ fn init_config_module<'lua>(
     exports.set(
         "on_connector_change",
         lua.create_function(move |_, callback: LuaFunction<'_>| {
+            info!("Setting up on_connector_change");
             // SAFETY: The callback is valid as long as the lua instance is alive.
             // The lua instance is never dropped, therefore the lifetime of the callback is
             // effectively 'static.
@@ -123,7 +128,9 @@ fn init_config_module<'lua>(
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {
+            info!("New layout received");
             loop_handle.insert_idle(move |state| {
+                info!("New layout will be set");
                 for (space_name, config_outputs) in layout.spaces {
                     let space = state.spaces.entry(space_name.clone()).or_default();
 
@@ -164,6 +171,8 @@ fn init_config_module<'lua>(
                 for space in state.spaces.values_mut() {
                     crate::shell::fixup_positions(space, location);
                 }
+
+                state.start_outputs();
             });
             Ok(())
         })?,

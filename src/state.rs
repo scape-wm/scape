@@ -1,5 +1,6 @@
 use crate::application_window::ApplicationWindow;
 use crate::config::Config;
+use crate::udev::{schedule_initial_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
@@ -68,7 +69,7 @@ use smithay::{
         xdg_activation::XdgActivationState,
     },
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, info, warn};
 
@@ -89,6 +90,7 @@ impl ClientData for ClientState {
 pub struct ReadyState {
     backend_ready: bool,
     xwayland_ready: bool,
+    on_ready_called: bool,
 }
 
 #[derive(Debug)]
@@ -106,6 +108,7 @@ pub struct State {
     pub popups: PopupManager,
     pub outputs: HashMap<String, Output>,
     pub spaces: HashMap<String, Space<ApplicationWindow>>,
+    pub started_outputs: HashSet<Output>,
 
     // smithay state
     pub compositor_state: CompositorState,
@@ -248,7 +251,12 @@ impl State {
             socket_name: None,
             ready_state: ReadyState::default(),
             outputs: HashMap::new(),
-            spaces: HashMap::new(),
+            started_outputs: HashSet::new(),
+            spaces: {
+                let mut spaces = HashMap::new();
+                spaces.insert(String::from("main"), Space::default());
+                spaces
+            },
         })
     }
 
@@ -334,7 +342,11 @@ impl State {
     }
 
     pub fn check_readyness(&mut self) {
-        if self.ready_state.backend_ready && self.ready_state.xwayland_ready {
+        if !self.ready_state.on_ready_called
+            && self.ready_state.backend_ready
+            && self.ready_state.xwayland_ready
+        {
+            self.ready_state.on_ready_called = true;
             self.on_startup();
         }
     }
@@ -347,6 +359,21 @@ impl State {
     pub fn xwayland_ready(&mut self) {
         self.ready_state.xwayland_ready = true;
         self.check_readyness();
+    }
+
+    pub fn start_outputs(&mut self) {
+        info!("Starting outputs");
+        for output in self.outputs.values() {
+            if self.started_outputs.contains(output) {
+                return;
+            }
+
+            self.started_outputs.insert(output.to_owned());
+            self.backend_data
+                .start_output(output, self.loop_handle.clone());
+        }
+
+        self.loop_handle.insert_idle(State::backend_ready);
     }
 }
 
@@ -563,6 +590,18 @@ impl BackendData {
                 udev_data.session.change_vt(vt).map_err(|e| anyhow!(e))
             }
             _ => Ok(()),
+        }
+    }
+
+    fn start_output(&mut self, output: &Output, loop_handle: LoopHandle<'static, State>) {
+        info!(?output, "Starting output");
+        match self {
+            BackendData::Udev(ref mut udev_data) => {
+                let UdevOutputId { device_id, crtc } =
+                    output.user_data().get::<UdevOutputId>().unwrap();
+                schedule_initial_render(udev_data, *device_id, *crtc, loop_handle);
+            }
+            _ => {}
         }
     }
 }

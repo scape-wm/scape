@@ -52,8 +52,6 @@ fn create_backend_data(
 }
 
 fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Result<()> {
-    state.loop_handle.insert_idle(State::backend_ready);
-
     tracing::info!("Starting main loop");
     event_loop.run(Some(Duration::from_millis(100)), &mut state, |state| {
         // TODO: Only refresh spaces that are active

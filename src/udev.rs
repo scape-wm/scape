@@ -114,9 +114,9 @@ type UdevRenderer<'a, 'b> =
     MultiRenderer<'a, 'a, 'b, GbmGlesBackend<GlesRenderer>, GbmGlesBackend<GlesRenderer>>;
 
 #[derive(Debug, PartialEq)]
-struct UdevOutputId {
-    device_id: DrmNode,
-    crtc: crtc::Handle,
+pub struct UdevOutputId {
+    pub device_id: DrmNode,
+    pub crtc: crtc::Handle,
 }
 
 pub struct UdevData {
@@ -1132,8 +1132,6 @@ fn connector_connected(
 
         device.surfaces.insert(crtc, surface);
 
-        schedule_initial_render(udev_data, node, crtc, state.loop_handle.clone());
-
         state.outputs.insert(output_name, output);
 
         state.on_connector_change();
@@ -1522,7 +1520,18 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         return;
     };
 
-    let space = &state.spaces[&output.user_data().get::<ActiveSpace>().unwrap().0];
+    let Some(ActiveSpace(space_name)) = output.user_data().get::<ActiveSpace>() else {
+        // space not set on output. Try again later
+        state
+            .loop_handle
+            .insert_source(Timer::immediate(), move |_, _, state| {
+                render(state, node, Some(crtc));
+                TimeoutAction::Drop
+            })
+            .expect("failed to schedule frame timer");
+        return;
+    };
+    let space = &state.spaces[space_name];
 
     let result = render_surface(
         surface,
@@ -1587,7 +1596,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
     profiling::finish_frame!();
 }
 
-fn schedule_initial_render(
+pub fn schedule_initial_render(
     udev_data: &mut UdevData,
     node: DrmNode,
     crtc: crtc::Handle,
