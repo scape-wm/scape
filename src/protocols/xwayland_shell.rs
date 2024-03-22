@@ -1,8 +1,6 @@
 use crate::grabs::{MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab};
 use crate::shell::{FullscreenSurface, SurfaceData};
-use crate::{
-    application_window::ApplicationWindow, composition::place_window, focus::FocusTarget, State,
-};
+use crate::{application_window::ApplicationWindow, focus::FocusTarget, State};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -53,17 +51,10 @@ impl XwmHandler for State {
         tracing::warn!("window is: {:?}", window);
         window.set_mapped(true).unwrap();
         let window = ApplicationWindow::X11(window);
-        let location = self.pointer_location();
         // TODO: Handle multiple spaces
-        let space = self.spaces.values_mut().next().unwrap();
-        let rect = place_window(
-            space,
-            location,
-            &window,
-            true,
-            crate::composition::WindowPosition::New,
-        );
-        let _bbox = space.element_bbox(&window).unwrap();
+        let space_name = self.spaces.keys().next().unwrap().clone();
+        let rect = self.place_window(&space_name, &window, true, None, false);
+        let _bbox = self.spaces[&space_name].element_bbox(&window).unwrap();
         let ApplicationWindow::X11(xsurface) = &window else {
             unreachable!()
         };

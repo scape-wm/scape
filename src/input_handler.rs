@@ -1,10 +1,5 @@
 use crate::application_window::ApplicationWindow;
-use crate::{
-    composition::{place_window, WindowPosition},
-    focus::FocusTarget,
-    shell::FullscreenSurface,
-    State,
-};
+use crate::{composition::WindowPosition, focus::FocusTarget, shell::FullscreenSurface, State};
 use smithay::backend::input::GesturePinchUpdateEvent;
 use smithay::backend::input::GestureSwipeUpdateEvent;
 use smithay::input::pointer;

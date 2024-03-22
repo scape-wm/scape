@@ -125,6 +125,17 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "set_zones",
+        lua.create_function(move |_, zones: Vec<ConfigZone>| {
+            lh.insert_idle(move |state| {
+                state.set_zones(zones.into_iter().map(Into::into).collect());
+            });
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {
@@ -167,9 +178,9 @@ fn init_config_module<'lua>(
                 }
 
                 // fixup window coordinates
-                let location = state.pointer_location();
-                for space in state.spaces.values_mut() {
-                    crate::shell::fixup_positions(space, location);
+                let space_names = state.spaces.keys().cloned().collect::<Vec<_>>();
+                for space_name in space_names {
+                    state.fixup_positions(&space_name);
                 }
 
                 state.start_outputs();
@@ -256,6 +267,30 @@ impl<'lua> FromLua<'lua> for ConfigOutput {
             default: table.get("default").unwrap(),
             disabled: table.get("disabled").unwrap(),
             scale: table.get("scale").unwrap(),
+        })
+    }
+}
+
+pub struct ConfigZone {
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub default: bool,
+}
+
+impl<'lua> FromLua<'lua> for ConfigZone {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
+        let table = value.as_table().unwrap();
+
+        Ok(ConfigZone {
+            name: table.get("name").unwrap(),
+            x: table.get("x").unwrap(),
+            y: table.get("y").unwrap(),
+            width: table.get("width").unwrap(),
+            height: table.get("height").unwrap(),
+            default: table.get("default").unwrap_or_default(),
         })
     }
 }

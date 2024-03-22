@@ -1,9 +1,6 @@
 use crate::grabs::{MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab};
 use crate::shell::{FullscreenSurface, SurfaceData};
-use crate::{
-    application_window::ApplicationWindow, composition::place_window, focus::FocusTarget,
-    state::State,
-};
+use crate::{application_window::ApplicationWindow, focus::FocusTarget, state::State};
 use smithay::delegate_xdg_shell;
 use smithay::utils::{Logical, Rectangle};
 use smithay::{
@@ -45,14 +42,13 @@ impl XdgShellHandler for State {
         // of a xdg_surface has to be sent during the commit if
         // the surface is not already configured
         let window = ApplicationWindow::Wayland(Window::new(surface));
-        let location = self.pointer_location();
         // TODO: Handle multiple spaces
-        place_window(
-            &mut self.spaces.values_mut().next().unwrap(),
-            location,
+        self.place_window(
+            &self.spaces.keys().next().unwrap().clone(),
             &window,
             true,
-            crate::composition::WindowPosition::New,
+            None,
+            false,
         );
         let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();

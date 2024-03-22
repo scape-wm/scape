@@ -1,4 +1,5 @@
 use crate::application_window::ApplicationWindow;
+use crate::composition::Zone;
 use crate::config::Config;
 use crate::udev::{schedule_initial_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
@@ -109,6 +110,8 @@ pub struct State {
     pub outputs: HashMap<String, Output>,
     pub spaces: HashMap<String, Space<ApplicationWindow>>,
     pub started_outputs: HashSet<Output>,
+    pub zones: HashMap<String, Zone>,
+    pub default_zone: Option<String>,
 
     // smithay state
     pub compositor_state: CompositorState,
@@ -257,6 +260,8 @@ impl State {
                 spaces.insert(String::from("main"), Space::default());
                 spaces
             },
+            zones: HashMap::new(),
+            default_zone: None,
         })
     }
 
