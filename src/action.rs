@@ -42,7 +42,12 @@ impl State {
                 output: _,
                 rotation: _,
             } => todo!(),
-            Action::MoveWindow { window: _, zone: _ } => todo!(),
+            Action::MoveWindow { window: _, zone } => {
+                let (space_name, space) = self.spaces.iter().next().unwrap();
+                if let Some(window) = space.elements().last().cloned() {
+                    self.place_window(&space_name.to_owned(), &window, false, Some(&zone), true);
+                }
+            }
             Action::Callback(callback) => callback.call(()).unwrap(),
             Action::None => {}
         }

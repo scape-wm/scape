@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::fs;
 use tracing::info;
 use tracing::warn;
+use xkbcommon::xkb::Keysym;
 
 #[derive(Debug)]
 pub struct Config {
@@ -143,6 +144,15 @@ fn init_config_module<'lua>(
             lh.insert_idle(move |state| {
                 state.map_key(params.key, params.mods, params.callback);
             });
+            Ok(())
+        })?,
+    )?;
+
+    let lh = loop_handle.clone();
+    exports.set(
+        "move_to_zone",
+        lua.create_function(move |_, zone: String| {
+            lh.insert_idle(move |state| state.execute(Action::MoveWindow { window: None, zone }));
             Ok(())
         })?,
     )?;
@@ -307,7 +317,7 @@ impl<'lua> FromLua<'lua> for ConfigZone {
 }
 
 struct ConfigMapKey {
-    key: char,
+    key: Keysym,
     mods: Mods,
     callback: LuaFunction<'static>,
 }
@@ -316,17 +326,7 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
     fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
         let table = value.as_table().unwrap();
 
-        let mut key = table
-            .get::<_, String>("key")
-            .unwrap()
-            .chars()
-            .next()
-            .unwrap();
-
         let mut mods = Mods::default();
-        if key.is_uppercase() {
-            mods.shift = true;
-        }
         for mod_key in table.get::<_, String>("mods").unwrap().split('|') {
             match mod_key {
                 "shift" => mods.shift = true,
@@ -336,9 +336,23 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
                 _ => warn!(%mod_key, "Unhandled mod key"),
             }
         }
-        if mods.shift {
-            key = key.to_uppercase().next().unwrap();
-        }
+
+        let key = match table.get::<_, String>("key").unwrap().as_str() {
+            "Left" => Keysym::Left,
+            "Right" => Keysym::Right,
+            "Up" => Keysym::Up,
+            "Down" => Keysym::Down,
+            key => {
+                let mut c = key.chars().next().unwrap();
+                if c.is_uppercase() {
+                    mods.shift = true;
+                }
+                if mods.shift {
+                    c = c.to_uppercase().next().unwrap();
+                }
+                Keysym::from_char(c)
+            }
+        };
 
         // SAFETY: The callback is valid as long as the lua instance is alive.
         // The lua instance is never dropped, therefore the lifetime of the callback is

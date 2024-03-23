@@ -67,11 +67,8 @@ impl From<ModifiersState> for Mods {
 }
 
 impl State {
-    pub fn map_key(&mut self, key: char, mods: Mods, callback: LuaFunction<'static>) {
-        self.key_maps
-            .entry(mods)
-            .or_default()
-            .insert(Keysym::from_char(key), callback);
+    pub fn map_key(&mut self, key: Keysym, mods: Mods, callback: LuaFunction<'static>) {
+        self.key_maps.entry(mods).or_default().insert(key, callback);
     }
 
     fn process_common_key_action(&mut self, action: KeyAction) {
