@@ -1,18 +1,17 @@
+use crate::action::Action;
 use crate::application_window::ApplicationWindow;
 use crate::{composition::WindowPosition, focus::FocusTarget, shell::FullscreenSurface, State};
+use mlua::Function as LuaFunction;
 use smithay::backend::input::GesturePinchUpdateEvent;
 use smithay::backend::input::GestureSwipeUpdateEvent;
 use smithay::input::pointer;
 use smithay::{
-    backend::{
-        input::{
-            self, AbsolutePositionEvent, Axis, AxisSource, Device, DeviceCapability, Event,
-            GestureBeginEvent, GestureEndEvent, InputBackend, InputEvent, KeyState,
-            KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
-            ProximityState, TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent,
-            TabletToolTipEvent, TabletToolTipState,
-        },
-        renderer::DebugFlags,
+    backend::input::{
+        self, AbsolutePositionEvent, Axis, AxisSource, Device, DeviceCapability, Event,
+        GestureBeginEvent, GestureEndEvent, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
+        PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, ProximityState,
+        TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent,
+        TabletToolTipState,
     },
     desktop::{layer_map_for_output, WindowSurfaceType},
     input::{
@@ -23,29 +22,58 @@ use smithay::{
             GestureSwipeEndEvent, MotionEvent, RelativeMotionEvent,
         },
     },
-    output::{Output, Scale},
-    reexports::{
-        wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1,
-        wayland_server::{protocol::wl_pointer, DisplayHandle},
-    },
-    utils::{Logical, Point, Serial, Transform, SERIAL_COUNTER as SCOUNTER},
+    output::Output,
+    reexports::wayland_server::{protocol::wl_pointer, DisplayHandle},
+    utils::{Logical, Point, Serial, SERIAL_COUNTER as SCOUNTER},
     wayland::{
         compositor::with_states,
         input_method::InputMethodSeat,
         keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat,
         pointer_constraints::{with_pointer_constraint, PointerConstraint},
         seat::WaylandFocus,
-        shell::{
-            wlr_layer::{KeyboardInteractivity, Layer as WlrLayer, LayerSurfaceCachedState},
-            xdg::XdgToplevelSurfaceData,
-        },
+        shell::wlr_layer::{KeyboardInteractivity, Layer as WlrLayer, LayerSurfaceCachedState},
         tablet_manager::{TabletDescriptor, TabletSeatTrait},
     },
 };
 use std::convert::TryInto;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Mods {
+    /// The "control" key
+    pub ctrl: bool,
+    /// The "alt" key
+    pub alt: bool,
+    /// The "shift" key
+    pub shift: bool,
+    /// The "Caps lock" key
+    pub caps_lock: bool,
+    /// The "logo" key
+    ///
+    /// Also known as the "windows" key on most keyboards
+    pub logo: bool,
+}
+
+impl From<ModifiersState> for Mods {
+    fn from(value: ModifiersState) -> Self {
+        Self {
+            ctrl: value.ctrl,
+            alt: value.alt,
+            shift: value.shift,
+            caps_lock: value.caps_lock,
+            logo: value.logo,
+        }
+    }
+}
 
 impl State {
+    pub fn map_key(&mut self, key: char, mods: Mods, callback: LuaFunction<'static>) {
+        self.key_maps
+            .entry(mods)
+            .or_default()
+            .insert(Keysym::from_char(key), callback);
+    }
+
     fn process_common_key_action(&mut self, action: KeyAction) {
         match action {
             KeyAction::None => (),
@@ -130,7 +158,7 @@ impl State {
         }
     }
 
-    fn keyboard_key_to_action<B: InputBackend>(&mut self, evt: B::KeyboardKeyEvent) -> KeyAction {
+    fn keyboard_key_to_action<B: InputBackend>(&mut self, evt: B::KeyboardKeyEvent) -> Action {
         let space = &self
             .spaces // FIXME: handle multiple spaces
             .iter()
@@ -139,13 +167,13 @@ impl State {
             .1;
 
         let keycode = evt.key_code();
-        let state = evt.state();
-        debug!(keycode, ?state, "key");
+        let evt_state = evt.state();
+        debug!(keycode, ?evt_state, "key");
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
         let Some(seat) = &self.seat else {
-            return KeyAction::None;
+            return Action::None;
         };
         let keyboard = seat.get_keyboard().unwrap();
 
@@ -163,10 +191,10 @@ impl State {
                 });
                 if let Some(surface) = surface {
                     keyboard.set_focus(self, Some(surface.into()), serial);
-                    keyboard.input::<(), _>(self, keycode, state, serial, time, |_, _, _| {
+                    keyboard.input::<(), _>(self, keycode, evt_state, serial, time, |_, _, _| {
                         FilterResult::Forward
                     });
-                    return KeyAction::None;
+                    return Action::None;
                 };
             }
         }
@@ -186,14 +214,14 @@ impl State {
             .input(
                 self,
                 keycode,
-                state,
+                evt_state,
                 serial,
                 time,
-                |_, modifiers, handle| {
+                |state, modifiers, handle| {
                     let keysym = handle.modified_sym();
 
                     debug!(
-                        ?state,
+                        ?evt_state,
                         mods = ?modifiers,
                         keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
                         "keysym"
@@ -204,9 +232,9 @@ impl State {
                     // Additionally add the key to the suppressed keys
                     // so that we can decide on a release if the key
                     // should be forwarded to the client or not.
-                    if let KeyState::Pressed = state {
+                    if let KeyState::Pressed = evt_state {
                         if !inhibited {
-                            let action = process_keyboard_shortcut(*modifiers, keysym);
+                            let action = state.process_keyboard_shortcut(*modifiers, keysym);
 
                             if action.is_some() {
                                 suppressed_keys.push(keysym);
@@ -222,14 +250,14 @@ impl State {
                         let suppressed = suppressed_keys.contains(&keysym);
                         if suppressed {
                             suppressed_keys.retain(|k| *k != keysym);
-                            FilterResult::Intercept(KeyAction::None)
+                            FilterResult::Intercept(Action::None)
                         } else {
                             FilterResult::Forward
                         }
                     }
                 },
             )
-            .unwrap_or(KeyAction::None);
+            .unwrap_or(Action::None);
 
         self.suppressed_keys = suppressed_keys;
         action
@@ -553,19 +581,20 @@ impl State {
                 //     crate::shell::fixup_positions(space, location);
                 //     self.backend_data.reset_buffers(&output);
                 // }
-                action => match action {
-                    KeyAction::None
-                    | KeyAction::Quit
-                    | KeyAction::Run(_)
-                    | KeyAction::MoveWindow(_)
-                    | KeyAction::TogglePreview => self.process_common_key_action(action),
-
-                    _ => tracing::warn!(
-                        ?action,
-                        output_name,
-                        "Key action unsupported on on output backend.",
-                    ),
-                },
+                // action => match action {
+                //     KeyAction::None
+                //     | KeyAction::Quit
+                //     | KeyAction::Run(_)
+                //     | KeyAction::MoveWindow(_)
+                //     | KeyAction::TogglePreview => self.process_common_key_action(action),
+                //
+                //     _ => tracing::warn!(
+                //         ?action,
+                //         output_name,
+                //         "Key action unsupported on on output backend.",
+                //     ),
+                // },
+                action => self.execute(action),
             },
 
             InputEvent::PointerMotionAbsolute { event } => {
@@ -633,12 +662,12 @@ impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
-                KeyAction::VtSwitch(vt) => {
-                    info!(to = vt, "Trying to switch vt");
-                    if let Err(err) = self.backend_data.switch_vt(vt) {
-                        error!(vt, "Error switching vt: {}", err);
-                    }
-                }
+                // KeyAction::VtSwitch(vt) => {
+                //     info!(to = vt, "Trying to switch vt");
+                //     if let Err(err) = self.backend_data.switch_vt(vt) {
+                //         error!(vt, "Error switching vt: {}", err);
+                //     }
+                // }
                 // KeyAction::Screen(num) => {
                 //     let geometry = space
                 //         .outputs()
@@ -771,21 +800,22 @@ impl State {
                 //         self.backend_data.reset_buffers(&output);
                 //     }
                 // }
-                KeyAction::ToggleTint => {
-                    let mut debug_flags = self.backend_data.debug_flags();
-                    debug_flags.toggle(DebugFlags::TINT);
-                    self.backend_data.set_debug_flags(debug_flags);
-                }
-
-                action => match action {
-                    KeyAction::None
-                    | KeyAction::Quit
-                    | KeyAction::Run(_)
-                    | KeyAction::MoveWindow(_)
-                    | KeyAction::TogglePreview => self.process_common_key_action(action),
-
-                    _ => unreachable!(),
-                },
+                // KeyAction::ToggleTint => {
+                //     let mut debug_flags = self.backend_data.debug_flags();
+                //     debug_flags.toggle(DebugFlags::TINT);
+                //     self.backend_data.set_debug_flags(debug_flags);
+                // }
+                //
+                // action => match action {
+                //     KeyAction::None
+                //     | KeyAction::Quit
+                //     | KeyAction::Run(_)
+                //     | KeyAction::MoveWindow(_)
+                //     | KeyAction::TogglePreview => self.process_common_key_action(action),
+                //
+                //     _ => unreachable!(),
+                // },
+                action => self.execute(action),
             },
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(event),
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -1306,46 +1336,32 @@ enum KeyAction {
     ToggleTint,
     ToggleDecorations,
     MoveWindow(WindowPosition),
+    Action(Action),
     /// Do nothing more
     None,
 }
 
-fn process_keyboard_shortcut(modifiers: ModifiersState, keysym: Keysym) -> Option<KeyAction> {
-    if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
-        || modifiers.logo && keysym == Keysym::Q
-    {
-        // ctrl+alt+backspace = quit
-        // logo + q = quit
-        Some(KeyAction::Quit)
-    } else if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
-        // VTSwitch
-        Some(KeyAction::VtSwitch(
-            (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
-        ))
-    } else if modifiers.logo && keysym == Keysym::Return {
-        // run terminal
-        Some(KeyAction::Run("wezterm".into()))
-    } else if modifiers.logo && (xkb::KEY_1..=xkb::KEY_9).contains(&keysym.raw()) {
-        Some(KeyAction::Screen((keysym.raw() - xkb::KEY_1) as usize))
-    } else if modifiers.logo && modifiers.shift && keysym == Keysym::M {
-        Some(KeyAction::ScaleDown)
-    } else if modifiers.logo && modifiers.shift && keysym == Keysym::P {
-        Some(KeyAction::ScaleUp)
-    } else if modifiers.logo && keysym == Keysym::W {
-        Some(KeyAction::TogglePreview)
-    } else if modifiers.logo && keysym == Keysym::R {
-        Some(KeyAction::RotateOutput)
-    } else if modifiers.logo && modifiers.shift && keysym == Keysym::T {
-        Some(KeyAction::ToggleTint)
-    } else if modifiers.logo && modifiers.shift && keysym == Keysym::X {
-        Some(KeyAction::ToggleDecorations)
-    } else if modifiers.logo && keysym == Keysym::Left || modifiers.ctrl && keysym == Keysym::_1 {
-        Some(KeyAction::MoveWindow(WindowPosition::Left))
-    } else if modifiers.logo && keysym == Keysym::Up || modifiers.ctrl && keysym == Keysym::_2 {
-        Some(KeyAction::MoveWindow(WindowPosition::Mid))
-    } else if modifiers.logo && keysym == Keysym::Right || modifiers.ctrl && keysym == Keysym::_3 {
-        Some(KeyAction::MoveWindow(WindowPosition::Right))
-    } else {
-        None
+impl State {
+    fn process_keyboard_shortcut(
+        &self,
+        modifiers: ModifiersState,
+        keysym: Keysym,
+    ) -> Option<Action> {
+        if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
+            || modifiers.logo && keysym == Keysym::Q
+        {
+            // ctrl+alt+backspace = quit
+            // logo + q = quit
+            Some(Action::Quit)
+        } else if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
+            // VTSwitch
+            Some(Action::VtSwitch(
+                (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
+            ))
+        } else {
+            let maps = self.key_maps.get(&modifiers.into())?;
+            let callback = maps.get(&keysym)?;
+            Some(Action::Callback(callback.clone()))
+        }
     }
 }

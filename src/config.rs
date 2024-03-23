@@ -1,7 +1,7 @@
 use crate::action::Action;
+use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
 use crate::State;
-use anyhow::anyhow;
 use calloop::LoopHandle;
 use mlua::prelude::*;
 use mlua::Table;
@@ -136,6 +136,17 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "map_key",
+        lua.create_function(move |_, params: ConfigMapKey| {
+            lh.insert_idle(move |state| {
+                state.map_key(params.key, params.mods, params.callback);
+            });
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {
@@ -197,7 +208,7 @@ struct ConfigLayout {
 }
 
 impl<'lua> FromLua<'lua> for ConfigLayout {
-    fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
         let table = value.as_table().unwrap().to_owned();
 
         let mut spaces = HashMap::new();
@@ -255,7 +266,7 @@ impl<'lua> IntoLua<'lua> for ConfigOutput {
 }
 
 impl<'lua> FromLua<'lua> for ConfigOutput {
-    fn from_lua(value: LuaValue<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
         let table = value.as_table().unwrap();
 
         Ok(ConfigOutput {
@@ -291,6 +302,54 @@ impl<'lua> FromLua<'lua> for ConfigZone {
             width: table.get("width").unwrap(),
             height: table.get("height").unwrap(),
             default: table.get("default").unwrap_or_default(),
+        })
+    }
+}
+
+struct ConfigMapKey {
+    key: char,
+    mods: Mods,
+    callback: LuaFunction<'static>,
+}
+
+impl<'lua> FromLua<'lua> for ConfigMapKey {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
+        let table = value.as_table().unwrap();
+
+        let mut key = table
+            .get::<_, String>("key")
+            .unwrap()
+            .chars()
+            .next()
+            .unwrap();
+
+        let mut mods = Mods::default();
+        if key.is_uppercase() {
+            mods.shift = true;
+        }
+        for mod_key in table.get::<_, String>("mods").unwrap().split('|') {
+            match mod_key {
+                "shift" => mods.shift = true,
+                "logo" | "super" => mods.logo = true,
+                "ctrl" => mods.ctrl = true,
+                "alt" => mods.alt = true,
+                _ => warn!(%mod_key, "Unhandled mod key"),
+            }
+        }
+        if mods.shift {
+            key = key.to_uppercase().next().unwrap();
+        }
+
+        // SAFETY: The callback is valid as long as the lua instance is alive.
+        // The lua instance is never dropped, therefore the lifetime of the callback is
+        // effectively 'static.
+        let callback =
+            unsafe { std::mem::transmute(table.get::<_, LuaFunction<'_>>("callback").unwrap()) };
+
+        Ok(ConfigMapKey {
+            key,
+            mods,
+            callback,
         })
     }
 }

@@ -1,14 +1,16 @@
 use crate::application_window::ApplicationWindow;
 use crate::composition::Zone;
 use crate::config::Config;
+use crate::input_handler::Mods;
 use crate::udev::{schedule_initial_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
 use calloop::{EventLoop, LoopSignal};
+use mlua::Function as LuaFunction;
 use smithay::backend::drm::DrmNode;
 use smithay::desktop::space::SpaceElement;
-use smithay::input::keyboard::{Keysym, LedState};
+use smithay::input::keyboard::{Keysym, LedState, ModifiersState};
 use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
@@ -153,6 +155,8 @@ pub struct State {
     pub socket_name: Option<String>,
 
     pub ready_state: ReadyState,
+
+    pub key_maps: HashMap<Mods, HashMap<Keysym, LuaFunction<'static>>>,
 }
 
 impl State {
@@ -262,6 +266,7 @@ impl State {
             },
             zones: HashMap::new(),
             default_zone: None,
+            key_maps: HashMap::new(),
         })
     }
 

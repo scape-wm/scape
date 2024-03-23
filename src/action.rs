@@ -1,5 +1,6 @@
 use std::process::Command;
 
+use mlua::Function as LuaFunction;
 use tracing::{error, info};
 
 use crate::State;
@@ -20,6 +21,8 @@ pub enum Action {
     RotateOutput { output: usize, rotation: usize },
     /// Move window to zone
     MoveWindow { window: Option<usize>, zone: String },
+    /// Run Lua callback
+    Callback(LuaFunction<'static>),
     /// Do nothing more
     None,
 }
@@ -40,7 +43,8 @@ impl State {
                 rotation: _,
             } => todo!(),
             Action::MoveWindow { window: _, zone: _ } => todo!(),
-            Action::None => todo!(),
+            Action::Callback(callback) => callback.call(()).unwrap(),
+            Action::None => {}
         }
     }
 
