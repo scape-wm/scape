@@ -322,8 +322,8 @@ impl State {
                 layout: "de",
                 ..Default::default()
             },
-            200,
-            25,
+            400,
+            20,
         )
         .expect("Failed to initialize the keyboard");
 

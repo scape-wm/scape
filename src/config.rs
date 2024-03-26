@@ -157,6 +157,15 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "focus_or_spawn",
+        lua.create_function(move |_, (command, app_id)| {
+            lh.insert_idle(move |state| state.execute(Action::FocusOrSpawn { app_id, command }));
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {

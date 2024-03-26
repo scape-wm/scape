@@ -13,6 +13,8 @@ pub enum Action {
     VtSwitch(i32),
     /// Spawn a command
     Spawn { command: String },
+    /// Focus or spawn a command
+    FocusOrSpawn { app_id: String, command: String },
     /// Scales output up/down
     ChangeScale { percentage_points: isize },
     /// Sets output scale
@@ -32,7 +34,12 @@ impl State {
         info!(?action, "Executing action");
         match action {
             Action::Quit => self.stop_loop(),
-            Action::VtSwitch(_) => todo!(),
+            Action::VtSwitch(vt) => {
+                info!(to = vt, "Trying to switch vt");
+                if let Err(err) = self.backend_data.switch_vt(vt) {
+                    error!(vt, "Error switching vt: {}", err);
+                }
+            }
             Action::Spawn { command } => self.spawn(&command),
             Action::ChangeScale {
                 percentage_points: _,
@@ -49,6 +56,11 @@ impl State {
                 }
             }
             Action::Callback(callback) => callback.call(()).unwrap(),
+            Action::FocusOrSpawn { app_id, command } => {
+                if !self.focus_window(app_id) {
+                    self.execute(Action::Spawn { command });
+                }
+            }
             Action::None => {}
         }
     }

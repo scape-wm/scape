@@ -1,8 +1,9 @@
 use crate::{application_window::ApplicationWindow, config::ConfigZone, State};
 use smithay::{
     desktop::{layer_map_for_output, Space},
-    utils::{Logical, Point, Rectangle},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
 };
+use tracing::info;
 
 #[derive(Debug)]
 pub struct Zone {
@@ -98,5 +99,33 @@ impl State {
             }
             self.zones.insert(zone.name.clone(), zone);
         }
+    }
+
+    pub fn focus_window(&mut self, app_id: String) -> bool {
+        if let Some(space) = self.spaces.values_mut().next() {
+            let mut window_result = None;
+            let mut last = false;
+            for (i, window) in space.elements().rev().enumerate() {
+                info!(app_id = %window.app_id(), "looking at window");
+                if window.app_id() == app_id {
+                    window_result = Some(window.clone());
+                    if i == 0 {
+                        last = true;
+                    } else if last {
+                        continue;
+                    } else {
+                        break;
+                    }
+                };
+            }
+            if let Some(window) = window_result {
+                space.raise_element(&window, true);
+                let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                keyboard.set_focus(self, Some(window.to_owned().into()), serial);
+                return true;
+            }
+        }
+        false
     }
 }
