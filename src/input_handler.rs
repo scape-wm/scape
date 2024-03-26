@@ -155,7 +155,10 @@ impl State {
         }
     }
 
-    fn keyboard_key_to_action<B: InputBackend>(&mut self, evt: B::KeyboardKeyEvent) -> Action {
+    fn keyboard_key_to_action<B: InputBackend>(
+        &mut self,
+        evt: B::KeyboardKeyEvent,
+    ) -> Option<Action> {
         let space = &self
             .spaces // FIXME: handle multiple spaces
             .iter()
@@ -170,7 +173,7 @@ impl State {
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
         let Some(seat) = &self.seat else {
-            return Action::None;
+            return None;
         };
         let keyboard = seat.get_keyboard().unwrap();
 
@@ -191,7 +194,7 @@ impl State {
                     keyboard.input::<(), _>(self, keycode, evt_state, serial, time, |_, _, _| {
                         FilterResult::Forward
                     });
-                    return Action::None;
+                    return None;
                 };
             }
         }
@@ -223,6 +226,10 @@ impl State {
                         keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
                         "keysym"
                     );
+
+                    if !modifiers.alt {
+                        state.tab_index = 0;
+                    }
 
                     // If the key is pressed and triggered a action
                     // we will not forward the key to the client.
@@ -257,7 +264,7 @@ impl State {
             .unwrap_or(Action::None);
 
         self.suppressed_keys = suppressed_keys;
-        action
+        Some(action)
     }
 
     fn on_pointer_button<B: InputBackend>(&mut self, evt: B::PointerButtonEvent) {
@@ -591,7 +598,8 @@ impl State {
                 //         "Key action unsupported on on output backend.",
                 //     ),
                 // },
-                action => self.execute(action),
+                Some(action) => self.execute(action),
+                _ => {}
             },
 
             InputEvent::PointerMotionAbsolute { event } => {
@@ -812,7 +820,8 @@ impl State {
                 //
                 //     _ => unreachable!(),
                 // },
-                action => self.execute(action),
+                Some(action) => self.execute(action),
+                _ => {}
             },
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(event),
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -1340,7 +1349,7 @@ enum KeyAction {
 
 impl State {
     fn process_keyboard_shortcut(
-        &self,
+        &mut self,
         modifiers: ModifiersState,
         keysym: Keysym,
     ) -> Option<Action> {
@@ -1355,6 +1364,11 @@ impl State {
             Some(Action::VtSwitch(
                 (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
             ))
+        } else if modifiers.alt && keysym == Keysym::Tab {
+            self.tab_index += 1;
+            Some(Action::Tab {
+                index: self.tab_index,
+            })
         } else {
             let maps = self.key_maps.get(&modifiers.into())?;
             let callback = maps.get(&keysym)?;

@@ -1,4 +1,4 @@
-use crate::{application_window::ApplicationWindow, config::ConfigZone, State};
+use crate::{application_window::ApplicationWindow, config::ConfigZone, state::ActiveSpace, State};
 use smithay::{
     desktop::{layer_map_for_output, Space},
     utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
@@ -101,8 +101,8 @@ impl State {
         }
     }
 
-    pub fn focus_window(&mut self, app_id: String) -> bool {
-        if let Some(space) = self.spaces.values_mut().next() {
+    pub fn focus_window_by_app_id(&mut self, app_id: String) -> bool {
+        if let Some((space_name, space)) = self.spaces.iter().next() {
             let mut window_result = None;
             let mut last = false;
             for (i, window) in space.elements().rev().enumerate() {
@@ -119,13 +119,18 @@ impl State {
                 };
             }
             if let Some(window) = window_result {
-                space.raise_element(&window, true);
-                let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
-                let serial = SERIAL_COUNTER.next_serial();
-                keyboard.set_focus(self, Some(window.to_owned().into()), serial);
+                self.focus_window(window, &space_name.to_owned());
                 return true;
             }
         }
         false
+    }
+
+    pub fn focus_window(&mut self, window: ApplicationWindow, space_name: &str) {
+        let space = self.spaces.get_mut(space_name).unwrap();
+        space.raise_element(&window, true);
+        let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+        let serial = SERIAL_COUNTER.next_serial();
+        keyboard.set_focus(self, Some(window.into()), serial);
     }
 }

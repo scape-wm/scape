@@ -157,6 +157,7 @@ pub struct State {
     pub ready_state: ReadyState,
 
     pub key_maps: HashMap<Mods, HashMap<Keysym, LuaFunction<'static>>>,
+    pub tab_index: usize,
 }
 
 impl State {
@@ -267,6 +268,7 @@ impl State {
             zones: HashMap::new(),
             default_zone: None,
             key_maps: HashMap::new(),
+            tab_index: 0,
         })
     }
 

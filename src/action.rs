@@ -25,6 +25,8 @@ pub enum Action {
     MoveWindow { window: Option<usize>, zone: String },
     /// Run Lua callback
     Callback(LuaFunction<'static>),
+    /// Tab through windows
+    Tab { index: usize },
     /// Do nothing more
     None,
 }
@@ -55,9 +57,16 @@ impl State {
                     self.place_window(&space_name.to_owned(), &window, false, Some(&zone), true);
                 }
             }
+            Action::Tab { index } => {
+                let (space_name, space) = self.spaces.iter().next().unwrap();
+                let maybe_window = space.elements().rev().nth(index).cloned();
+                if let Some(window) = maybe_window {
+                    self.focus_window(window, &space_name.to_owned());
+                }
+            }
             Action::Callback(callback) => callback.call(()).unwrap(),
             Action::FocusOrSpawn { app_id, command } => {
-                if !self.focus_window(app_id) {
+                if !self.focus_window_by_app_id(app_id) {
                     self.execute(Action::Spawn { command });
                 }
             }
