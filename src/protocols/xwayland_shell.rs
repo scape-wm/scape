@@ -25,7 +25,7 @@ use smithay::{
     },
 };
 use std::{cell::RefCell, os::fd::OwnedFd};
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 #[derive(Debug, Default)]
 struct OldGeometry(RefCell<Option<Rectangle<i32, Logical>>>);
@@ -44,8 +44,12 @@ impl XwmHandler for State {
         self.xwayland_state.as_mut().unwrap().wm.as_mut().unwrap()
     }
 
-    fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
-    fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
+    fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {
+        warn!("new window requested");
+    }
+    fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {
+        warn!("new override redirect window requested");
+    }
 
     fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
         tracing::warn!("window is: {:?}", window);
@@ -70,18 +74,21 @@ impl XwmHandler for State {
         );
     }
 
-    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
-        let location = x11_surface.geometry().loc;
-        let Some(wl_surface) = x11_surface.wl_surface() else {
-            return;
-        };
-        let Some((window, space_name)) = self.window_and_space_for_surface(&wl_surface) else {
-            return;
-        };
-        self.spaces
-            .get_mut(&space_name)
-            .unwrap()
-            .map_element(window, location, true);
+    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        let location = window.geometry().loc;
+        // TODO: Handle multiple spaces
+        let space_name = self.spaces.keys().next().unwrap().clone();
+
+        self.spaces.get_mut(&space_name).unwrap().map_element(
+            ApplicationWindow::X11(window),
+            // TODO: Check why wired starts with a crazy high value
+            if location.x > 10_000 {
+                (0, 0)
+            } else {
+                (location.x, location.y)
+            },
+            true,
+        );
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
