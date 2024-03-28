@@ -254,6 +254,20 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b50b5a44d59a98c55a9eeb518f39bf7499ba19fd98ee7d22618687f3f10adbf"
 dependencies = [
+ "bitflags 2.4.1",
+ "log",
+ "polling",
+ "rustix",
+ "slab",
+ "thiserror",
+]
+
+[[package]]
+name = "calloop"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b99da2f8558ca23c71f4fd15dc57c906239752dd27ff3c00a1d56b685b7cbfec"
+dependencies = [
  "async-task",
  "bitflags 2.4.1",
  "log",
@@ -269,7 +283,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f0ea9b9476c7fad82841a8dbb380e2eae480c21910feba80725b46931ed8f02"
 dependencies = [
- "calloop",
+ "calloop 0.12.3",
  "rustix",
  "wayland-backend",
  "wayland-client",
@@ -625,9 +639,9 @@ checksum = "fe164905ff69757d4bdc4c61d7df2930e47e2f5b4a132895a8f995990b2b9219"
 
 [[package]]
 name = "gbm"
-version = "0.14.0"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65dffaf38d96aa22cb748ccd9b1ffe624931e899f54c0225815ef7ac757a409f"
+checksum = "313702b30cdeb83ddc72bc14dcee67803cd0ae2d12282ea06e368c25a900c844"
 dependencies = [
  "bitflags 1.3.2",
  "drm",
@@ -1579,7 +1593,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitflags 2.4.1",
- "calloop",
+ "calloop 0.13.0",
  "clap",
  "fps_ticker",
  "gl_generator",
@@ -1667,7 +1681,7 @@ dependencies = [
  "appendlist",
  "ash",
  "bitflags 2.4.1",
- "calloop",
+ "calloop 0.13.0",
  "cc",
  "cgmath",
  "cursor-icon",
@@ -1717,7 +1731,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60e3d9941fa3bacf7c2bf4b065304faa14164151254cd16ce1b1bc8fc381600f"
 dependencies = [
  "bitflags 2.4.1",
- "calloop",
+ "calloop 0.12.3",
  "calloop-wayland-source",
  "cursor-icon",
  "libc",
@@ -2101,9 +2115,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
-version = "0.31.0"
+version = "0.31.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e253d7107ba913923dc253967f35e8561a3c65f914543e46843c88ddd729e21c"
+checksum = "8f81f365b8b4a97f422ac0e8737c438024b5951734506b0e1d775c73030561f4"
 dependencies = [
  "bitflags 2.4.1",
  "wayland-backend",
@@ -2473,7 +2487,7 @@ dependencies = [
  "atomic-waker",
  "bitflags 2.4.1",
  "bytemuck",
- "calloop",
+ "calloop 0.12.3",
  "cfg_aliases",
  "core-foundation",
  "core-graphics",

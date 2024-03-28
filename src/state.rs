@@ -6,16 +6,20 @@ use crate::udev::{schedule_initial_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
-use calloop::{EventLoop, LoopSignal};
+use calloop::generic::Generic;
+use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use mlua::Function as LuaFunction;
 use smithay::backend::drm::DrmNode;
-use smithay::desktop::space::SpaceElement;
-use smithay::input::keyboard::{Keysym, LedState, ModifiersState};
+use smithay::input::keyboard::{Keysym, LedState};
+use smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1;
 use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::selection::wlr_data_control::DataControlState;
+use smithay::wayland::session_lock::LockSurface;
+use smithay::wayland::session_lock::SessionLockManagerState;
 use smithay::wayland::tablet_manager::TabletManagerState;
+use smithay::wayland::xdg_foreign::XdgForeignState;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -38,13 +42,10 @@ use smithay::{
         Seat, SeatState,
     },
     output::Output,
-    reexports::{
-        calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction},
-        wayland_server::{
-            backend::{ClientData, ClientId, DisconnectReason},
-            protocol::wl_surface::{self, WlSurface},
-            Display, DisplayHandle,
-        },
+    reexports::wayland_server::{
+        backend::{ClientData, ClientId, DisconnectReason},
+        protocol::wl_surface::{self, WlSurface},
+        Display, DisplayHandle,
     },
     utils::{Clock, Monotonic, Point},
     wayland::{
@@ -97,6 +98,12 @@ pub struct ReadyState {
 }
 
 #[derive(Debug)]
+pub struct SessionLock {
+    pub ext_session_lock: ExtSessionLockV1,
+    pub surfaces: HashMap<Output, LockSurface>,
+}
+
+#[derive(Debug)]
 pub struct ActiveSpace(pub String);
 
 #[derive(Debug)]
@@ -131,6 +138,9 @@ pub struct State {
     pub xdg_shell_state: XdgShellState,
     pub presentation_state: PresentationState,
     pub fractional_scale_manager_state: FractionalScaleManagerState,
+    pub session_lock_state: SessionLockManagerState,
+    pub xdg_foreign_state: XdgForeignState,
+    pub session_lock: Option<SessionLock>,
 
     pub dnd_icon: Option<WlSurface>,
 
@@ -198,6 +208,7 @@ impl State {
         let presentation_state = PresentationState::new::<Self>(&display_handle, clock.id() as u32);
         let fractional_scale_manager_state =
             FractionalScaleManagerState::new::<Self>(&display_handle);
+        let xdg_foreign_state = XdgForeignState::new::<Self>(&display_handle);
         let _text_input_manager_state = TextInputManagerState::new::<Self>(&display_handle);
         let _input_method_manager_state =
             InputMethodManagerState::new::<Self, _>(&display_handle, |_client| {
@@ -220,6 +231,9 @@ impl State {
         let keyboard_shortcuts_inhibit_state =
             KeyboardShortcutsInhibitState::new::<Self>(&display_handle);
 
+        // TODO: implement filtering based on the client
+        let session_lock_state = SessionLockManagerState::new::<Self, _>(&display_handle, |_| true);
+
         let cursor_status = CursorImageStatus::default_named();
 
         Ok(State {
@@ -236,6 +250,8 @@ impl State {
             data_control_state,
             seat_state,
             keyboard_shortcuts_inhibit_state,
+            session_lock_state,
+            session_lock: None,
             shm_state,
             viewporter_state,
             xdg_activation_state,
@@ -243,6 +259,7 @@ impl State {
             xdg_shell_state,
             presentation_state,
             fractional_scale_manager_state,
+            xdg_foreign_state,
             dnd_icon: None,
             suppressed_keys: Vec::new(),
             cursor_status,

@@ -1,8 +1,14 @@
-use crate::grabs::{MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab};
+use crate::focus::KeyboardFocusTarget;
+use crate::grabs::{
+    PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeData, ResizeEdge, ResizeState,
+    TouchMoveSurfaceGrab, TouchResizeSurfaceGrab,
+};
 use crate::shell::{FullscreenSurface, SurfaceData};
-use crate::{application_window::ApplicationWindow, focus::FocusTarget, state::State};
+use crate::{application_window::ApplicationWindow, state::State};
 use smithay::delegate_xdg_shell;
-use smithay::utils::{Logical, Rectangle};
+use smithay::desktop::Space;
+use smithay::utils::{Logical, Point, Rectangle};
+use smithay::wayland::compositor;
 use smithay::{
     desktop::{
         find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output,
@@ -41,7 +47,7 @@ impl XdgShellHandler for State {
         // Do not send a configure here, the initial configure
         // of a xdg_surface has to be sent during the commit if
         // the surface is not already configured
-        let window = ApplicationWindow::Wayland(Window::new(surface));
+        let window = ApplicationWindow(Window::new_wayland_window(surface.clone()));
         // TODO: Handle multiple spaces
         self.place_window(
             &self.spaces.keys().next().unwrap().clone(),
@@ -53,6 +59,11 @@ impl XdgShellHandler for State {
         let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(self, Some(window.into()), serial);
+
+        compositor::add_post_commit_hook(surface.wl_surface(), |state: &mut Self, _, surface| {
+            // TODO: Handle multiple spaces
+            handle_toplevel_commit(state.spaces.values_mut().next().unwrap(), surface);
+        });
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
@@ -94,7 +105,64 @@ impl XdgShellHandler for State {
         edges: xdg_toplevel::ResizeEdge,
     ) {
         let seat: Seat<State> = Seat::from_resource(&seat).unwrap();
-        // TODO: touch resize.
+
+        if let Some(touch) = seat.get_touch() {
+            if touch.has_grab(serial) {
+                let start_data = touch.grab_start_data().unwrap();
+                tracing::info!(?start_data);
+
+                // If the client disconnects after requesting a move
+                // we can just ignore the request
+                let Some((window, space_name)) =
+                    self.window_and_space_for_surface(surface.wl_surface())
+                else {
+                    tracing::info!("no window");
+                    return;
+                };
+
+                // If the focus was for a different surface, ignore the request.
+                if start_data.focus.is_none()
+                    || !start_data
+                        .focus
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .same_client_as(&surface.wl_surface().id())
+                {
+                    tracing::info!("different surface");
+                    return;
+                }
+                let geometry = window.geometry();
+                let loc = self.spaces[&space_name].element_location(&window).unwrap();
+                let (initial_window_location, initial_window_size) = (loc, geometry.size);
+
+                with_states(surface.wl_surface(), move |states| {
+                    states
+                        .data_map
+                        .get::<RefCell<SurfaceData>>()
+                        .unwrap()
+                        .borrow_mut()
+                        .resize_state = ResizeState::Resizing(ResizeData {
+                        edges: edges.into(),
+                        initial_window_location,
+                        initial_window_size,
+                    });
+                });
+
+                let grab = TouchResizeSurfaceGrab {
+                    start_data,
+                    window,
+                    edges: edges.into(),
+                    initial_window_location,
+                    initial_window_size,
+                    last_window_size: initial_window_size,
+                };
+
+                touch.set_grab(self, grab, serial);
+                return;
+            }
+        }
+
         let pointer = seat.get_pointer().unwrap();
 
         // Check that this surface has a click grab.
@@ -143,7 +211,7 @@ impl XdgShellHandler for State {
             });
         });
 
-        let grab = ResizeSurfaceGrab {
+        let grab = PointerResizeSurfaceGrab {
             start_data,
             window,
             space_name,
@@ -364,7 +432,7 @@ impl XdgShellHandler for State {
                 .elements()
                 .find(|w| w.wl_surface().map(|s| s == root).unwrap_or(false))
                 .cloned()
-                .map(FocusTarget::Window)
+                .map(KeyboardFocusTarget::from)
                 .or_else(|| {
                     self.spaces
                         .values()
@@ -376,7 +444,7 @@ impl XdgShellHandler for State {
                             map.layer_for_surface(&root, WindowSurfaceType::TOPLEVEL)
                                 .cloned()
                         })
-                        .map(FocusTarget::LayerSurface)
+                        .map(KeyboardFocusTarget::LayerSurface)
                 })
         }) {
             let ret = self.popups.grab_popup(root, kind, &seat, serial);
@@ -438,7 +506,71 @@ impl State {
         seat: &Seat<Self>,
         serial: Serial,
     ) {
-        // TODO: touch move.
+        if let Some(touch) = seat.get_touch() {
+            if touch.has_grab(serial) {
+                let start_data = touch.grab_start_data().unwrap();
+
+                // If the client disconnects after requesting a move
+                // we can just ignore the request
+                let Some((window, space_name)) =
+                    self.window_and_space_for_surface(surface.wl_surface())
+                else {
+                    return;
+                };
+
+                // If the focus was for a different surface, ignore the request.
+                if start_data.focus.is_none()
+                    || !start_data
+                        .focus
+                        .as_ref()
+                        .unwrap()
+                        .0
+                        .same_client_as(&surface.wl_surface().id())
+                {
+                    return;
+                }
+
+                let mut initial_window_location =
+                    self.spaces[&space_name].element_location(&window).unwrap();
+
+                // If surface is maximized then unmaximize it
+                let current_state = surface.current_state();
+                if current_state
+                    .states
+                    .contains(xdg_toplevel::State::Maximized)
+                {
+                    surface.with_pending_state(|state| {
+                        state.states.unset(xdg_toplevel::State::Maximized);
+                        state.size = None;
+                    });
+
+                    surface.send_configure();
+
+                    // NOTE: In real compositor mouse location should be mapped to a new window size
+                    // For example, you could:
+                    // 1) transform mouse pointer position from compositor space to window space (location relative)
+                    // 2) divide the x coordinate by width of the window to get the percentage
+                    //   - 0.0 would be on the far left of the window
+                    //   - 0.5 would be in middle of the window
+                    //   - 1.0 would be on the far right of the window
+                    // 3) multiply the percentage by new window width
+                    // 4) by doing that, drag will look a lot more natural
+                    //
+                    // but for anvil needs setting location to pointer location is fine
+                    initial_window_location = start_data.location.to_i32_round();
+                }
+
+                let grab = TouchMoveSurfaceGrab {
+                    start_data,
+                    window,
+                    initial_window_location,
+                };
+
+                touch.set_grab(self, grab, serial);
+                return;
+            }
+        }
+
         let pointer = seat.get_pointer().unwrap();
 
         // Check that this surface has a click grab.
@@ -495,7 +627,7 @@ impl State {
             initial_window_location = (pos.x as i32, pos.y as i32).into();
         }
 
-        let grab = MoveSurfaceGrab {
+        let grab = PointerMoveSurfaceGrab {
             start_data,
             window,
             space_name,
@@ -542,3 +674,54 @@ impl State {
     }
 }
 delegate_xdg_shell!(State);
+
+/// Should be called on `WlSurface::commit` of xdg toplevel
+fn handle_toplevel_commit(space: &mut Space<ApplicationWindow>, surface: &WlSurface) -> Option<()> {
+    let window = space
+        .elements()
+        .find(|w| w.wl_surface().as_ref() == Some(surface))
+        .cloned()?;
+
+    let mut window_loc = space.element_location(&window)?;
+    let geometry = window.geometry();
+
+    let new_loc: Point<Option<i32>, Logical> = with_states(&window.wl_surface()?, |states| {
+        let data = states.data_map.get::<RefCell<SurfaceData>>()?.borrow_mut();
+
+        if let ResizeState::Resizing(resize_data) = data.resize_state {
+            let edges = resize_data.edges;
+            let loc = resize_data.initial_window_location;
+            let size = resize_data.initial_window_size;
+
+            // If the window is being resized by top or left, its location must be adjusted
+            // accordingly.
+            edges.intersects(ResizeEdge::TOP_LEFT).then(|| {
+                let new_x = edges
+                    .intersects(ResizeEdge::LEFT)
+                    .then_some(loc.x + (size.w - geometry.size.w));
+
+                let new_y = edges
+                    .intersects(ResizeEdge::TOP)
+                    .then_some(loc.y + (size.h - geometry.size.h));
+
+                (new_x, new_y).into()
+            })
+        } else {
+            None
+        }
+    })?;
+
+    if let Some(new_x) = new_loc.x {
+        window_loc.x = new_x;
+    }
+    if let Some(new_y) = new_loc.y {
+        window_loc.y = new_y;
+    }
+
+    if new_loc.x.is_some() || new_loc.y.is_some() {
+        // If TOP or LEFT side of the window got resized, we have to move it
+        space.map_element(window, window_loc, false);
+    }
+
+    Some(())
+}

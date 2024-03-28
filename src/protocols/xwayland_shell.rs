@@ -1,6 +1,8 @@
-use crate::grabs::{MoveSurfaceGrab, ResizeData, ResizeState, ResizeSurfaceGrab};
+use crate::focus::KeyboardFocusTarget;
+use crate::grabs::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeData, ResizeState};
 use crate::shell::{FullscreenSurface, SurfaceData};
-use crate::{application_window::ApplicationWindow, focus::FocusTarget, State};
+use crate::{application_window::ApplicationWindow, State};
+use smithay::desktop::Window;
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -51,36 +53,29 @@ impl XwmHandler for State {
         warn!("new override redirect window requested");
     }
 
-    fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        tracing::warn!("window is: {:?}", window);
-        window.set_mapped(true).unwrap();
-        let window = ApplicationWindow::X11(window);
+    fn map_window_request(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
+        tracing::warn!("x11_surface is: {:?}", x11_surface);
+        x11_surface.set_mapped(true).unwrap();
+        let window = ApplicationWindow(Window::new_x11_window(x11_surface.clone()));
         // TODO: Handle multiple spaces
         let space_name = self.spaces.keys().next().unwrap().clone();
         let rect = self.place_window(&space_name, &window, true, None, false);
         let _bbox = self.spaces[&space_name].element_bbox(&window).unwrap();
-        let ApplicationWindow::X11(xsurface) = &window else {
-            unreachable!()
-        };
-        xsurface.configure(Some(rect)).unwrap();
-        window.set_ssd(!xsurface.is_decorated());
+        x11_surface.configure(Some(rect)).unwrap();
+        window.set_ssd(!x11_surface.is_decorated());
 
         let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
-        keyboard.set_focus(
-            self,
-            Some(ApplicationWindow::X11(xsurface.to_owned()).into()),
-            serial,
-        );
+        keyboard.set_focus(self, Some(window.into()), serial);
     }
 
-    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {
-        let location = window.geometry().loc;
+    fn mapped_override_redirect_window(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
+        let location = x11_surface.geometry().loc;
         // TODO: Handle multiple spaces
         let space_name = self.spaces.keys().next().unwrap().clone();
 
         self.spaces.get_mut(&space_name).unwrap().map_element(
-            ApplicationWindow::X11(window),
+            ApplicationWindow(Window::new_x11_window(x11_surface)),
             // TODO: Check why wired starts with a crazy high value
             if location.x > 10_000 {
                 (0, 0)
@@ -95,17 +90,11 @@ impl XwmHandler for State {
         let Some(wl_surface) = x11_surface.wl_surface() else {
             return;
         };
-        let Some((_, space_name)) = self.window_and_space_for_surface(&wl_surface) else {
+        let Some((window, space_name)) = self.window_and_space_for_surface(&wl_surface) else {
             return;
         };
         let space = self.spaces.get_mut(&space_name).unwrap();
-        let maybe = space
-            .elements()
-            .find(|e| matches!(e, ApplicationWindow::X11(w) if w == &x11_surface))
-            .cloned();
-        if let Some(elem) = maybe {
-            space.unmap_elem(&elem)
-        }
+        space.unmap_elem(&window);
         if !x11_surface.is_override_redirect() {
             x11_surface.set_mapped(false).unwrap();
         }
@@ -273,7 +262,7 @@ impl XwmHandler for State {
             });
         });
 
-        let grab = ResizeSurfaceGrab {
+        let grab = PointerResizeSurfaceGrab {
             start_data,
             window,
             space_name,
@@ -294,11 +283,11 @@ impl XwmHandler for State {
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         if let Some(keyboard) = self.seat.as_ref().unwrap().get_keyboard() {
             // check that an X11 window is focused
-            if let Some(FocusTarget::Window(ApplicationWindow::X11(surface))) =
-                keyboard.current_focus()
-            {
-                if surface.xwm_id().unwrap() == xwm {
-                    return true;
+            if let Some(KeyboardFocusTarget::Window(window)) = keyboard.current_focus() {
+                if let Some(surface) = window.x11_surface() {
+                    if surface.xwm_id().unwrap() == xwm {
+                        return true;
+                    }
                 }
             }
         }
@@ -439,7 +428,7 @@ impl State {
             }
         }
 
-        let grab = MoveSurfaceGrab {
+        let grab = PointerMoveSurfaceGrab {
             start_data,
             window,
             space_name,

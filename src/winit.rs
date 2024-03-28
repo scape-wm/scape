@@ -417,6 +417,7 @@ fn run_tick(state: &mut State) {
                 damage_tracker,
                 age,
                 show_window_preview,
+                &state.session_lock,
             )
             .map_err(|err| match err {
                 OutputDamageTrackerError::Rendering(err) => err.into(),

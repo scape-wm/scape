@@ -1,9 +1,9 @@
-use crate::{application_window::ApplicationWindow, config::ConfigZone, state::ActiveSpace, State};
+use crate::{application_window::ApplicationWindow, config::ConfigZone, State};
 use smithay::{
-    desktop::{layer_map_for_output, Space},
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
+    desktop::{layer_map_for_output, WindowSurface},
+    utils::{Logical, Rectangle, SERIAL_COUNTER},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct Zone {
@@ -39,6 +39,7 @@ impl State {
         zone: Option<&str>,
         send_configure: bool,
     ) -> Rectangle<i32, Logical> {
+        warn!("placing window");
         let pointer_location = self.pointer_location();
         let space = self.spaces.get_mut(space_name).unwrap();
 
@@ -67,26 +68,30 @@ impl State {
             .unwrap_or_else(|| Rectangle::from_loc_and_size((0, 0), (800, 800)));
 
         // set the initial toplevel bounds
-        match window {
-            ApplicationWindow::Wayland(window) => {
-                window.toplevel().with_pending_state(|state| {
+        match window.0.underlying_surface() {
+            WindowSurface::Wayland(toplevel) => {
+                warn!("wayland");
+                toplevel.with_pending_state(|state| {
                     state.bounds = Some(output_geometry.size);
                     // state.bounds = Some(size.into());
                     state.size = Some(size.into());
                 });
+
                 if send_configure {
-                    window.toplevel().send_pending_configure();
+                    toplevel.send_pending_configure();
                 }
             }
-            ApplicationWindow::X11(window) => {
+            WindowSurface::X11(x11_surface) => {
+                warn!("x11");
                 if send_configure {
-                    window
+                    x11_surface
                         .configure(Some(Rectangle::from_loc_and_size(position, size)))
                         .unwrap();
                 }
             }
         }
 
+        warn!(bbox = ?window.0.bbox(), "mapping elements");
         space.map_element(window.clone(), position, activate);
         Rectangle::from_loc_and_size(position, size)
     }

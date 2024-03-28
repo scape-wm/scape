@@ -1,5 +1,7 @@
-use std::os::fd::OwnedFd;
-
+use crate::{
+    focus::{KeyboardFocusTarget, PointerFocusTarget},
+    State,
+};
 use smithay::{
     delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
     input::{keyboard::LedState, pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
@@ -21,9 +23,8 @@ use smithay::{
         shm::{ShmHandler, ShmState},
     },
 };
+use std::os::fd::OwnedFd;
 use tracing::warn;
-
-use crate::{focus::FocusTarget, State};
 
 delegate_compositor!(State);
 
@@ -107,14 +108,15 @@ impl ShmHandler for State {
 delegate_shm!(State);
 
 impl SeatHandler for State {
-    type KeyboardFocus = FocusTarget;
-    type PointerFocus = FocusTarget;
+    type KeyboardFocus = KeyboardFocusTarget;
+    type PointerFocus = PointerFocusTarget;
+    type TouchFocus = PointerFocusTarget;
 
     fn seat_state(&mut self) -> &mut SeatState<State> {
         &mut self.seat_state
     }
 
-    fn focus_changed(&mut self, seat: &Seat<Self>, target: Option<&FocusTarget>) {
+    fn focus_changed(&mut self, seat: &Seat<Self>, target: Option<&KeyboardFocusTarget>) {
         let dh = &self.display_handle;
 
         let focus = target

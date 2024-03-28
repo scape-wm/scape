@@ -1,3 +1,4 @@
+pub mod ext_session_lock;
 pub mod fractional_scale;
 pub mod input_method;
 pub mod keyboard_shortcuts_inhibit;
@@ -17,6 +18,7 @@ pub mod wlr_data_control;
 pub mod wlr_layer_shell;
 pub mod xdg_activation;
 pub mod xdg_decoration;
+pub mod xdg_foreign;
 pub mod xdg_shell;
 pub mod xwayland_keyboard_grab;
 pub mod xwayland_shell;

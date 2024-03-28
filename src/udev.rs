@@ -1,6 +1,6 @@
 use crate::application_window::ApplicationWindow;
 use crate::protocols::presentation_time::take_presentation_feedback;
-use crate::state::{ActiveSpace, BackendData, SurfaceDmabufFeedback};
+use crate::state::{ActiveSpace, BackendData, SessionLock, SurfaceDmabufFeedback};
 use crate::{
     drawing::*,
     render::*,
@@ -29,11 +29,7 @@ use smithay::wayland::drm_lease::{
 use smithay::{
     backend::{
         allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
-        allocator::{
-            dmabuf::{AnyError, Dmabuf, DmabufAllocator},
-            vulkan::{ImageUsageFlags, VulkanAllocator},
-            Allocator, Fourcc,
-        },
+        allocator::{dmabuf::Dmabuf, Fourcc},
         drm::{
             compositor::DrmCompositor, CreateDrmNodeError, DrmDevice, DrmDeviceFd, DrmError,
             DrmEvent, DrmEventMetadata, DrmNode, GbmBufferedSurface, NodeType,
@@ -52,7 +48,6 @@ use smithay::{
             Event as SessionEvent, Session,
         },
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
-        vulkan::{version::Version, Instance, PhysicalDevice},
         SwapBuffersError,
     },
     desktop::{
@@ -60,9 +55,8 @@ use smithay::{
         utils::OutputPresentationFeedback,
     },
     input::pointer::{CursorImageAttributes, CursorImageStatus},
-    output::{Mode as WlMode, Output, PhysicalProperties, Subpixel},
+    output::{Mode as WlMode, Output, PhysicalProperties},
     reexports::{
-        ash::vk::ExtPhysicalDeviceDrmFn,
         calloop::{
             timer::{TimeoutAction, Timer},
             EventLoop, LoopHandle, RegistrationToken,
@@ -110,8 +104,12 @@ const SUPPORTED_FORMATS: &[Fourcc] = &[
 ];
 const SUPPORTED_FORMATS_8BIT_ONLY: &[Fourcc] = &[Fourcc::Abgr8888, Fourcc::Argb8888];
 
-type UdevRenderer<'a, 'b> =
-    MultiRenderer<'a, 'a, 'b, GbmGlesBackend<GlesRenderer>, GbmGlesBackend<GlesRenderer>>;
+type UdevRenderer<'a> = MultiRenderer<
+    'a,
+    'a,
+    GbmGlesBackend<GlesRenderer, DrmDeviceFd>,
+    GbmGlesBackend<GlesRenderer, DrmDeviceFd>,
+>;
 
 #[derive(Debug, PartialEq)]
 pub struct UdevOutputId {
@@ -123,8 +121,7 @@ pub struct UdevData {
     pub session: LibSeatSession,
     dmabuf_state: Option<(DmabufState, DmabufGlobal)>,
     primary_gpu: DrmNode,
-    allocator: Option<Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>>,
-    gpus: GpuManager<GbmGlesBackend<GlesRenderer>>,
+    gpus: GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
     backends: HashMap<DrmNode, DeviceData>,
     pointer_images: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
     pointer_element: PointerElement,
@@ -185,10 +182,7 @@ impl UdevData {
     }
 
     pub fn early_import(&mut self, surface: &wl_surface::WlSurface) {
-        if let Err(err) = self
-            .gpus
-            .early_import(Some(self.primary_gpu), self.primary_gpu, surface)
-        {
+        if let Err(err) = self.gpus.early_import(self.primary_gpu, surface) {
             tracing::warn!("Early buffer import failed: {}", err);
         }
     }
@@ -215,6 +209,7 @@ impl UdevData {
             .and_then(|mut renderer| renderer.import_dmabuf(&dmabuf, None))
             .is_ok()
         {
+            dmabuf.set_node(self.primary_gpu);
             let _ = notifier.successful::<State>();
         } else {
             notifier.failed();
@@ -239,54 +234,6 @@ fn select_primary_gpu(session: &LibSeatSession) -> Result<DrmNode> {
         .ok_or(anyhow!("Unable to select primary gpu"))
 }
 
-fn select_allocator(
-    primary_gpu: DrmNode,
-) -> Option<Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>> {
-    if let Ok(instance) = Instance::new(Version::VERSION_1_2, None) {
-        if let Some(physical_device) =
-            PhysicalDevice::enumerate(&instance)
-                .ok()
-                .and_then(|devices| {
-                    devices
-                        .filter(|phd| phd.has_device_extension(ExtPhysicalDeviceDrmFn::name()))
-                        .find(|phd| {
-                            phd.primary_node().unwrap() == Some(primary_gpu)
-                                || phd.render_node().unwrap() == Some(primary_gpu)
-                        })
-                })
-        {
-            match VulkanAllocator::new(
-                &physical_device,
-                ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::SAMPLED,
-            ) {
-                Ok(allocator) => {
-                    return Some(Box::new(DmabufAllocator(allocator))
-                        as Box<dyn Allocator<Buffer = Dmabuf, Error = AnyError>>);
-                }
-                Err(err) => {
-                    warn!("Failed to create vulkan allocator: {}", err);
-                }
-            }
-        }
-    }
-
-    info!("No vulkan allocator found, using GBM.");
-    // TODO use backends from caller
-    let backends: HashMap<DrmNode, DeviceData> = HashMap::new();
-    let gbm = backends
-        .get(&primary_gpu)
-        // If the primary_gpu failed to initialize, we likely have a kmsro device
-        .or_else(|| backends.values().next())
-        // Don't fail, if there is no allocator. There is a chance, that this a single gpu system and we don't need one.
-        .map(|backend| backend.gbm.clone());
-    gbm.map(|gbm| {
-        Box::new(DmabufAllocator(GbmAllocator::new(
-            gbm,
-            GbmBufferFlags::RENDERING,
-        ))) as Box<_>
-    })
-}
-
 pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
@@ -307,14 +254,11 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         e
     })?;
 
-    let allocator = select_allocator(primary_gpu);
-
     let udev_data = UdevData {
         dmabuf_state: None,
         session: session.clone(),
         primary_gpu,
         gpus,
-        allocator,
         backends: HashMap::new(),
         pointer_image: crate::cursor::Cursor::load(),
         pointer_images: Vec::new(),
@@ -815,7 +759,7 @@ enum DeviceAddError {
 fn get_surface_dmabuf_feedback(
     primary_gpu: DrmNode,
     render_node: DrmNode,
-    gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer>>,
+    gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
     composition: &SurfaceComposition,
 ) -> Option<DrmSurfaceDmabufFeedback> {
     let primary_formats = gpus
@@ -1032,7 +976,7 @@ fn connector_connected(
             output_name.clone(),
             PhysicalProperties {
                 size: (phys_w as i32, phys_h as i32).into(),
-                subpixel: Subpixel::Unknown,
+                subpixel: connector.subpixel().into(),
                 make,
                 model,
             },
@@ -1469,18 +1413,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         udev_data.gpus.single_renderer(&render_node)
     } else {
         let format = surface.compositor.format();
-        udev_data.gpus.renderer(
-            &primary_gpu,
-            &render_node,
-            udev_data
-                .allocator
-                .as_mut()
-                // TODO: We could build some kind of `GLAllocator` using Renderbuffers in theory for this case.
-                //  That would work for memcpy's of offscreen contents.
-                .expect("We need an allocator for multigpu systems")
-                .as_mut(),
-            format,
-        )
+        udev_data.gpus.renderer(&primary_gpu, &render_node, format)
     }
     .unwrap();
 
@@ -1545,6 +1478,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         &mut state.cursor_status,
         &state.clock,
         state.show_window_preview,
+        &state.session_lock,
     );
     let reschedule = match &result {
         Ok(has_rendered) => !has_rendered,
@@ -1642,9 +1576,9 @@ pub fn schedule_initial_render(
 
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "profiling", profiling::function)]
-fn render_surface<'a, 'b>(
+fn render_surface<'a>(
     surface: &'a mut SurfaceData,
-    renderer: &mut UdevRenderer<'a, 'b>,
+    renderer: &mut UdevRenderer<'a>,
     space: &Space<ApplicationWindow>,
     output: &Output,
     pointer_location: Point<f64, Logical>,
@@ -1654,6 +1588,7 @@ fn render_surface<'a, 'b>(
     cursor_status: &mut CursorImageStatus,
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
+    session_lock: &Option<SessionLock>,
 ) -> Result<bool, SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1709,15 +1644,13 @@ fn render_surface<'a, 'b>(
         {
             if let Some(wl_surface) = dnd_icon.as_ref() {
                 if wl_surface.alive() {
-                    custom_elements.extend(
-                        AsRenderElements::<UdevRenderer<'a, 'b>>::render_elements(
-                            &SurfaceTree::from_surface(wl_surface),
-                            renderer,
-                            cursor_pos_scaled,
-                            scale,
-                            1.0,
-                        ),
-                    );
+                    custom_elements.extend(AsRenderElements::<UdevRenderer<'a>>::render_elements(
+                        &SurfaceTree::from_surface(wl_surface),
+                        renderer,
+                        cursor_pos_scaled,
+                        scale,
+                        1.0,
+                    ));
                 }
             }
         }
@@ -1736,6 +1669,7 @@ fn render_surface<'a, 'b>(
         custom_elements,
         renderer,
         show_window_preview,
+        session_lock,
     );
     let res =
         surface
@@ -1769,7 +1703,7 @@ fn render_surface<'a, 'b>(
 
 fn initial_render(
     surface: &mut SurfaceData,
-    renderer: &mut UdevRenderer<'_, '_>,
+    renderer: &mut UdevRenderer<'_>,
 ) -> Result<(), SwapBuffersError> {
     surface
         .compositor

@@ -2,7 +2,7 @@ alias r := run
 alias rr := run-release
 alias rw := run-winit
 
-export RUST_LOG := "scape"
+#export RUST_LOG := "scape"
 
 # run in dev mode
 run:

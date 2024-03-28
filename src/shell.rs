@@ -109,7 +109,7 @@ impl CompositorHandler for State {
                     }
                 }
             }
-        })
+        });
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -123,10 +123,9 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some((ApplicationWindow::Wayland(window), _)) =
-                self.window_and_space_for_surface(&root)
-            {
-                window.on_commit();
+
+            if let Some((window, _)) = self.window_and_space_for_surface(&root) {
+                window.0.on_commit();
             }
         }
         self.popups.commit(surface);
@@ -190,7 +189,7 @@ fn ensure_initial_configure(
         .cloned()
     {
         // send the initial configure if relevant
-        if let ApplicationWindow::Wayland(ref toplevel) = window {
+        if let Some(toplevel) = window.0.toplevel() {
             let initial_configure_sent = with_states(surface, |states| {
                 if let Ok(data) = states
                     .data_map
@@ -205,7 +204,7 @@ fn ensure_initial_configure(
                 }
             });
             if !initial_configure_sent {
-                toplevel.toplevel().send_configure();
+                toplevel.send_configure();
             }
         }
 

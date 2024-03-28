@@ -7,6 +7,7 @@ use smithay::{
         },
         Renderer,
     },
+    desktop::WindowSurface,
     input::Seat,
     utils::{Logical, Point, Serial},
     wayland::shell::xdg::XdgShellHandler,
@@ -15,7 +16,6 @@ use std::cell::{RefCell, RefMut};
 
 pub struct WindowState {
     pub is_ssd: bool,
-    pub ptr_entered_window: bool,
     pub header_bar: HeaderBar,
 }
 
@@ -59,17 +59,17 @@ impl HeaderBar {
     ) {
         match self.pointer_loc.as_ref() {
             Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
-                match window {
-                    ApplicationWindow::Wayland(w) => w.toplevel().send_close(),
-                    ApplicationWindow::X11(w) => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(toplevel) => toplevel.send_close(),
+                    WindowSurface::X11(w) => {
                         let _ = w.close();
                     }
                 };
             }
             Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
-                match window {
-                    ApplicationWindow::Wayland(w) => state.maximize_request(w.toplevel().clone()),
-                    ApplicationWindow::X11(w) => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
+                    WindowSurface::X11(w) => {
                         let surface = w.clone();
                         state
                             .loop_handle
@@ -78,19 +78,84 @@ impl HeaderBar {
                 };
             }
             Some(_) => {
-                match window {
-                    ApplicationWindow::Wayland(w) => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(w) => {
                         let seat = seat.clone();
-                        let toplevel = w.toplevel().clone();
+                        let toplevel = w.clone();
                         state.loop_handle.insert_idle(move |state| {
                             state.move_request_xdg(&toplevel, &seat, serial)
                         });
                     }
-                    ApplicationWindow::X11(w) => {
+                    WindowSurface::X11(w) => {
                         let window = w.clone();
                         state
                             .loop_handle
                             .insert_idle(move |state| state.move_request_x11(&window));
+                    }
+                };
+            }
+            _ => {}
+        };
+    }
+
+    pub fn touch_down(
+        &mut self,
+        seat: &Seat<State>,
+        state: &mut State,
+        window: &ApplicationWindow,
+        serial: Serial,
+    ) {
+        match self.pointer_loc.as_ref() {
+            Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {}
+            Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {}
+            Some(_) => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(w) => {
+                        let seat = seat.clone();
+                        let toplevel = w.clone();
+                        state.loop_handle.insert_idle(move |state| {
+                            state.move_request_xdg(&toplevel, &seat, serial)
+                        });
+                    }
+                    #[cfg(feature = "xwayland")]
+                    WindowSurface::X11(w) => {
+                        let window = w.clone();
+                        state
+                            .loop_handle
+                            .insert_idle(move |state| state.move_request_x11(&window));
+                    }
+                };
+            }
+            _ => {}
+        };
+    }
+
+    pub fn touch_up(
+        &mut self,
+        _seat: &Seat<State>,
+        state: &mut State,
+        window: &ApplicationWindow,
+        _serial: Serial,
+    ) {
+        match self.pointer_loc.as_ref() {
+            Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(w) => w.send_close(),
+                    #[cfg(feature = "xwayland")]
+                    WindowSurface::X11(w) => {
+                        let _ = w.close();
+                    }
+                };
+            }
+            Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
+                match window.0.underlying_surface() {
+                    WindowSurface::Wayland(w) => state.maximize_request(w.clone()),
+                    #[cfg(feature = "xwayland")]
+                    WindowSurface::X11(w) => {
+                        let surface = w.clone();
+                        state
+                            .loop_handle
+                            .insert_idle(move |state| state.maximize_request_x11(&surface));
                     }
                 };
             }
@@ -214,7 +279,6 @@ impl ApplicationWindow {
         self.user_data().insert_if_missing(|| {
             RefCell::new(WindowState {
                 is_ssd: false,
-                ptr_entered_window: false,
                 header_bar: HeaderBar {
                     pointer_loc: None,
                     width: 0,

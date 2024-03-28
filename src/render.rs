@@ -1,6 +1,9 @@
-use crate::application_window::{ApplicationWindow, WindowRenderElement};
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
+use crate::{
+    application_window::{ApplicationWindow, WindowRenderElement},
+    state::SessionLock,
+};
 use crate::{
     drawing::{PointerRenderElement, CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN},
     shell::FullscreenSurface,
@@ -9,12 +12,12 @@ use smithay::{
     backend::renderer::{
         damage::{Error as OutputDamageTrackerError, OutputDamageTracker, RenderOutputResult},
         element::{
-            surface::WaylandSurfaceRenderElement,
+            surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
             utils::{
                 ConstrainAlign, ConstrainScaleBehavior, CropRenderElement, RelocateRenderElement,
                 RescaleRenderElement,
             },
-            AsRenderElements, RenderElement, Wrap,
+            AsRenderElements, Kind, RenderElement, Wrap,
         },
         ImportAll, ImportMem, Renderer,
     },
@@ -22,8 +25,9 @@ use smithay::{
         constrain_space_element, ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
     },
     output::Output,
-    utils::{Point, Rectangle, Size},
+    utils::{Point, Rectangle, Scale, Size},
 };
+use tracing::warn;
 
 smithay::backend::renderer::element::render_elements! {
     pub CustomRenderElements<R> where
@@ -55,6 +59,7 @@ smithay::backend::renderer::element::render_elements! {
     Space=SpaceRenderElements<R, E>,
     Window=Wrap<E>,
     Custom=CustomRenderElements<R>,
+    WaylandSurface=WaylandSurfaceRenderElement<R>,
 
     Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement<R>>>>,
 }
@@ -68,6 +73,7 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
             Self::Window(arg0) => f.debug_tuple("Window").field(arg0).finish(),
             Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
             Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
+            Self::WaylandSurface(arg0) => f.debug_tuple("WaylandSurface").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
@@ -144,6 +150,7 @@ pub fn output_elements<R>(
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
+    session_lock: &Option<SessionLock>,
 ) -> (
     Vec<OutputRenderElements<R, WindowRenderElement<R>>>,
     [f32; 4],
@@ -152,6 +159,13 @@ where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,
 {
+    if let Some(session_lock) = session_lock {
+        return (
+            session_lock_elements(renderer, output, session_lock),
+            CLEAR_COLOR,
+        );
+    }
+
     if let Some(window) = output
         .user_data()
         .get::<FullscreenSurface>()
@@ -194,6 +208,30 @@ where
     }
 }
 
+fn session_lock_elements<R>(
+    renderer: &mut R,
+    output: &Output,
+    session_lock: &SessionLock,
+) -> Vec<OutputRenderElements<R, WindowRenderElement<R>>>
+where
+    R: Renderer + ImportAll + ImportMem,
+    <R as Renderer>::TextureId: Clone + 'static,
+{
+    if let Some(surface) = session_lock.surfaces.get(output) {
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        render_elements_from_surface_tree(
+            renderer,
+            surface.wl_surface(),
+            (0, 0),
+            scale,
+            1.0,
+            Kind::Unspecified,
+        )
+    } else {
+        Vec::new()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_output<R>(
     output: &Output,
@@ -203,6 +241,7 @@ pub fn render_output<R>(
     damage_tracker: &mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
+    session_lock: &Option<SessionLock>,
 ) -> Result<RenderOutputResult, OutputDamageTrackerError<R>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -214,6 +253,7 @@ where
         custom_elements,
         renderer,
         show_window_preview,
+        session_lock,
     );
     damage_tracker.render_output(renderer, age, &elements, clear_color)
 }
