@@ -1,7 +1,8 @@
 use std::process::Command;
 
 use mlua::Function as LuaFunction;
-use tracing::{error, info};
+use smithay::wayland::session_lock::SessionLockHandler;
+use tracing::{error, info, warn};
 
 use crate::State;
 
@@ -34,6 +35,10 @@ pub enum Action {
 impl State {
     pub fn execute(&mut self, action: Action) {
         info!(?action, "Executing action");
+        if self.session_lock.is_some() && !matches!(action, Action::VtSwitch(_)) {
+            warn!("No action is executed, since session is locked");
+            return;
+        }
         match action {
             Action::Quit => self.stop_loop(),
             Action::VtSwitch(vt) => {

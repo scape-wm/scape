@@ -4,10 +4,9 @@ use smithay::{
     delegate_session_lock,
     output::Output,
     reexports::wayland_server::{protocol::wl_output::WlOutput, Resource},
-    utils::Size,
+    utils::{Size, SERIAL_COUNTER},
     wayland::session_lock::{LockSurface, SessionLockHandler, SessionLocker},
 };
-use tracing::info;
 
 use crate::{state::SessionLock, State};
 
@@ -48,6 +47,23 @@ impl SessionLockHandler for State {
         //     self.backend
         //         .schedule_render(&self.common.event_loop_handle, &output);
         // }
+
+        let maybe_elem = self
+            .spaces
+            .values()
+            .next()
+            .unwrap()
+            .elements()
+            .rev()
+            .next()
+            .cloned();
+        if let Some(elem) = maybe_elem {
+            // TODO: Handle multiple spaces
+            let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, Some(elem.into()), serial);
+        }
+        // TODO: restore pointer grabs
     }
 
     fn new_surface(&mut self, lock_surface: LockSurface, wl_output: WlOutput) {
@@ -61,6 +77,15 @@ impl SessionLockHandler for State {
                 session_lock
                     .surfaces
                     .insert(output.clone(), lock_surface.clone());
+
+                // set keyboard focus to new surface
+                let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+                let serial = SERIAL_COUNTER.next_serial();
+                keyboard.set_focus(self, Some(lock_surface.into()), serial);
+
+                // TODO: Unset pointer grab
+                // let pointer = self.seat.as_ref().unwrap().get_pointer().unwrap();
+                // pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), self.clock.now().into());
             }
         }
     }
