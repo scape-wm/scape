@@ -261,16 +261,17 @@ fn ensure_initial_configure(
             .is_some()
     }) {
         let initial_configure_sent = with_states(surface, |states| {
-            if let Ok(data) = states
+            if let Some(data) = states
                 .data_map
                 .get::<XdgToplevelSurfaceData>()
-                .unwrap()
-                .try_lock()
+                .and_then(|d| d.try_lock().ok())
             {
                 data.initial_configure_sent
             } else {
-                warn!("Unable to lock XdgToplevelSurfaceData in ensure_initial_configure 3");
-                true
+                // warn!("Unable to lock XdgToplevelSurfaceData in ensure_initial_configure 3");
+                // TODO: Think of how to handle the case that there is no top level, but only a
+                // toplevel layer like it is in `slurp`
+                false
             }
         });
 
