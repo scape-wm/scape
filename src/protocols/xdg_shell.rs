@@ -66,6 +66,19 @@ impl XdgShellHandler for State {
         });
     }
 
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        if let Some((window, space_name)) = self.window_and_space_for_surface(surface.wl_surface())
+        {
+            let space = self.spaces.get_mut(&space_name).unwrap();
+            space.unmap_elem(&window);
+
+            let maybe_window = space.elements().rev().next().cloned();
+            if let Some(window) = maybe_window {
+                self.focus_window(window, &space_name);
+            }
+        }
+    }
+
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
         // Do not send a configure here, the initial configure
         // of a xdg_surface has to be sent during the commit if

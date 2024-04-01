@@ -166,6 +166,15 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "close",
+        lua.create_function(move |_, ()| {
+            lh.insert_idle(move |state| state.execute(Action::Close));
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {
@@ -336,12 +345,17 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
         let table = value.as_table().unwrap();
 
         let mut mods = Mods::default();
-        for mod_key in table.get::<_, String>("mods").unwrap().split('|') {
+        for mod_key in table
+            .get::<_, String>("mods")
+            .unwrap_or_default()
+            .split('|')
+        {
             match mod_key {
                 "shift" => mods.shift = true,
                 "logo" | "super" => mods.logo = true,
                 "ctrl" => mods.ctrl = true,
                 "alt" => mods.alt = true,
+                "" => {}
                 _ => warn!(%mod_key, "Unhandled mod key"),
             }
         }
@@ -351,6 +365,41 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
             "Right" => Keysym::Right,
             "Up" => Keysym::Up,
             "Down" => Keysym::Down,
+            "F1" => Keysym::F1,
+            "F2" => Keysym::F2,
+            "F3" => Keysym::F3,
+            "F4" => Keysym::F4,
+            "F5" => Keysym::F5,
+            "F6" => Keysym::F6,
+            "F7" => Keysym::F7,
+            "F8" => Keysym::F8,
+            "F9" => Keysym::F9,
+            "F10" => Keysym::F10,
+            "F11" => Keysym::F11,
+            "F12" => Keysym::F12,
+            "F13" => Keysym::F13,
+            "F14" => Keysym::F14,
+            "F15" => Keysym::F15,
+            "F16" => Keysym::F16,
+            "F17" => Keysym::F17,
+            "F18" => Keysym::F18,
+            "F19" => Keysym::F19,
+            "F20" => Keysym::F20,
+            "F21" => Keysym::F21,
+            "F22" => Keysym::F22,
+            "F23" => Keysym::F23,
+            "F24" => Keysym::F24,
+            "F25" => Keysym::F25,
+            "F26" => Keysym::F26,
+            "F27" => Keysym::F27,
+            "F28" => Keysym::F28,
+            "F29" => Keysym::F29,
+            "F30" => Keysym::F30,
+            "F31" => Keysym::F31,
+            "F32" => Keysym::F32,
+            "F33" => Keysym::F33,
+            "F34" => Keysym::F34,
+            "F35" => Keysym::F35,
             key => {
                 let mut c = key.chars().next().unwrap();
                 if c.is_uppercase() {

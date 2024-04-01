@@ -1,7 +1,6 @@
 use std::process::Command;
 
 use mlua::Function as LuaFunction;
-use smithay::wayland::session_lock::SessionLockHandler;
 use tracing::{error, info, warn};
 
 use crate::State;
@@ -28,6 +27,8 @@ pub enum Action {
     Callback(LuaFunction<'static>),
     /// Tab through windows
     Tab { index: usize },
+    /// Close current window
+    Close,
     /// Do nothing more
     None,
 }
@@ -60,6 +61,12 @@ impl State {
                 let (space_name, space) = self.spaces.iter().next().unwrap();
                 if let Some(window) = space.elements().last().cloned() {
                     self.place_window(&space_name.to_owned(), &window, false, Some(&zone), true);
+                }
+            }
+            Action::Close => {
+                let (_, space) = self.spaces.iter().next().unwrap();
+                if let Some(window) = space.elements().last().cloned() {
+                    window.close();
                 }
             }
             Action::Tab { index } => {

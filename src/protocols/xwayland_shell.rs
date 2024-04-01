@@ -98,6 +98,11 @@ impl XwmHandler for State {
         if !x11_surface.is_override_redirect() {
             x11_surface.set_mapped(false).unwrap();
         }
+
+        let maybe_window = space.elements().rev().next().cloned();
+        if let Some(window) = maybe_window {
+            self.focus_window(window, &space_name);
+        }
     }
 
     fn destroyed_window(&mut self, _xwm: XwmId, _window: X11Surface) {}

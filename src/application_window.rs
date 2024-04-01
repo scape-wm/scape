@@ -41,6 +41,7 @@ use smithay::{
     },
 };
 use std::time::Duration;
+use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplicationWindow(pub Window);
@@ -156,6 +157,15 @@ impl ApplicationWindow {
                     .unwrap_or_default()
             }),
             WindowSurface::X11(x11_surface) => x11_surface.class(),
+        }
+    }
+
+    pub fn close(&self) {
+        match self.0.underlying_surface() {
+            WindowSurface::Wayland(toplevel) => toplevel.send_close(),
+            WindowSurface::X11(x11_surface) => x11_surface
+                .close()
+                .unwrap_or_else(|e| warn!(%e, "Unable to close window")),
         }
     }
 }
