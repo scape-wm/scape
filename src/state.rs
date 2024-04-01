@@ -2,6 +2,7 @@ use crate::application_window::ApplicationWindow;
 use crate::composition::Zone;
 use crate::config::Config;
 use crate::input_handler::Mods;
+use crate::protocols::wlr_screencopy::ScreencopyManagerState;
 use crate::udev::{schedule_initial_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
@@ -227,6 +228,7 @@ impl State {
                 .get_data::<ClientState>()
                 .map_or(true, |client_state| client_state.security_context.is_none())
         });
+        ScreencopyManagerState::new::<Self>(&display_handle);
 
         let keyboard_shortcuts_inhibit_state =
             KeyboardShortcutsInhibitState::new::<Self>(&display_handle);

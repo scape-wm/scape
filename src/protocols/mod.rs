@@ -16,6 +16,7 @@ pub mod virtual_keyboard;
 pub mod wayland;
 pub mod wlr_data_control;
 pub mod wlr_layer_shell;
+pub mod wlr_screencopy;
 pub mod xdg_activation;
 pub mod xdg_decoration;
 pub mod xdg_foreign;

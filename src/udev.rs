@@ -1,5 +1,6 @@
 use crate::application_window::ApplicationWindow;
 use crate::protocols::presentation_time::take_presentation_feedback;
+use crate::protocols::wlr_screencopy::Screencopy;
 use crate::state::{ActiveSpace, BackendData, SessionLock, SurfaceDmabufFeedback};
 use crate::{
     drawing::*,
@@ -9,23 +10,29 @@ use crate::{
 use anyhow::{anyhow, Result};
 #[cfg(feature = "renderer_sync")]
 use smithay::backend::drm::compositor::PrimaryPlaneElement;
+use smithay::backend::drm::compositor::RenderFrameResult;
+use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
 use smithay::backend::input::InputEvent;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
-use smithay::backend::renderer::element::{RenderElement, RenderElementStates};
-use smithay::backend::renderer::ImportEgl;
+use smithay::backend::renderer::element::RenderElement;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
+use smithay::backend::renderer::{self, BufferType, ImportEgl};
 use smithay::backend::renderer::{ExportMem, ImportMemWl, Offscreen};
 use smithay::delegate_drm_lease;
 use smithay::input::keyboard::LedState;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
+use smithay::reexports::gbm::BufferObject;
 use smithay::reexports::input::DeviceCapability;
+use smithay::reexports::wayland_server::protocol::wl_shm;
+use smithay::utils::{Rectangle, Size};
 use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::drm_lease::{
     DrmLease, DrmLeaseBuilder, DrmLeaseHandler, DrmLeaseRequest, DrmLeaseState, LeaseRejected,
 };
+use smithay::wayland::shm;
 use smithay::{
     backend::{
         allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
@@ -122,7 +129,7 @@ pub struct UdevData {
     dmabuf_state: Option<(DmabufState, DmabufGlobal)>,
     primary_gpu: DrmNode,
     gpus: GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
-    backends: HashMap<DrmNode, DeviceData>,
+    pub backends: HashMap<DrmNode, DeviceData>,
     pointer_images: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
     pointer_element: PointerElement,
     #[cfg(feature = "debug")]
@@ -360,7 +367,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
 
                         state
                             .loop_handle
-                            .insert_idle(move |state| render(state, node, None));
+                            .insert_idle(move |state| render(state, node, None, None));
                     }
                 }
             }
@@ -597,11 +604,6 @@ enum SurfaceComposition {
     Compositor(GbmDrmCompositor),
 }
 
-struct SurfaceCompositorRenderResult {
-    rendered: bool,
-    states: RenderElementStates,
-}
-
 impl SurfaceComposition {
     #[cfg_attr(feature = "profiling", profiling::function)]
     fn frame_submitted(
@@ -653,12 +655,12 @@ impl SurfaceComposition {
     }
 
     #[cfg_attr(feature = "profiling", profiling::function)]
-    fn render_frame<R, E, Target>(
-        &mut self,
+    fn render_frame<'a, R, E, Target>(
+        &'a mut self,
         renderer: &mut R,
-        elements: &[E],
+        elements: &'a [E],
         clear_color: [f32; 4],
-    ) -> Result<SurfaceCompositorRenderResult, SwapBuffersError>
+    ) -> Result<RenderFrameResult<'_, BufferObject<()>, GbmFramebuffer, E>, SwapBuffersError>
     where
         R: Renderer + Bind<Dmabuf> + Bind<Target> + Offscreen<Target> + ExportMem,
         <R as Renderer>::TextureId: 'static,
@@ -668,18 +670,18 @@ impl SurfaceComposition {
         match self {
             SurfaceComposition::Compositor(compositor) => compositor
                 .render_frame(renderer, elements, clear_color)
-                .map(|render_frame_result| {
-                    #[cfg(feature = "renderer_sync")]
-                    if let PrimaryPlaneElement::Swapchain(element) =
-                        render_frame_result.primary_element
-                    {
-                        element.sync.wait();
-                    }
-                    SurfaceCompositorRenderResult {
-                        rendered: !render_frame_result.is_empty,
-                        states: render_frame_result.states,
-                    }
-                })
+                // .map(|render_frame_result| {
+                //     #[cfg(feature = "renderer_sync")]
+                //     if let PrimaryPlaneElement::Swapchain(element) =
+                //         render_frame_result.primary_element
+                //     {
+                //         element.sync.wait();
+                //     }
+                //     // SurfaceCompositorRenderResult {
+                //     //     rendered: !render_frame_result.is_empty,
+                //     //     render_frame_result: render_frame_result,
+                //     // }
+                // })
                 .map_err(|err| match err {
                     smithay::backend::drm::compositor::RenderFrameError::PrepareFrame(err) => {
                         err.into()
@@ -708,7 +710,7 @@ struct DrmSurfaceDmabufFeedback {
 }
 
 #[derive(Debug)]
-struct SurfaceData {
+pub struct SurfaceData {
     dh: DisplayHandle,
     device_id: DrmNode,
     render_node: DrmNode,
@@ -719,6 +721,7 @@ struct SurfaceData {
     #[cfg(feature = "debug")]
     fps_element: Option<FpsElement<MultiTexture>>,
     dmabuf_feedback: Option<DrmSurfaceDmabufFeedback>,
+    pub output: Output,
 }
 
 impl Drop for SurfaceData {
@@ -730,8 +733,8 @@ impl Drop for SurfaceData {
 }
 
 #[derive(Debug)]
-struct DeviceData {
-    surfaces: HashMap<crtc::Handle, SurfaceData>,
+pub struct DeviceData {
+    pub surfaces: HashMap<crtc::Handle, SurfaceData>,
     non_desktop_connectors: Vec<(connector::Handle, crtc::Handle)>,
     leasing_global: Option<DrmLeaseState>,
     active_leases: Vec<DrmLease>,
@@ -1072,6 +1075,7 @@ fn connector_connected(
             #[cfg(feature = "debug")]
             fps_element,
             dmabuf_feedback,
+            output: output.clone(),
         };
 
         device.surfaces.insert(crtc, surface);
@@ -1356,7 +1360,7 @@ fn frame_finish(
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
-                render(state, dev_id, Some(crtc));
+                render(state, dev_id, Some(crtc), None);
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1364,7 +1368,12 @@ fn frame_finish(
 }
 
 // If crtc is `Some()`, render it, else render all crtcs
-pub fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
+pub fn render(
+    state: &mut State,
+    node: DrmNode,
+    crtc: Option<crtc::Handle>,
+    screencopy: Option<Screencopy>,
+) {
     let device_backend = match state.backend_data.udev_mut().backends.get_mut(&node) {
         Some(backend) => backend,
         None => {
@@ -1374,16 +1383,21 @@ pub fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
     };
 
     if let Some(crtc) = crtc {
-        render_surface_crtc(state, node, crtc);
+        render_surface_crtc(state, node, crtc, screencopy);
     } else {
         let crtcs: Vec<_> = device_backend.surfaces.keys().copied().collect();
         for crtc in crtcs {
-            render_surface_crtc(state, node, crtc);
+            render_surface_crtc(state, node, crtc, None);
         }
     };
 }
 
-fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
+fn render_surface_crtc(
+    state: &mut State,
+    node: DrmNode,
+    crtc: crtc::Handle,
+    screencopy: Option<Screencopy>,
+) {
     let location = state.pointer_location();
     #[cfg(feature = "profiling")]
     profiling::scope!("render_surface", &format!("{crtc:?}"));
@@ -1458,7 +1472,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         state
             .loop_handle
             .insert_source(Timer::immediate(), move |_, _, state| {
-                render(state, node, Some(crtc));
+                render(state, node, Some(crtc), None);
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1479,6 +1493,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         &state.clock,
         state.show_window_preview,
         &state.session_lock,
+        screencopy,
     );
     let reschedule = match &result {
         Ok(has_rendered) => !has_rendered,
@@ -1517,7 +1532,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
-                render(state, node, Some(crtc));
+                render(state, node, Some(crtc), None);
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1589,6 +1604,7 @@ fn render_surface<'a>(
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
+    screencopy: Option<Screencopy>,
 ) -> Result<bool, SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1674,7 +1690,85 @@ fn render_surface<'a>(
     let res =
         surface
             .compositor
-            .render_frame::<_, _, GlesTexture>(renderer, &elements, clear_color)?;
+            .render_frame::<_, _, GlesTexture>(renderer, &elements, clear_color);
+
+    // Copy framebuffer for screencopy.
+    if let Some(screencopy) = screencopy {
+        {
+            if let Ok(frame_result) = &res {
+                // Mark entire buffer as damaged.
+                let region = screencopy.region();
+                // TODO: check how to get to the damage
+                // if let Some(damage) = frame_result.damage.clone() {
+                //     screencopy.damage(&damage);
+                // }
+
+                let shm_buffer = screencopy.buffer();
+
+                // Ignore unknown buffer types.
+                let buffer_type = renderer::buffer_type(shm_buffer);
+                if !matches!(buffer_type, Some(BufferType::Shm)) {
+                    warn!("Unsupported buffer type: {:?}", buffer_type);
+                } else {
+                    // Create and bind an offscreen render buffer.
+                    let buffer_dimensions = renderer::buffer_dimensions(shm_buffer).unwrap();
+                    let offscreen_buffer = Offscreen::<GlesTexture>::create_buffer(
+                        renderer,
+                        Fourcc::Argb8888,
+                        buffer_dimensions,
+                    )
+                    .unwrap();
+                    renderer.bind(offscreen_buffer).unwrap();
+
+                    let output = &screencopy.output;
+                    let scale = output.current_scale().fractional_scale();
+                    let output_size = output.current_mode().unwrap().size;
+                    let transform = output.current_transform();
+
+                    // Calculate drawing area after output transform.
+                    let damage = transform.transform_rect_in(region, &output_size);
+
+                    let _ = frame_result
+                        .blit_frame_result(damage.size, transform, scale, renderer, [damage], [])
+                        .unwrap();
+
+                    let region = Rectangle {
+                        loc: Point::from((region.loc.x, region.loc.y)),
+                        size: Size::from((region.size.w, region.size.h)),
+                    };
+                    let mapping = renderer.copy_framebuffer(region, Fourcc::Argb8888).unwrap();
+                    let buffer = renderer.map_texture(&mapping);
+                    // shm_buffer.
+                    // Copy offscreen buffer's content to the SHM buffer.
+                    shm::with_buffer_contents_mut(
+                        shm_buffer,
+                        |shm_buffer_ptr, shm_len, buffer_data| {
+                            // Ensure SHM buffer is in an acceptable format.
+                            if dbg!(buffer_data.format) != wl_shm::Format::Argb8888
+                                || buffer_data.stride != region.size.w * 4
+                                || buffer_data.height != region.size.h
+                                || shm_len as i32 != buffer_data.stride * buffer_data.height
+                            {
+                                error!("Invalid buffer format");
+                                return;
+                            }
+
+                            // Copy the offscreen buffer's content to the SHM buffer.
+                            unsafe { shm_buffer_ptr.copy_from(buffer.unwrap().as_ptr(), shm_len) };
+                        },
+                    )
+                    .unwrap();
+                }
+                // Mark screencopy frame as successful.
+                screencopy.submit();
+            } else {
+                screencopy.failed()
+            }
+        };
+    }
+
+    let res = res?;
+    let rendered = !res.is_empty;
 
     post_repaint(
         output,
@@ -1690,7 +1784,7 @@ fn render_surface<'a>(
         clock.now(),
     );
 
-    if res.rendered {
+    if rendered {
         let output_presentation_feedback = take_presentation_feedback(output, space, &res.states);
         surface
             .compositor
@@ -1698,7 +1792,7 @@ fn render_surface<'a>(
             .map_err(Into::<SwapBuffersError>::into)?;
     }
 
-    Ok(res.rendered)
+    Ok(rendered)
 }
 
 fn initial_render(
