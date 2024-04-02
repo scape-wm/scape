@@ -10,8 +10,8 @@ run:
 
 # run in release mode
 run-release:
-	cargo run --release >> release.log
+	cargo run --release --features debug >> release.log
 
 # run in dev mode within a winit window
 run-winit:
-	cargo run -- --winit-backend
+	cargo run --features debug -- --winit-backend
