@@ -8,6 +8,10 @@ pub struct GlobalArgs {
     #[arg(short, long)]
     pub winit_backend: bool,
 
+    /// Path to lua config file
+    #[arg(short, long)]
+    pub config: Option<String>,
+
     #[clap(subcommand)]
     pub command: Option<Command>,
 }

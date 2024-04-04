@@ -5,8 +5,9 @@ use crate::grabs::{
 };
 use crate::shell::{FullscreenSurface, SurfaceData};
 use crate::{application_window::ApplicationWindow, state::State};
+use smithay::backend::renderer::element::surface;
 use smithay::delegate_xdg_shell;
-use smithay::desktop::Space;
+use smithay::desktop::{Space, WindowSurface};
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor;
 use smithay::{
@@ -36,7 +37,7 @@ use smithay::{
     },
 };
 use std::cell::RefCell;
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -239,6 +240,7 @@ impl XdgShellHandler for State {
 
     fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {
         if let Configure::Toplevel(configure) = configure {
+            error!("ack_configure");
             if let Some(serial) = with_states(&surface, |states| {
                 if let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() {
                     if let ResizeState::WaitingForFinalAck(_, serial) = data.borrow().resize_state {
@@ -487,6 +489,10 @@ impl XdgShellHandler for State {
                 }
             }
         }
+    }
+
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        error!("app id changed");
     }
 }
 

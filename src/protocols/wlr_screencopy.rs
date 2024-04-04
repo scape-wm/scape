@@ -2,7 +2,6 @@ use crate::State;
 use _screencopy::zwlr_screencopy_frame_v1::ZwlrScreencopyFrameV1;
 use _screencopy::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
 use smithay::output::Output;
-use smithay::reexports::wayland_protocols_wlr::screencopy;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server as _screencopy;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_frame_v1::Flags;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_frame_v1::Request as FrameRequest;

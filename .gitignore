@@ -3,3 +3,4 @@ out.log
 debug.log
 release.log
 /result
+init.lua

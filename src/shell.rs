@@ -30,7 +30,7 @@ use smithay::{
     xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[derive(Default)]
 pub struct FullscreenSurface(RefCell<Option<ApplicationWindow>>);

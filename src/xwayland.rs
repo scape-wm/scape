@@ -55,6 +55,7 @@ impl State {
                         error!("Unable to set xwayland wm/display, since the state is missing");
                     }
 
+                    ::std::env::set_var("DISPLAY", format!("{display}"));
                     info!("XWayland started");
 
                     state.xwayland_ready();

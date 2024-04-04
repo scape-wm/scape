@@ -10,7 +10,7 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     let backend_data = create_backend_data(args, &mut event_loop, display.handle())?;
 
     let mut state = State::new(&display, &mut event_loop)?;
-    state.load_config()?;
+    state.load_config(args)?;
     state.init(display, backend_data)?;
 
     run_loop(state, &mut event_loop)

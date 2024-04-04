@@ -93,6 +93,7 @@ impl State {
 
         warn!(bbox = ?window.0.bbox(), "mapping elements");
         space.map_element(window.clone(), position, activate);
+        // space.map_element(window.clone(), position, activate);
         Rectangle::from_loc_and_size(position, size)
     }
 

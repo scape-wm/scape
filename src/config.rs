@@ -1,4 +1,5 @@
 use crate::action::Action;
+use crate::args::GlobalArgs;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
 use crate::State;
@@ -7,6 +8,8 @@ use mlua::prelude::*;
 use mlua::Table;
 use smithay::output::Output;
 use smithay::output::Scale;
+use smithay::utils::Logical;
+use smithay::utils::Point;
 use std::collections::HashMap;
 use std::fs;
 use tracing::info;
@@ -31,8 +34,8 @@ impl Config {
 }
 
 impl State {
-    pub fn load_config(&mut self) -> anyhow::Result<()> {
-        load_lua_config(self)
+    pub fn load_config(&mut self, args: &GlobalArgs) -> anyhow::Result<()> {
+        load_lua_config(self, args)
     }
 
     pub fn on_startup(&mut self) {
@@ -60,7 +63,7 @@ impl State {
 
 const LUA_MODULE_NAME: &str = "scape";
 
-fn load_lua_config(state: &mut State) -> anyhow::Result<()> {
+fn load_lua_config(state: &mut State, args: &GlobalArgs) -> anyhow::Result<()> {
     let loop_handle = state.loop_handle.clone();
     let _: Table = state.config.lua.load_from_function(
         LUA_MODULE_NAME,
@@ -72,7 +75,12 @@ fn load_lua_config(state: &mut State) -> anyhow::Result<()> {
             })?,
     )?;
 
-    let user_config = fs::read("/home/dirli/.config/scape/init.lua")?;
+    let user_config = fs::read(
+        args.config
+            .as_ref()
+            .map(|path| path.as_str())
+            .unwrap_or("/home/dirli/.config/scape/init.lua"),
+    )?;
     let config = state.config.lua.load(&user_config);
     let result = config.exec()?;
     Ok(result)
@@ -190,7 +198,8 @@ fn init_config_module<'lua>(
                             continue;
                         };
 
-                        let position = (config_output.x, config_output.y).into();
+                        let position: Point<i32, Logical> =
+                            (config_output.x, config_output.y).into();
                         output.change_current_state(
                             None,
                             None,
@@ -217,10 +226,10 @@ fn init_config_module<'lua>(
                 }
 
                 // fixup window coordinates
-                let space_names = state.spaces.keys().cloned().collect::<Vec<_>>();
-                for space_name in space_names {
-                    state.fixup_positions(&space_name);
-                }
+                // let space_names = state.spaces.keys().cloned().collect::<Vec<_>>();
+                // for space_name in space_names {
+                //     state.fixup_positions(&space_name);
+                // }
 
                 state.start_outputs();
             });

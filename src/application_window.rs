@@ -41,7 +41,7 @@ use smithay::{
     },
 };
 use std::time::Duration;
-use tracing::warn;
+use tracing::{error, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplicationWindow(pub Window);
