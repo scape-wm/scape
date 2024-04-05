@@ -46,9 +46,9 @@ impl State {
         let (size, position) = if let Some(zone_name) = zone {
             let zone = &self.zones[zone_name];
             (zone.geometry.size, zone.geometry.loc)
-        } else if let Some(default_zone_name) = &self.default_zone {
-            let zone = &self.zones[default_zone_name];
-            (zone.geometry.size, zone.geometry.loc)
+        // } else if let Some(default_zone_name) = &self.default_zone {
+        //     let zone = &self.zones[default_zone_name];
+        //     (zone.geometry.size, zone.geometry.loc)
         } else {
             ((2560, 1440).into(), (100, 100).into())
         };
