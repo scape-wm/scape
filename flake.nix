@@ -12,6 +12,10 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    advisory-db = {
+      url = "github:rustsec/advisory-db";
+      flake = false;
+    };
   };
 
   outputs = {
@@ -21,21 +25,25 @@
     nix-filter,
     crane,
     fenix,
+    advisory-db,
+    ...
   }:
     flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux"] (system: let
       pkgs = import nixpkgs {inherit system;};
       craneLib = crane.lib.${system}.overrideToolchain fenix.packages.${system}.stable.toolchain;
 
+      src = nix-filter.lib.filter {
+        root = ./.;
+        include = [
+          ./src
+          ./Cargo.toml
+          ./Cargo.lock
+          ./resources
+        ];
+      };
+
       pkgDef = {
-        src = nix-filter.lib.filter {
-          root = ./.;
-          include = [
-            ./src
-            ./Cargo.toml
-            ./Cargo.lock
-            ./resources
-          ];
-        };
+        inherit src;
         nativeBuildInputs = with pkgs; [pkg-config autoPatchelfHook xwayland];
         buildInputs = with pkgs; [
           udev
@@ -71,6 +79,36 @@
     in {
       checks = {
         inherit scape;
+
+        scape-clippy = craneLib.cargoClippy (pkgDef
+          // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          });
+
+        scape-doc = craneLib.cargoDoc (pkgDef
+          // {
+            inherit cargoArtifacts;
+          });
+
+        scape-fmt = craneLib.cargoFmt {
+          inherit src;
+        };
+
+        scape-audit = craneLib.cargoAudit {
+          inherit src advisory-db;
+        };
+
+        scape-deny = craneLib.cargoDeny {
+          inherit src;
+        };
+
+        scape-nextest = craneLib.cargoNextest (pkgDef
+          // {
+            inherit cargoArtifacts;
+            partitions = 1;
+            partitionType = "count";
+          });
       };
 
       packages.default = scape;
@@ -79,9 +117,9 @@
         drv = scape;
       };
 
-      devShells.default = pkgs.mkShell rec {
+      devShells.default = pkgs.mkShell {
         inputsFrom = builtins.attrValues self.checks.${system};
-        LD_LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath (builtins.concatMap (d: d.runtimeDependencies) inputsFrom);
+        LD_LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath pkgDef.runtimeDependencies;
       };
     });
 
