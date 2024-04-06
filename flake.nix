@@ -55,10 +55,11 @@
         ];
         runtimeDependencies = with pkgs; [
           libglvnd
-          xorg.libX11 # needed for winit
-          xorg.libXcursor # needed for winit
-          xorg.libXrandr # needed for winit
-          xorg.libXi # needed for winit
+          wayland # needed for winit on wayland
+          xorg.libX11 # needed for winit on x11
+          xorg.libXcursor # needed for winit on x11
+          xorg.libXrandr # needed for winit on x11
+          xorg.libXi # needed for winit on x11
         ];
       };
 
