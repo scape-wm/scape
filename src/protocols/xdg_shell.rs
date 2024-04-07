@@ -36,7 +36,7 @@ use smithay::{
     },
 };
 use std::cell::RefCell;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -239,7 +239,6 @@ impl XdgShellHandler for State {
 
     fn ack_configure(&mut self, surface: WlSurface, configure: Configure) {
         if let Configure::Toplevel(configure) = configure {
-            error!("ack_configure");
             if let Some(serial) = with_states(&surface, |states| {
                 if let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() {
                     if let ResizeState::WaitingForFinalAck(_, serial) = data.borrow().resize_state {

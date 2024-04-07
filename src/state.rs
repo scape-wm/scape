@@ -359,14 +359,6 @@ impl State {
         self.seat = Some(seat);
         self.pointer = Some(pointer);
 
-        // TODO: add tablet to seat and handle cursor event
-        // let cursor_status2 = cursor_status.clone();
-        // seat.tablet_seat()
-        //     .on_cursor_surface(move |_tool, new_status| {
-        //         // TODO: tablet tools should have their own cursors
-        //         *cursor_status2.lock().unwrap() = new_status;
-        //     });
-
         self.backend_data = backend_data;
 
         if let Err(e) = self.start_xwayland() {

@@ -27,7 +27,6 @@ use smithay::{
     output::Output,
     utils::{Point, Rectangle, Scale, Size},
 };
-use tracing::warn;
 
 smithay::backend::renderer::element::render_elements! {
     pub CustomRenderElements<R> where
@@ -233,16 +232,16 @@ where
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn render_output<R>(
-    output: &Output,
-    space: &Space<ApplicationWindow>,
+pub fn render_output<'a, 'd, R>(
+    output: &'a Output,
+    space: &'a Space<ApplicationWindow>,
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
-    renderer: &mut R,
-    damage_tracker: &mut OutputDamageTracker,
+    renderer: &'a mut R,
+    damage_tracker: &'d mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
-) -> Result<RenderOutputResult, OutputDamageTrackerError<R>>
+) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R>>
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + 'static,

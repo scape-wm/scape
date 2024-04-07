@@ -1,7 +1,5 @@
 use crate::action::Action;
-use crate::{
-    composition::WindowPosition, focus::PointerFocusTarget, shell::FullscreenSurface, State,
-};
+use crate::{focus::PointerFocusTarget, shell::FullscreenSurface, State};
 use mlua::Function as LuaFunction;
 use smithay::backend::input::GestureSwipeUpdateEvent;
 use smithay::backend::input::{GesturePinchUpdateEvent, TouchEvent};
@@ -38,7 +36,7 @@ use smithay::{
     },
 };
 use std::convert::TryInto;
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Mods {
@@ -73,89 +71,89 @@ impl State {
         self.key_maps.entry(mods).or_default().insert(key, callback);
     }
 
-    fn process_common_key_action(&mut self, action: KeyAction) {
-        match action {
-            KeyAction::None => (),
-
-            KeyAction::Quit => {
-                info!("Quitting.");
-                self.loop_signal.stop();
-            }
-
-            KeyAction::Run(cmd) => {
-                info!(cmd, "Starting program");
-
-                // if let Err(e) = Command::new(&cmd)
-                //     .envs(
-                //         Some(self.socket_name.clone())
-                //             .map(|v| ("WAYLAND_DISPLAY", v))
-                //             .into_iter()
-                //             .chain(self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v)))),
-                //     )
-                //     .spawn()
-                // {
-                //     error!(cmd, err = %e, "Failed to start program");
-                // }
-            }
-
-            // KeyAction::TogglePreview => {
-            //     self.show_window_preview = !self.show_window_preview;
-            // }
-            //
-            // KeyAction::ToggleDecorations => {
-            //     for element in self.space.elements() {
-            //         #[allow(irrefutable_let_patterns)]
-            //         if let ApplicationWindow::Wayland(window) = element {
-            //             let toplevel = window.toplevel();
-            //             let mode_changed = toplevel.with_pending_state(|state| {
-            //                 if let Some(current_mode) = state.decoration_mode {
-            //                     let new_mode = if current_mode
-            //                         == zxdg_toplevel_decoration_v1::Mode::ClientSide
-            //                     {
-            //                         zxdg_toplevel_decoration_v1::Mode::ServerSide
-            //                     } else {
-            //                         zxdg_toplevel_decoration_v1::Mode::ClientSide
-            //                     };
-            //                     state.decoration_mode = Some(new_mode);
-            //                     true
-            //                 } else {
-            //                     false
-            //                 }
-            //             });
-            //             let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
-            //                 states
-            //                     .data_map
-            //                     .get::<XdgToplevelSurfaceData>()
-            //                     .unwrap()
-            //                     .lock()
-            //                     .unwrap()
-            //                     .initial_configure_sent
-            //             });
-            //             if mode_changed && initial_configure_sent {
-            //                 toplevel.send_pending_configure();
-            //             }
-            //         }
-            //     }
-            // }
-            // KeyAction::MoveWindow(window_position) => {
-            //     let pointer_location = self.pointer_location();
-            //     if let Some((window, _)) = self.space.element_under(pointer_location) {
-            //         let window = window.clone();
-            //         place_window(
-            //             &mut self.space,
-            //             pointer_location,
-            //             &window,
-            //             true,
-            //             window_position,
-            //         );
-            //     }
-            // }
-            _ => unreachable!(
-                "Common key action handler encountered backend specific action {:?}",
-                action
-            ),
-        }
-    }
+    // fn process_common_key_action(&mut self, action: KeyAction) {
+    //     match action {
+    //         KeyAction::None => (),
+    //
+    //         KeyAction::Quit => {
+    //             info!("Quitting.");
+    //             self.loop_signal.stop();
+    //         }
+    //
+    //         KeyAction::Run(cmd) => {
+    //             info!(cmd, "Starting program");
+    //
+    //             // if let Err(e) = Command::new(&cmd)
+    //             //     .envs(
+    //             //         Some(self.socket_name.clone())
+    //             //             .map(|v| ("WAYLAND_DISPLAY", v))
+    //             //             .into_iter()
+    //             //             .chain(self.xdisplay.map(|v| ("DISPLAY", format!(":{}", v)))),
+    //             //     )
+    //             //     .spawn()
+    //             // {
+    //             //     error!(cmd, err = %e, "Failed to start program");
+    //             // }
+    //         }
+    //
+    //         // KeyAction::TogglePreview => {
+    //         //     self.show_window_preview = !self.show_window_preview;
+    //         // }
+    //         //
+    //         // KeyAction::ToggleDecorations => {
+    //         //     for element in self.space.elements() {
+    //         //         #[allow(irrefutable_let_patterns)]
+    //         //         if let ApplicationWindow::Wayland(window) = element {
+    //         //             let toplevel = window.toplevel();
+    //         //             let mode_changed = toplevel.with_pending_state(|state| {
+    //         //                 if let Some(current_mode) = state.decoration_mode {
+    //         //                     let new_mode = if current_mode
+    //         //                         == zxdg_toplevel_decoration_v1::Mode::ClientSide
+    //         //                     {
+    //         //                         zxdg_toplevel_decoration_v1::Mode::ServerSide
+    //         //                     } else {
+    //         //                         zxdg_toplevel_decoration_v1::Mode::ClientSide
+    //         //                     };
+    //         //                     state.decoration_mode = Some(new_mode);
+    //         //                     true
+    //         //                 } else {
+    //         //                     false
+    //         //                 }
+    //         //             });
+    //         //             let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
+    //         //                 states
+    //         //                     .data_map
+    //         //                     .get::<XdgToplevelSurfaceData>()
+    //         //                     .unwrap()
+    //         //                     .lock()
+    //         //                     .unwrap()
+    //         //                     .initial_configure_sent
+    //         //             });
+    //         //             if mode_changed && initial_configure_sent {
+    //         //                 toplevel.send_pending_configure();
+    //         //             }
+    //         //         }
+    //         //     }
+    //         // }
+    //         // KeyAction::MoveWindow(window_position) => {
+    //         //     let pointer_location = self.pointer_location();
+    //         //     if let Some((window, _)) = self.space.element_under(pointer_location) {
+    //         //         let window = window.clone();
+    //         //         place_window(
+    //         //             &mut self.space,
+    //         //             pointer_location,
+    //         //             &window,
+    //         //             true,
+    //         //             window_position,
+    //         //         );
+    //         //     }
+    //         // }
+    //         _ => unreachable!(
+    //             "Common key action handler encountered backend specific action {:?}",
+    //             action
+    //         ),
+    //     }
+    // }
 
     fn keyboard_key_to_action<B: InputBackend>(
         &mut self,
@@ -1472,27 +1470,27 @@ impl State {
 }
 
 /// Possible results of a keyboard action
-#[derive(Debug)]
-enum KeyAction {
-    /// Quit the compositor
-    Quit,
-    /// Trigger a vt-switch
-    VtSwitch(i32),
-    /// run a command
-    Run(String),
-    /// Switch the current screen
-    Screen(usize),
-    ScaleUp,
-    ScaleDown,
-    TogglePreview,
-    RotateOutput,
-    ToggleTint,
-    ToggleDecorations,
-    MoveWindow(WindowPosition),
-    Action(Action),
-    /// Do nothing more
-    None,
-}
+// #[derive(Debug)]
+// enum KeyAction {
+//     /// Quit the compositor
+//     Quit,
+//     /// Trigger a vt-switch
+//     VtSwitch(i32),
+//     /// run a command
+//     Run(String),
+//     /// Switch the current screen
+//     Screen(usize),
+//     ScaleUp,
+//     ScaleDown,
+//     TogglePreview,
+//     RotateOutput,
+//     ToggleTint,
+//     ToggleDecorations,
+//     MoveWindow(WindowPosition),
+//     Action(Action),
+//     /// Do nothing more
+//     None,
+// }
 
 impl State {
     fn process_keyboard_shortcut(

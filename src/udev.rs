@@ -17,6 +17,8 @@ use smithay::backend::input::InputEvent;
 use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::renderer::element::RenderElement;
 #[cfg(feature = "debug")]
+use smithay::backend::renderer::multigpu::MultiTexture;
+#[cfg(feature = "debug")]
 use smithay::backend::renderer::ImportMem;
 use smithay::backend::renderer::{self, BufferType, ImportEgl};
 use smithay::backend::renderer::{ExportMem, ImportMemWl, Offscreen};
@@ -47,7 +49,7 @@ use smithay::{
             damage::Error as OutputDamageTrackerError,
             element::AsRenderElements,
             gles::{GlesRenderer, GlesTexture},
-            multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer, MultiTexture},
+            multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer},
             Bind, DebugFlags, ImportDma, Renderer,
         },
         session::{

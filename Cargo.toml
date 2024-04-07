@@ -28,14 +28,14 @@ calloop = { version = "0.13.0", features = ["executor"] }
 default-features = false
 features = ["desktop", "wayland_frontend"]
 git = "https://github.com/Dirli-V/smithay"
-rev = "e5f006818df7ebb92d206985f45e713ba1e9c1c9"
+rev = "f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
 # path = "../smithay"
 
 [dependencies.smithay-drm-extras]
 default-features = false
 optional = true
 git = "https://github.com/Dirli-V/smithay"
-rev = "e5f006818df7ebb92d206985f45e713ba1e9c1c9"
+rev = "f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
 # path = "../smithay/smithay-drm-extras"
 
 [dependencies.x11rb]

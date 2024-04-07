@@ -1677,7 +1677,7 @@ checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
 [[package]]
 name = "smithay"
 version = "0.3.0"
-source = "git+https://github.com/Dirli-V/smithay?rev=e5f006818df7ebb92d206985f45e713ba1e9c1c9#e5f006818df7ebb92d206985f45e713ba1e9c1c9"
+source = "git+https://github.com/Dirli-V/smithay?rev=f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd#f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
 dependencies = [
  "appendlist",
  "ash",
@@ -1753,7 +1753,7 @@ dependencies = [
 [[package]]
 name = "smithay-drm-extras"
 version = "0.1.0"
-source = "git+https://github.com/Dirli-V/smithay?rev=e5f006818df7ebb92d206985f45e713ba1e9c1c9#e5f006818df7ebb92d206985f45e713ba1e9c1c9"
+source = "git+https://github.com/Dirli-V/smithay?rev=f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd#f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
 dependencies = [
  "drm",
  "edid-rs",
