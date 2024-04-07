@@ -15,3 +15,19 @@ run-release:
 # run in dev mode within a winit window
 run-winit:
 	cargo run --features debug -- --winit-backend --config ./init.lua
+
+# run in release mode with puffin
+puffin:
+	cargo run --features profile-with-puffin --release -- --config ./init.lua
+
+# run in release mode within a winit window with puffin
+puffin-winit:
+	cargo run --features profile-with-puffin --release -- --winit-backend --config ./init.lua
+
+# run in release mode with tracy
+tracy:
+	cargo run --features profile-with-tracy --release -- --config ./init.lua
+
+# run in release mode within a winit window with tracy
+tracy-winit:
+	cargo run --features profile-with-tracy --release -- --winit-backend --config ./init.lua
