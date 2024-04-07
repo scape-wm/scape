@@ -127,9 +127,12 @@ fn init_config_module<'lua>(
     let lh = loop_handle.clone();
     exports.set(
         "spawn",
-        lua.create_function(move |_, command| {
+        lua.create_function(move |_, spawn: ConfigSpawn| {
             lh.insert_idle(move |state| {
-                state.execute(Action::Spawn { command });
+                state.execute(Action::Spawn {
+                    command: spawn.command,
+                    args: spawn.args,
+                });
             });
             Ok(())
         })?,
@@ -424,6 +427,12 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
             "F33" => Keysym::F33,
             "F34" => Keysym::F34,
             "F35" => Keysym::F35,
+            "XF86_AudioPlay" => Keysym::XF86_AudioPlay,
+            "XF86_AudioNext" => Keysym::XF86_AudioNext,
+            "XF86_AudioPrev" => Keysym::XF86_AudioPrev,
+            "XF86_AudioMute" => Keysym::XF86_AudioMute,
+            "XF86_AudioRaiseVolume" => Keysym::XF86_AudioRaiseVolume,
+            "XF86_AudioLowerVolume" => Keysym::XF86_AudioLowerVolume,
             key => {
                 let mut c = key.chars().next().unwrap();
                 if c.is_uppercase() {
@@ -462,6 +471,22 @@ impl<'lua> FromLua<'lua> for ConfigWindowRule {
         Ok(ConfigWindowRule {
             app_id: table.get("app_id").unwrap(),
             zone: table.get("zone").unwrap(),
+        })
+    }
+}
+
+struct ConfigSpawn {
+    command: String,
+    args: Vec<String>,
+}
+
+impl<'lua> FromLua<'lua> for ConfigSpawn {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
+        let table = value.as_table().unwrap();
+
+        Ok(Self {
+            command: table.get("command").unwrap(),
+            args: table.get("args").unwrap_or_default(),
         })
     }
 }

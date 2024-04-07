@@ -12,7 +12,7 @@ pub enum Action {
     /// Trigger a vt-switch
     VtSwitch(i32),
     /// Spawn a command
-    Spawn { command: String },
+    Spawn { command: String, args: Vec<String> },
     /// Focus or spawn a command
     FocusOrSpawn { app_id: String, command: String },
     /// Scales output up/down
@@ -48,7 +48,7 @@ impl State {
                     error!(vt, "Error switching vt: {}", err);
                 }
             }
-            Action::Spawn { command } => self.spawn(&command),
+            Action::Spawn { command, args } => self.spawn(&command, &args),
             Action::ChangeScale {
                 percentage_points: _,
             } => todo!(),
@@ -79,17 +79,21 @@ impl State {
             Action::Callback(callback) => callback.call(()).unwrap(),
             Action::FocusOrSpawn { app_id, command } => {
                 if !self.focus_window_by_app_id(app_id) {
-                    self.execute(Action::Spawn { command });
+                    self.execute(Action::Spawn {
+                        command,
+                        args: Vec::new(),
+                    });
                 }
             }
             Action::None => {}
         }
     }
 
-    fn spawn(&self, command: &str) {
+    fn spawn(&self, command: &str, args: &[String]) {
         info!(command, "Starting program");
 
         if let Err(e) = Command::new(command)
+            .args(args)
             .envs(
                 self.socket_name
                     .clone()
