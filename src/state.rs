@@ -108,6 +108,12 @@ pub struct SessionLock {
 pub struct ActiveSpace(pub String);
 
 #[derive(Debug)]
+pub struct WindowRule {
+    pub app_id: String,
+    pub zone: String,
+}
+
+#[derive(Debug)]
 pub struct State {
     pub display_handle: DisplayHandle,
     pub loop_handle: LoopHandle<'static, Self>,
@@ -169,6 +175,7 @@ pub struct State {
 
     pub key_maps: HashMap<Mods, HashMap<Keysym, LuaFunction<'static>>>,
     pub tab_index: usize,
+    pub window_rules: HashMap<String, WindowRule>,
 }
 
 impl State {
@@ -288,6 +295,7 @@ impl State {
             default_zone: None,
             key_maps: HashMap::new(),
             tab_index: 0,
+            window_rules: HashMap::new(),
         })
     }
 

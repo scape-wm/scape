@@ -2,6 +2,7 @@ use crate::action::Action;
 use crate::args::GlobalArgs;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
+use crate::state::WindowRule;
 use crate::State;
 use calloop::LoopHandle;
 use mlua::prelude::*;
@@ -179,6 +180,20 @@ fn init_config_module<'lua>(
         "close",
         lua.create_function(move |_, ()| {
             lh.insert_idle(move |state| state.execute(Action::Close));
+            Ok(())
+        })?,
+    )?;
+
+    let lh = loop_handle.clone();
+    exports.set(
+        "window_rule",
+        lua.create_function(move |_, window_rule: ConfigWindowRule| {
+            lh.insert_idle(move |state| {
+                state.add_window_rule(WindowRule {
+                    app_id: window_rule.app_id,
+                    zone: window_rule.zone,
+                })
+            });
             Ok(())
         })?,
     )?;
@@ -431,6 +446,22 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
             key,
             mods,
             callback,
+        })
+    }
+}
+
+struct ConfigWindowRule {
+    app_id: String,
+    zone: String,
+}
+
+impl<'lua> FromLua<'lua> for ConfigWindowRule {
+    fn from_lua(value: LuaValue<'lua>, _: &'lua Lua) -> LuaResult<Self> {
+        let table = value.as_table().unwrap();
+
+        Ok(ConfigWindowRule {
+            app_id: table.get("app_id").unwrap(),
+            zone: table.get("zone").unwrap(),
         })
     }
 }

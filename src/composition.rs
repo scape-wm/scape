@@ -1,9 +1,9 @@
-use crate::{application_window::ApplicationWindow, config::ConfigZone, State};
+use crate::{application_window::ApplicationWindow, config::ConfigZone, state::WindowRule, State};
 use smithay::{
     desktop::{layer_map_for_output, WindowSurface},
     utils::{Logical, Rectangle, SERIAL_COUNTER},
 };
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct Zone {
@@ -39,16 +39,18 @@ impl State {
         zone: Option<&str>,
         send_configure: bool,
     ) -> Rectangle<i32, Logical> {
-        warn!("placing window");
         let pointer_location = self.pointer_location();
         let space = self.spaces.get_mut(space_name).unwrap();
 
         let (size, position) = if let Some(zone_name) = zone {
             let zone = &self.zones[zone_name];
             (zone.geometry.size, zone.geometry.loc)
-        // } else if let Some(default_zone_name) = &self.default_zone {
-        //     let zone = &self.zones[default_zone_name];
-        //     (zone.geometry.size, zone.geometry.loc)
+        } else if let Some(rule) = &self.window_rules.get(&window.app_id()) {
+            let zone = &self.zones[&rule.zone];
+            (zone.geometry.size, zone.geometry.loc)
+        } else if let Some(default_zone_name) = &self.default_zone {
+            let zone = &self.zones[default_zone_name];
+            (zone.geometry.size, zone.geometry.loc)
         } else {
             ((2560, 1440).into(), (100, 100).into())
         };
@@ -70,7 +72,6 @@ impl State {
         // set the initial toplevel bounds
         match window.0.underlying_surface() {
             WindowSurface::Wayland(toplevel) => {
-                warn!("wayland");
                 toplevel.with_pending_state(|state| {
                     state.bounds = Some(output_geometry.size);
                     // state.bounds = Some(size.into());
@@ -82,7 +83,6 @@ impl State {
                 }
             }
             WindowSurface::X11(x11_surface) => {
-                warn!("x11");
                 if send_configure {
                     x11_surface
                         .configure(Some(Rectangle::from_loc_and_size(position, size)))
@@ -91,7 +91,6 @@ impl State {
             }
         }
 
-        warn!(bbox = ?window.0.bbox(), "mapping elements");
         space.map_element(window.clone(), position, activate);
         // space.map_element(window.clone(), position, activate);
         Rectangle::from_loc_and_size(position, size)
@@ -138,5 +137,10 @@ impl State {
         let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         keyboard.set_focus(self, Some(window.into()), serial);
+    }
+
+    pub fn add_window_rule(&mut self, window_rule: WindowRule) {
+        self.window_rules
+            .insert(window_rule.app_id.clone(), window_rule);
     }
 }

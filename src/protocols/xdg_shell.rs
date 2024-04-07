@@ -5,9 +5,8 @@ use crate::grabs::{
 };
 use crate::shell::{FullscreenSurface, SurfaceData};
 use crate::{application_window::ApplicationWindow, state::State};
-use smithay::backend::renderer::element::surface;
 use smithay::delegate_xdg_shell;
-use smithay::desktop::{Space, WindowSurface};
+use smithay::desktop::Space;
 use smithay::utils::{Logical, Point, Rectangle};
 use smithay::wayland::compositor;
 use smithay::{
@@ -492,7 +491,10 @@ impl XdgShellHandler for State {
     }
 
     fn app_id_changed(&mut self, surface: ToplevelSurface) {
-        error!("app id changed");
+        if let Some((window, space_name)) = self.window_and_space_for_surface(surface.wl_surface())
+        {
+            self.place_window(&space_name, &window, false, None, false);
+        }
     }
 }
 

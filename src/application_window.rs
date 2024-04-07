@@ -2,22 +2,17 @@ use crate::State;
 use crate::{focus::PointerFocusTarget, ssd::HEADER_BAR_HEIGHT};
 use smithay::input::touch::TouchTarget;
 use smithay::{
-    backend::{
-        input::KeyState,
-        renderer::{
-            element::{
-                solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement,
-                AsRenderElements,
-            },
-            ImportAll, ImportMem, Renderer, Texture,
+    backend::renderer::{
+        element::{
+            solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement, AsRenderElements,
         },
+        ImportAll, ImportMem, Renderer, Texture,
     },
     desktop::{
         space::SpaceElement, utils::OutputPresentationFeedback, Window, WindowSurface,
         WindowSurfaceType,
     },
     input::{
-        keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
         pointer::{
             AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
             GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
@@ -41,7 +36,7 @@ use smithay::{
     },
 };
 use std::time::Duration;
-use tracing::{error, warn};
+use tracing::warn;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplicationWindow(pub Window);
@@ -192,21 +187,27 @@ impl WaylandFocus for SSD {
 }
 
 impl PointerTarget<State> for SSD {
-    fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
+    fn enter(&self, _seat: &Seat<State>, _data: &mut State, event: &MotionEvent) {
         let mut state = self.0.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_enter(event.location);
         }
     }
 
-    fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
+    fn motion(&self, _seat: &Seat<State>, _data: &mut State, event: &MotionEvent) {
         let mut state = self.0.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_enter(event.location);
         }
     }
 
-    fn relative_motion(&self, seat: &Seat<State>, data: &mut State, event: &RelativeMotionEvent) {}
+    fn relative_motion(
+        &self,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &RelativeMotionEvent,
+    ) {
+    }
 
     fn button(&self, seat: &Seat<State>, data: &mut State, event: &ButtonEvent) {
         let mut state = self.0.decoration_state();
@@ -215,11 +216,11 @@ impl PointerTarget<State> for SSD {
         }
     }
 
-    fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {}
+    fn axis(&self, _seat: &Seat<State>, _data: &mut State, _frame: AxisFrame) {}
 
-    fn frame(&self, seat: &Seat<State>, data: &mut State) {}
+    fn frame(&self, _seat: &Seat<State>, _data: &mut State) {}
 
-    fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
+    fn leave(&self, _seat: &Seat<State>, _data: &mut State, _serial: Serial, _time: u32) {
         let mut state = self.0.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_leave();
@@ -228,61 +229,67 @@ impl PointerTarget<State> for SSD {
 
     fn gesture_swipe_begin(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GestureSwipeBeginEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GestureSwipeBeginEvent,
     ) {
     }
 
     fn gesture_swipe_update(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GestureSwipeUpdateEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GestureSwipeUpdateEvent,
     ) {
     }
 
     fn gesture_swipe_end(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GestureSwipeEndEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GestureSwipeEndEvent,
     ) {
     }
 
     fn gesture_pinch_begin(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GesturePinchBeginEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GesturePinchBeginEvent,
     ) {
     }
 
     fn gesture_pinch_update(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GesturePinchUpdateEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GesturePinchUpdateEvent,
     ) {
     }
 
     fn gesture_pinch_end(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GesturePinchEndEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GesturePinchEndEvent,
     ) {
     }
 
     fn gesture_hold_begin(
         &self,
-        seat: &Seat<State>,
-        data: &mut State,
-        event: &GestureHoldBeginEvent,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GestureHoldBeginEvent,
     ) {
     }
 
-    fn gesture_hold_end(&self, seat: &Seat<State>, data: &mut State, event: &GestureHoldEndEvent) {}
+    fn gesture_hold_end(
+        &self,
+        _seat: &Seat<State>,
+        _data: &mut State,
+        _event: &GestureHoldEndEvent,
+    ) {
+    }
 }
 
 impl TouchTarget<State> for SSD {
