@@ -1,6 +1,7 @@
 use crate::application_window::ApplicationWindow;
 use crate::composition::Zone;
 use crate::config::Config;
+use crate::cursor::CursorState;
 use crate::input_handler::Mods;
 use crate::protocols::wlr_screencopy::ScreencopyManagerState;
 use crate::udev::{schedule_initial_render, UdevOutputId};
@@ -37,11 +38,7 @@ use smithay::{
         utils::{surface_primary_scanout_output, update_surface_primary_scanout_output},
         PopupManager, Space,
     },
-    input::{
-        keyboard::XkbConfig,
-        pointer::{CursorImageStatus, PointerHandle},
-        Seat, SeatState,
-    },
+    input::{keyboard::XkbConfig, pointer::PointerHandle, Seat, SeatState},
     output::Output,
     reexports::wayland_server::{
         backend::{ClientData, ClientId, DisconnectReason},
@@ -153,7 +150,7 @@ pub struct State {
 
     // input-related fields
     pub suppressed_keys: Vec<Keysym>,
-    pub cursor_status: CursorImageStatus,
+    pub cursor_state: CursorState,
     pub seat: Option<Seat<State>>,
     pub clock: Clock<Monotonic>,
     pub pointer: Option<PointerHandle<State>>,
@@ -243,8 +240,6 @@ impl State {
         // TODO: implement filtering based on the client
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&display_handle, |_| true);
 
-        let cursor_status = CursorImageStatus::default_named();
-
         Ok(State {
             display_handle,
             loop_handle,
@@ -271,7 +266,7 @@ impl State {
             xdg_foreign_state,
             dnd_icon: None,
             suppressed_keys: Vec::new(),
-            cursor_status,
+            cursor_state: CursorState::default(),
             seat: None,
             pointer: None,
             clock,

@@ -38,6 +38,13 @@ fn setup_logging() {
     tracing_subscriber::fmt()
         .compact()
         .with_env_filter(env_filter)
+        .with_writer(
+            std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open("out.log")
+                .unwrap(),
+        )
         .init();
 }
 

@@ -61,7 +61,6 @@ pub struct WinitData {
     backend: WinitGraphicsBackend<GlesRenderer>,
     damage_tracker: OutputDamageTracker,
     dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
-    pointer_element: PointerElement,
     full_redraw: u8,
     winit_loop: WinitEventLoop,
     pending_input_events: Vec<InputEvent<WinitInput>>,
@@ -196,8 +195,6 @@ pub fn init_winit(
         info!("EGL hardware-acceleration enabled");
     };
 
-    let pointer_element = PointerElement::default();
-
     let damage_tracker = OutputDamageTracker::from_output(&output);
 
     event_loop
@@ -222,7 +219,6 @@ pub fn init_winit(
         backend,
         damage_tracker,
         dmabuf_state,
-        pointer_element,
         full_redraw: 0,
         winit_loop: winit,
         pending_input_events: vec![],
@@ -303,17 +299,15 @@ fn run_tick(state: &mut State) {
         // draw the cursor as relevant
         // reset the cursor if the surface is no longer alive
         let mut reset = false;
-        if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
+        if let CursorImageStatus::Surface(ref surface) = state.cursor_state.status() {
             reset = !surface.alive();
         }
         if reset {
-            state.cursor_status = CursorImageStatus::default_named();
+            state
+                .cursor_state
+                .update_status(CursorImageStatus::default_named());
         }
-        let cursor_visible = !matches!(state.cursor_status, CursorImageStatus::Surface(_));
-
-        winit_data
-            .pointer_element
-            .set_status(state.cursor_status.clone());
+        let cursor_visible = !matches!(state.cursor_state.status(), CursorImageStatus::Surface(_));
 
         #[cfg(feature = "debug")]
         let mut fps_element = FpsElement::new(winit_data.fps_texture.clone());
@@ -335,23 +329,24 @@ fn run_tick(state: &mut State) {
         let dnd_icon = state.dnd_icon.as_ref();
 
         let scale = Scale::from(output.current_scale().fractional_scale());
-        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
-            smithay::wayland::compositor::with_states(surface, |states| {
-                if let Ok(attr) = states
-                    .data_map
-                    .get::<Mutex<CursorImageAttributes>>()
-                    .unwrap()
-                    .try_lock()
-                {
-                    attr.hotspot
-                } else {
-                    warn!("Unable to lock CursorImageAttributes in run_tick");
-                    (0, 0).into()
-                }
-            })
-        } else {
-            (0, 0).into()
-        };
+        let cursor_hotspot =
+            if let CursorImageStatus::Surface(ref surface) = state.cursor_state.status() {
+                smithay::wayland::compositor::with_states(surface, |states| {
+                    if let Ok(attr) = states
+                        .data_map
+                        .get::<Mutex<CursorImageAttributes>>()
+                        .unwrap()
+                        .try_lock()
+                    {
+                        attr.hotspot
+                    } else {
+                        warn!("Unable to lock CursorImageAttributes in run_tick");
+                        (0, 0).into()
+                    }
+                })
+            } else {
+                (0, 0).into()
+            };
         let cursor_pos =
             state.pointer.as_ref().unwrap().current_location() - cursor_hotspot.to_f64();
         let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
@@ -386,7 +381,7 @@ fn run_tick(state: &mut State) {
 
             let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
 
-            elements.extend(winit_data.pointer_element.render_elements(
+            elements.extend(state.cursor_state.render_elements(
                 renderer,
                 cursor_pos_scaled,
                 scale,

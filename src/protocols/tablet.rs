@@ -5,10 +5,10 @@ use smithay::{
 };
 
 impl TabletSeatHandler for State {
-    fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, image: CursorImageStatus) {
+    fn tablet_tool_image(&mut self, _tool: &TabletToolDescriptor, status: CursorImageStatus) {
         // TODO: add tablet to seat and handle cursor event
         // TODO: tablet tools should have their own cursors
-        self.cursor_status = image;
+        self.cursor_state.update_status(status);
     }
 }
 

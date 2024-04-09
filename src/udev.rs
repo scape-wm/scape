@@ -1,4 +1,5 @@
 use crate::application_window::ApplicationWindow;
+use crate::cursor::CursorState;
 use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::protocols::wlr_screencopy::Screencopy;
 use crate::state::{ActiveSpace, BackendData, SessionLock, SurfaceDmabufFeedback};
@@ -14,7 +15,6 @@ use smithay::backend::drm::compositor::RenderFrameResult;
 use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
 use smithay::backend::input::InputEvent;
-use smithay::backend::renderer::element::memory::MemoryRenderBuffer;
 use smithay::backend::renderer::element::RenderElement;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::multigpu::MultiTexture;
@@ -79,7 +79,7 @@ use smithay::{
         },
         wayland_server::{backend::GlobalId, protocol::wl_surface, DisplayHandle},
     },
-    utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Scale, Transform},
+    utils::{Clock, DeviceFd, IsAlive, Logical, Monotonic, Point, Scale},
     wayland::{
         compositor,
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
@@ -132,11 +132,8 @@ pub struct UdevData {
     primary_gpu: DrmNode,
     gpus: GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
     pub backends: HashMap<DrmNode, DeviceData>,
-    pointer_images: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
-    pointer_element: PointerElement,
     #[cfg(feature = "debug")]
     fps_texture: Option<MultiTexture>,
-    pointer_image: crate::cursor::Cursor,
     debug_flags: DebugFlags,
     keyboards: Vec<smithay::reexports::input::Device>,
 }
@@ -149,9 +146,6 @@ impl std::fmt::Debug for UdevData {
             .field("primary_gpu", &self.primary_gpu)
             .field("gpus", &self.gpus)
             .field("backends", &self.backends)
-            .field("pointer_images", &self.pointer_images)
-            .field("pointer_element", &self.pointer_element)
-            .field("pointer_image", &self.pointer_image)
             .field("debug_flags", &self.debug_flags)
             .finish()
     }
@@ -269,9 +263,6 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         primary_gpu,
         gpus,
         backends: HashMap::new(),
-        pointer_image: crate::cursor::Cursor::load(),
-        pointer_images: Vec::new(),
-        pointer_element: PointerElement::default(),
         #[cfg(feature = "debug")]
         fps_texture: None,
         debug_flags: DebugFlags::empty(),
@@ -1418,11 +1409,6 @@ fn render_surface_crtc(
 
     let start = Instant::now();
 
-    // TODO get scale from the rendersurface when supporting HiDPI
-    let frame = udev_data
-        .pointer_image
-        .get_image(1 /*scale*/, state.clock.now().into());
-
     let render_node = surface.render_node;
     let primary_gpu = udev_data.primary_gpu;
     let mut renderer = if primary_gpu == render_node {
@@ -1432,29 +1418,6 @@ fn render_surface_crtc(
         udev_data.gpus.renderer(&primary_gpu, &render_node, format)
     }
     .unwrap();
-
-    let pointer_images = &mut udev_data.pointer_images;
-    let pointer_image = pointer_images
-        .iter()
-        .find_map(|(image, texture)| {
-            if image == &frame {
-                Some(texture.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| {
-            let buffer = MemoryRenderBuffer::from_slice(
-                &frame.pixels_rgba,
-                Fourcc::Argb8888,
-                (frame.width as i32, frame.height as i32),
-                1,
-                Transform::Normal,
-                None,
-            );
-            pointer_images.push((frame, buffer.clone()));
-            buffer
-        });
 
     let output = if let Some(output) = state.outputs.values().find(|o| {
         o.user_data().get::<UdevOutputId>()
@@ -1488,10 +1451,8 @@ fn render_surface_crtc(
         space,
         &output,
         location,
-        &pointer_image,
-        &mut udev_data.pointer_element,
+        &mut state.cursor_state,
         &state.dnd_icon,
-        &mut state.cursor_status,
         &state.clock,
         state.show_window_preview,
         &state.session_lock,
@@ -1599,10 +1560,8 @@ fn render_surface<'a>(
     space: &Space<ApplicationWindow>,
     output: &Output,
     pointer_location: Point<f64, Logical>,
-    pointer_image: &MemoryRenderBuffer,
-    pointer_element: &mut PointerElement,
+    cursor_state: &mut CursorState,
     dnd_icon: &Option<wl_surface::WlSurface>,
-    cursor_status: &mut CursorImageStatus,
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
@@ -1614,7 +1573,8 @@ fn render_surface<'a>(
     let mut custom_elements: Vec<CustomRenderElements<_>> = Vec::new();
 
     if output_geometry.to_f64().contains(pointer_location) {
-        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = cursor_status {
+        let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = cursor_state.status()
+        {
             compositor::with_states(surface, |states| {
                 if let Ok(attr) = states
                     .data_map
@@ -1634,24 +1594,21 @@ fn render_surface<'a>(
         let cursor_pos = pointer_location - output_geometry.loc.to_f64() - cursor_hotspot.to_f64();
         let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
 
-        // set cursor
-        pointer_element.set_buffer(pointer_image.clone());
-
-        // draw the cursor as relevant
         {
             // reset the cursor if the surface is no longer alive
             let mut reset = false;
-            if let CursorImageStatus::Surface(ref surface) = *cursor_status {
+            if let CursorImageStatus::Surface(ref surface) = cursor_state.status() {
                 reset = !surface.alive();
             }
             if reset {
-                *cursor_status = CursorImageStatus::default_named();
+                cursor_state.update_status(CursorImageStatus::default_named());
             }
-
-            pointer_element.set_status(cursor_status.clone());
         }
 
-        custom_elements.extend(pointer_element.render_elements(
+        // TODO get scale from the rendersurface when supporting HiDPI
+        cursor_state.set_scale(scale);
+        cursor_state.set_time(clock.now().into());
+        custom_elements.extend(cursor_state.render_elements(
             renderer,
             cursor_pos_scaled,
             scale,

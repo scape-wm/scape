@@ -126,8 +126,8 @@ impl SeatHandler for State {
         set_primary_focus(dh, seat, focus);
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
-        self.cursor_status = image;
+    fn cursor_image(&mut self, _seat: &Seat<Self>, status: CursorImageStatus) {
+        self.cursor_state.update_status(status);
     }
 
     fn led_state_changed(&mut self, _seat: &Seat<Self>, led_state: LedState) {

@@ -1,11 +1,11 @@
-use crate::{cursor::Cursor, State};
+use crate::State;
 use anyhow::anyhow;
 use smithay::{
     utils::{Point, Size},
     wayland::xwayland_keyboard_grab::XWaylandKeyboardGrabState,
     xwayland::{X11Wm, XWayland, XWaylandEvent},
 };
-use std::{ffi::OsString, time::Duration};
+use std::ffi::OsString;
 use tracing::{error, info};
 
 #[derive(Debug)]
@@ -37,8 +37,7 @@ impl State {
                         return;
                     };
 
-                    let cursor = Cursor::load();
-                    let image = cursor.get_image(1, Duration::ZERO);
+                    let image = state.cursor_state.get_default_image();
                     if let Err(e) = wm.set_cursor(
                         &image.pixels_rgba,
                         Size::from((image.width as u16, image.height as u16)),
