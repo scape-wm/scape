@@ -25,7 +25,7 @@ fn setup_profiling() {
     profiling::puffin::set_scopes_on(true);
 }
 
-fn setup_logging() {
+fn setup_logging(log_file: Option<&str>) {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         let builder = EnvFilter::builder();
         #[cfg(feature = "debug")]
@@ -35,24 +35,31 @@ fn setup_logging() {
         builder.parse_lossy("")
     });
 
-    tracing_subscriber::fmt()
+    let log_builder = tracing_subscriber::fmt()
         .compact()
-        .with_env_filter(env_filter)
-        .with_writer(
-            std::fs::OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open("out.log")
-                .unwrap(),
-        )
-        .init();
+        .with_env_filter(env_filter);
+
+    if let Some(log_file) = log_file {
+        log_builder
+            .with_writer(
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(log_file)
+                    .unwrap(),
+            )
+            .init();
+    } else {
+        log_builder.init();
+    }
 }
 
 fn main() -> anyhow::Result<()> {
-    setup_logging();
+    let args = get_global_args();
+
+    setup_logging(args.log_file.as_deref());
     #[cfg(feature = "profiling")]
     setup_profiling();
 
-    let args = get_global_args();
     wayland::run(&args)
 }
