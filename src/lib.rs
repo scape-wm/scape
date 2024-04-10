@@ -17,6 +17,7 @@ pub mod state;
 pub mod udev;
 pub mod wayland;
 pub mod winit;
+pub mod xdg;
 pub mod xwayland;
 
 pub use state::{ClientState, State};

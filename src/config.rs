@@ -3,12 +3,14 @@ use crate::args::GlobalArgs;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
 use crate::state::WindowRule;
+use crate::xdg::tilde_expand;
 use crate::State;
 use calloop::LoopHandle;
 use mlua::prelude::*;
 use mlua::Table;
 use smithay::output::Output;
 use smithay::output::Scale;
+use smithay::reexports::rustix::path::Arg;
 use smithay::utils::Logical;
 use smithay::utils::Point;
 use std::collections::HashMap;
@@ -76,12 +78,14 @@ fn load_lua_config(state: &mut State, args: &GlobalArgs) -> anyhow::Result<()> {
             })?,
     )?;
 
-    let user_config = fs::read(
+    let config_path = tilde_expand(
         args.config
             .as_ref()
             .map(|path| path.as_str())
-            .unwrap_or("/home/dirli/.config/scape/init.lua"),
-    )?;
+            .unwrap_or("~/.config/scape/init.lua")
+            .as_bytes(),
+    );
+    let user_config = fs::read(config_path.as_str()?)?;
     let config = state.config.lua.load(&user_config);
     let result = config.exec()?;
     Ok(result)
