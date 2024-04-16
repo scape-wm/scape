@@ -1,16 +1,15 @@
 use crate::action::Action;
 use crate::args::GlobalArgs;
+use crate::config_watcher::ConfigWatcher;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
 use crate::state::WindowRule;
-use crate::xdg::tilde_expand;
 use crate::State;
 use calloop::LoopHandle;
 use mlua::prelude::*;
 use mlua::Table;
 use smithay::output::Output;
 use smithay::output::Scale;
-use smithay::reexports::rustix::path::Arg;
 use smithay::utils::Logical;
 use smithay::utils::Point;
 use std::collections::HashMap;
@@ -38,7 +37,9 @@ impl Config {
 
 impl State {
     pub fn load_config(&mut self, args: &GlobalArgs) -> anyhow::Result<()> {
-        load_lua_config(self, args)
+        let result = load_lua_config(self, args)?;
+
+        Ok(result)
     }
 
     pub fn on_startup(&mut self) {
@@ -78,17 +79,32 @@ fn load_lua_config(state: &mut State, args: &GlobalArgs) -> anyhow::Result<()> {
             })?,
     )?;
 
-    let config_path = tilde_expand(
-        args.config
-            .as_ref()
-            .map(|path| path.as_str())
-            .unwrap_or("~/.config/scape/init.lua")
-            .as_bytes(),
-    );
-    let user_config = fs::read(config_path.as_str()?)?;
-    let config = state.config.lua.load(&user_config);
-    let result = config.exec()?;
-    Ok(result)
+    if let Some(config_path) = &args.config {
+        let user_config = fs::read(config_path.as_str())?;
+        let config = state.config.lua.load(&user_config);
+        let _result = config.exec()?;
+    } else {
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("scape").unwrap();
+        for path in xdg_dirs.list_config_files("") {
+            let user_config = fs::read(path)?;
+            let config = state.config.lua.load(&user_config);
+            let _result = config.exec()?;
+        }
+
+        state
+            .loop_handle
+            .insert_source(
+                ConfigWatcher::new(xdg_dirs.get_config_home()),
+                |path, _, state| {
+                    let user_config = fs::read(path).unwrap();
+                    let config = state.config.lua.load(&user_config);
+                    let _result = config.exec().unwrap();
+                },
+            )
+            .unwrap();
+    }
+
+    Ok(())
 }
 
 fn init_config_module<'lua>(

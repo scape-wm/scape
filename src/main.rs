@@ -2,8 +2,7 @@
 
 #![warn(missing_docs)]
 
-use scape::{args::get_global_args, wayland, xdg::tilde_expand};
-use smithay::reexports::rustix::path::Arg;
+use scape::{args::get_global_args, wayland};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 #[cfg(feature = "profile-with-tracy")]
@@ -46,7 +45,7 @@ fn setup_logging(log_file: Option<&str>) {
                 std::fs::OpenOptions::new()
                     .append(true)
                     .create(true)
-                    .open(tilde_expand(log_file.as_bytes()).as_str().unwrap())
+                    .open(log_file)
                     .unwrap(),
             )
             .init();
