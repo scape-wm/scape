@@ -136,6 +136,7 @@ pub struct UdevData {
     fps_texture: Option<MultiTexture>,
     debug_flags: DebugFlags,
     keyboards: Vec<smithay::reexports::input::Device>,
+    pub loop_handle: LoopHandle<'static, State>,
 }
 
 impl std::fmt::Debug for UdevData {
@@ -237,7 +238,7 @@ fn select_primary_gpu(session: &LibSeatSession) -> Result<DrmNode> {
         .ok_or(anyhow!("Unable to select primary gpu"))
 }
 
-pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
+pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
         e
@@ -257,6 +258,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         e
     })?;
 
+    let loop_handle = event_loop.handle();
     let udev_data = UdevData {
         dmabuf_state: None,
         session: session.clone(),
@@ -267,13 +269,13 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         fps_texture: None,
         debug_flags: DebugFlags::empty(),
         keyboards: Vec::new(),
+        loop_handle: loop_handle.clone(),
     };
 
     let mut libinput_context =
         Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
     let mut libinput_context_2 = libinput_context.clone();
-    event_loop
-        .handle()
+    loop_handle
         .insert_source(Timer::immediate(), move |_event, &mut (), state| {
             libinput_context_2
                 .udev_assign_seat(&state.backend_data.seat_name())
@@ -283,8 +285,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         .unwrap();
 
     let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
-    event_loop
-        .handle()
+    loop_handle
         .insert_source(libinput_backend, move |mut event, _, state| {
             if let InputEvent::DeviceAdded { device } = &mut event {
                 if device.has_capability(DeviceCapability::Keyboard) {
@@ -310,8 +311,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
             state.process_input_event(event)
         })
         .unwrap();
-    event_loop
-        .handle()
+    loop_handle
         .insert_source(notifier, move |event, &mut (), state| {
             let BackendData::Udev(udev_data) = &mut state.backend_data else {
                 error!("Received non udev backend data");
@@ -376,8 +376,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         .device_list()
         .map(|(device_id, path)| (device_id, path.to_owned()))
     {
-        event_loop
-            .handle()
+        loop_handle
             .insert_source(Timer::immediate(), move |_, _, state| {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
@@ -392,8 +391,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
                 anyhow!("Error during insert into loop")
             })?;
     }
-    event_loop
-        .handle()
+    loop_handle
         .insert_source(udev_backend, move |event, _, state| match event {
             UdevEvent::Added { device_id, path } => {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
@@ -420,8 +418,7 @@ pub fn init_udev(event_loop: &mut EventLoop<State>) -> Result<BackendData> {
         })
         .unwrap();
 
-    event_loop
-        .handle()
+    loop_handle
         .insert_source(Timer::immediate(), move |_, _, state| {
             state.shm_state.update_formats(
                 state
@@ -715,6 +712,9 @@ pub struct SurfaceData {
     fps_element: Option<FpsElement<MultiTexture>>,
     dmabuf_feedback: Option<DrmSurfaceDmabufFeedback>,
     pub output: Output,
+    scheduled: bool,
+    waiting_for_schedule: bool,
+    pending: bool,
 }
 
 impl Drop for SurfaceData {
@@ -1069,6 +1069,9 @@ fn connector_connected(
             fps_element,
             dmabuf_feedback,
             output: output.clone(),
+            scheduled: false,
+            waiting_for_schedule: false,
+            pending: false,
         };
 
         device.surfaces.insert(crtc, surface);
@@ -1234,7 +1237,7 @@ fn frame_finish(
     if frame_submitted_result.is_err() && state.session_paused {
         return;
     }
-    let schedule_render = match frame_submitted_result {
+    let should_schedule_render = match frame_submitted_result {
         Ok(user_data) => {
             if let Some(mut feedback) = user_data.flatten() {
                 let tp = metadata.as_ref().and_then(|metadata| match metadata.time {
@@ -1299,7 +1302,7 @@ fn frame_finish(
         }
     };
 
-    if schedule_render {
+    if should_schedule_render {
         let output_refresh = match output.current_mode() {
             Some(mode) => mode.refresh,
             None => return,
@@ -1350,13 +1353,71 @@ fn frame_finish(
             Timer::from_duration(repaint_delay)
         };
 
+        surface.pending = true;
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
-                render(state, dev_id, Some(crtc), None);
+                let udev_data = state.backend_data.udev_mut();
+                let device_backend = match udev_data.backends.get_mut(&dev_id) {
+                    Some(backend) => backend,
+                    None => {
+                        error!("Trying to finish frame on non-existent backend {}", dev_id);
+                        return TimeoutAction::Drop;
+                    }
+                };
+
+                let surface = match device_backend.surfaces.get_mut(&crtc) {
+                    Some(surface) => surface,
+                    None => {
+                        error!("Trying to finish frame on non-existent crtc {:?}", crtc);
+                        return TimeoutAction::Drop;
+                    }
+                };
+                surface.pending = false;
+                if surface.waiting_for_schedule {
+                    surface.waiting_for_schedule = false;
+                    schedule_render(state.backend_data.udev_mut(), dev_id, crtc);
+                }
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
+    }
+}
+
+pub fn schedule_render(udev_data: &mut UdevData, node: DrmNode, crtc: crtc::Handle) {
+    let device_backend = match udev_data.backends.get_mut(&node) {
+        Some(backend) => backend,
+        None => {
+            error!("Trying to render on non-existent backend {}", node);
+            return;
+        }
+    };
+
+    if let Some(surface) = device_backend.surfaces.get_mut(&crtc) {
+        if !surface.scheduled && surface.pending {
+            // surface is pending. Queue it up, when finishing the frame
+            surface.waiting_for_schedule = true;
+        }
+
+        if !surface.scheduled && !surface.pending {
+            surface.scheduled = true;
+            udev_data.loop_handle.insert_idle(move |state| {
+                let device_backend = match state.backend_data.udev_mut().backends.get_mut(&node) {
+                    Some(backend) => backend,
+                    None => {
+                        error!("Trying to render on non-existent backend {}", node);
+                        return;
+                    }
+                };
+
+                if let Some(surface) = device_backend.surfaces.get_mut(&crtc) {
+                    surface.scheduled = false;
+                }
+                render(state, node, Some(crtc), None);
+            });
+        }
+    } else {
+        error!(?crtc, "Cannot schedule render, since surface is gone")
     }
 }
 

@@ -922,6 +922,9 @@ impl State {
     }
 
     fn on_pointer_move<B: InputBackend>(&mut self, evt: B::PointerMotionEvent) {
+        // TODO: Can we do this better?
+        self.backend_data.schedule_render();
+
         let mut pointer_location = self.pointer_location();
 
         let serial = SCOUNTER.next_serial();
@@ -1032,6 +1035,9 @@ impl State {
     }
 
     fn on_pointer_move_absolute<B: InputBackend>(&mut self, evt: B::PointerMotionAbsoluteEvent) {
+        // TODO: Can we do this better?
+        self.backend_data.schedule_render();
+
         let serial = SCOUNTER.next_serial();
 
         let space = &self

@@ -139,7 +139,10 @@ impl CompositorHandler for State {
                 .to_owned()
         });
 
-        ensure_initial_configure(surface, &self.spaces[&space_name], &mut self.popups)
+        ensure_initial_configure(surface, &self.spaces[&space_name], &mut self.popups);
+
+        // TODO: Only schedule the output that is affected
+        self.backend_data.schedule_render();
     }
 }
 

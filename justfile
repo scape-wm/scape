@@ -10,7 +10,7 @@ run:
 
 # run in release mode
 run-release:
-	cargo run --release --features -- --config ./init.lua -l release.log
+	cargo run --release --features debug -- --config ./init.lua -l release.log
 
 # run in dev mode within a winit window
 run-winit:

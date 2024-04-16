@@ -39,7 +39,7 @@ fn create_event_loop() -> anyhow::Result<EventLoop<'static, State>> {
 
 fn create_backend_data(
     args: &GlobalArgs,
-    event_loop: &mut EventLoop<State>,
+    event_loop: &mut EventLoop<'static, State>,
     display_handle: DisplayHandle,
 ) -> anyhow::Result<BackendData> {
     if args.winit_backend {

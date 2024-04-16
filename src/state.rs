@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::cursor::CursorState;
 use crate::input_handler::Mods;
 use crate::protocols::wlr_screencopy::ScreencopyManagerState;
-use crate::udev::{schedule_initial_render, UdevOutputId};
+use crate::udev::{schedule_initial_render, schedule_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
@@ -626,6 +626,27 @@ impl BackendData {
                 let UdevOutputId { device_id, crtc } =
                     output.user_data().get::<UdevOutputId>().unwrap();
                 schedule_initial_render(udev_data, *device_id, *crtc, loop_handle);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn schedule_render(&mut self) {
+        match self {
+            BackendData::Udev(udev_data) => {
+                for (drm_node, handle) in udev_data
+                    .backends
+                    .iter_mut()
+                    .flat_map(|(&drm_node, device_data)| {
+                        device_data
+                            .surfaces
+                            .keys()
+                            .map(move |&handle| (drm_node, handle))
+                    })
+                    .collect::<Vec<_>>()
+                {
+                    schedule_render(udev_data, drm_node, handle);
+                }
             }
             _ => {}
         }
