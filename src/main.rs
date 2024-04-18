@@ -16,13 +16,6 @@ fn setup_profiling() {
     profiling::tracy_client::Client::start();
 
     profiling::register_thread!("Main Thread");
-
-    #[cfg(feature = "profile-with-puffin")]
-    std::mem::forget(
-        puffin_http::Server::new(&format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT)).unwrap(),
-    );
-    #[cfg(feature = "profile-with-puffin")]
-    profiling::puffin::set_scopes_on(true);
 }
 
 fn setup_logging(log_file: Option<&str>) {
