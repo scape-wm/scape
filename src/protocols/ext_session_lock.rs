@@ -54,8 +54,7 @@ impl SessionLockHandler for State {
             .next()
             .unwrap()
             .elements()
-            .rev()
-            .next()
+            .next_back()
             .cloned();
         if let Some(elem) = maybe_elem {
             // TODO: Handle multiple spaces

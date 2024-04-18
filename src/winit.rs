@@ -1,11 +1,16 @@
+#[cfg(feature = "debug")]
+use crate::drawing::FpsElement;
+#[cfg(feature = "debug")]
+use crate::drawing::FPS_NUMBERS_PNG;
 use crate::{
-    drawing::*,
     protocols::presentation_time::take_presentation_feedback,
     render::CustomRenderElements,
     state::{post_repaint, ActiveSpace, BackendData, State},
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
+#[cfg(feature = "debug")]
+use smithay::backend::renderer::gles::GlesTexture;
 #[cfg(feature = "debug")]
 use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
 use smithay::{
@@ -15,44 +20,28 @@ use smithay::{
         input::InputEvent,
         renderer::{
             damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
-            gles::{GlesRenderer, GlesTexture},
-            ImportDma,
+            element::AsRenderElements,
+            gles::GlesRenderer,
+            ImportDma, ImportMemWl,
         },
-        winit::{self, WinitGraphicsBackend},
-    },
-    output::{Mode, Output, PhysicalProperties, Subpixel},
-    reexports::{
-        calloop::EventLoop,
-        wayland_server::{protocol::wl_surface, DisplayHandle},
-        winit::raw_window_handle::{HasWindowHandle, RawWindowHandle},
-    },
-    utils::Transform,
-    wayland::dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
-};
-use smithay::{
-    backend::{
-        renderer::ImportMemWl,
-        winit::{WinitEvent, WinitEventLoop, WinitInput},
-    },
-    reexports::{
-        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
-        winit::platform::pump_events::PumpStatus,
-    },
-};
-use smithay::{
-    backend::{
-        renderer::{element::AsRenderElements, ImportEgl},
+        winit::{self, WinitEvent, WinitEventLoop, WinitGraphicsBackend, WinitInput},
         SwapBuffersError,
     },
     input::pointer::{CursorImageAttributes, CursorImageStatus},
+    output::{Mode, Output, PhysicalProperties, Subpixel},
+    reexports::{
+        calloop::EventLoop,
+        wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
+        wayland_server::{protocol::wl_surface, DisplayHandle},
+        winit::platform::pump_events::PumpStatus,
+    },
+    utils::{IsAlive, Scale, Transform},
+    wayland::dmabuf::{
+        DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState, ImportNotifier,
+    },
 };
-use smithay::{
-    utils::{IsAlive, Scale},
-    wayland::dmabuf::ImportNotifier,
-};
-use std::sync::Mutex;
-use std::time::Duration;
-use tracing::{error, info, warn};
+use std::{sync::Mutex, time::Duration};
+use tracing::{error, warn};
 
 pub const OUTPUT_NAME: &str = "winit";
 
@@ -351,26 +340,7 @@ fn run_tick(state: &mut State) {
             state.pointer.as_ref().unwrap().current_location() - cursor_hotspot.to_f64();
         let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
 
-        #[cfg(feature = "debug")]
-        let mut renderdoc = state.renderdoc.as_mut();
         let render_res = backend.bind().and_then(|_| {
-            #[cfg(feature = "debug")]
-            if let Some(renderdoc) = renderdoc.as_mut() {
-                renderdoc.start_frame_capture(
-                    backend.renderer().egl_context().get_context_handle(),
-                    backend
-                        .window()
-                        .window_handle()
-                        .map(|handle| {
-                            if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                                handle.surface.as_ptr()
-                            } else {
-                                std::ptr::null_mut()
-                            }
-                        })
-                        .unwrap_or_else(|_| std::ptr::null_mut()),
-                );
-            }
             let age = if *full_redraw > 0 {
                 0
             } else {
@@ -424,36 +394,19 @@ fn run_tick(state: &mut State) {
             Ok(render_output_result) => {
                 let has_rendered = render_output_result.damage.is_some();
                 if let Some(damage) = render_output_result.damage {
-                    if let Err(err) = backend.submit(Some(&*damage)) {
+                    if let Err(err) = backend.submit(Some(damage)) {
                         warn!("Failed to submit buffer: {}", err);
                     }
-                }
-                #[cfg(feature = "debug")]
-                if let Some(renderdoc) = renderdoc.as_mut() {
-                    renderdoc.end_frame_capture(
-                        backend.renderer().egl_context().get_context_handle(),
-                        backend
-                            .window()
-                            .window_handle()
-                            .map(|handle| {
-                                if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                                    handle.surface.as_ptr()
-                                } else {
-                                    std::ptr::null_mut()
-                                }
-                            })
-                            .unwrap_or_else(|_| std::ptr::null_mut()),
-                    );
                 }
                 backend.window().set_cursor_visible(cursor_visible);
 
                 // Send frame events so that client start drawing their next frame
                 let time = state.clock.now();
-                post_repaint(&output, &render_output_result.states, &space, None, time);
+                post_repaint(&output, &render_output_result.states, space, None, time);
 
                 if has_rendered {
                     let mut output_presentation_feedback =
-                        take_presentation_feedback(&output, &space, &render_output_result.states);
+                        take_presentation_feedback(&output, space, &render_output_result.states);
                     output_presentation_feedback.presented(
                         time,
                         output
@@ -466,23 +419,6 @@ fn run_tick(state: &mut State) {
                 }
             }
             Err(SwapBuffersError::ContextLost(err)) => {
-                #[cfg(feature = "debug")]
-                if let Some(renderdoc) = renderdoc.as_mut() {
-                    renderdoc.discard_frame_capture(
-                        backend.renderer().egl_context().get_context_handle(),
-                        backend
-                            .window()
-                            .window_handle()
-                            .map(|handle| {
-                                if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                                    handle.surface.as_ptr()
-                                } else {
-                                    std::ptr::null_mut()
-                                }
-                            })
-                            .unwrap_or_else(|_| std::ptr::null_mut()),
-                    );
-                }
                 error!("Critical Rendering Error: {}", err);
                 state.loop_signal.stop();
             }

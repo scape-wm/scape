@@ -157,9 +157,6 @@ pub struct State {
 
     pub xwayland_state: Option<XWaylandState>,
 
-    #[cfg(feature = "debug")]
-    pub renderdoc: Option<renderdoc::RenderDoc<renderdoc::V141>>,
-
     pub show_window_preview: bool,
     pub session_paused: bool,
     pub last_node: Option<DrmNode>,
@@ -271,8 +268,6 @@ impl State {
             pointer: None,
             clock,
             xwayland_state: None,
-            #[cfg(feature = "debug")]
-            renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
             session_paused: false,
             last_node: None,
@@ -621,34 +616,28 @@ impl BackendData {
 
     fn start_output(&mut self, output: &Output, loop_handle: LoopHandle<'static, State>) {
         info!(?output, "Starting output");
-        match self {
-            BackendData::Udev(ref mut udev_data) => {
-                let UdevOutputId { device_id, crtc } =
-                    output.user_data().get::<UdevOutputId>().unwrap();
-                schedule_initial_render(udev_data, *device_id, *crtc, loop_handle);
-            }
-            _ => {}
+        if let BackendData::Udev(ref mut udev_data) = self {
+            let UdevOutputId { device_id, crtc } =
+                output.user_data().get::<UdevOutputId>().unwrap();
+            schedule_initial_render(udev_data, *device_id, *crtc, loop_handle);
         }
     }
 
     pub fn schedule_render(&mut self) {
-        match self {
-            BackendData::Udev(udev_data) => {
-                for (drm_node, handle) in udev_data
-                    .backends
-                    .iter_mut()
-                    .flat_map(|(&drm_node, device_data)| {
-                        device_data
-                            .surfaces
-                            .keys()
-                            .map(move |&handle| (drm_node, handle))
-                    })
-                    .collect::<Vec<_>>()
-                {
-                    schedule_render(udev_data, drm_node, handle);
-                }
+        if let BackendData::Udev(udev_data) = self {
+            for (drm_node, handle) in udev_data
+                .backends
+                .iter_mut()
+                .flat_map(|(&drm_node, device_data)| {
+                    device_data
+                        .surfaces
+                        .keys()
+                        .map(move |&handle| (drm_node, handle))
+                })
+                .collect::<Vec<_>>()
+            {
+                schedule_render(udev_data, drm_node, handle);
             }
-            _ => {}
         }
     }
 }

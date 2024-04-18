@@ -172,9 +172,7 @@ impl State {
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
-        let Some(seat) = &self.seat else {
-            return None;
-        };
+        let seat = self.seat.as_ref()?;
         let keyboard = seat.get_keyboard().unwrap();
 
         for layer in self.layer_shell_state.layer_surfaces().rev() {
@@ -558,84 +556,11 @@ impl State {
         output_name: &str,
     ) {
         match event {
-            InputEvent::Keyboard { event } => match self.keyboard_key_to_action::<B>(event) {
-                // KeyAction::ScaleUp => {
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| o.name() == output_name)
-                //         .unwrap()
-                //         .clone();
-                //
-                //     let current_scale = output.current_scale().fractional_scale();
-                //     let new_scale = current_scale + 0.25;
-                //     output.change_current_state(
-                //         None,
-                //         None,
-                //         Some(Scale::Fractional(new_scale)),
-                //         None,
-                //     );
-                //
-                //     let location = self.pointer_location();
-                //     crate::shell::fixup_positions(space, location);
-                //     self.backend_data.reset_buffers(&output);
-                // }
-                //
-                // KeyAction::ScaleDown => {
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| o.name() == output_name)
-                //         .unwrap()
-                //         .clone();
-                //
-                //     let current_scale = output.current_scale().fractional_scale();
-                //     let new_scale = f64::max(1.0, current_scale - 0.25);
-                //     output.change_current_state(
-                //         None,
-                //         None,
-                //         Some(Scale::Fractional(new_scale)),
-                //         None,
-                //     );
-                //
-                //     let location = self.pointer_location();
-                //     crate::shell::fixup_positions(space, location);
-                //     self.backend_data.reset_buffers(&output);
-                // }
-                // KeyAction::RotateOutput => {
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| o.name() == output_name)
-                //         .unwrap()
-                //         .clone();
-                //
-                //     let current_transform = output.current_transform();
-                //     let new_transform = match current_transform {
-                //         Transform::Normal => Transform::_90,
-                //         Transform::_90 => Transform::_180,
-                //         Transform::_180 => Transform::_270,
-                //         Transform::_270 => Transform::Normal,
-                //         _ => Transform::Normal,
-                //     };
-                //     output.change_current_state(None, Some(new_transform), None, None);
-                //     let location = self.pointer_location();
-                //     crate::shell::fixup_positions(space, location);
-                //     self.backend_data.reset_buffers(&output);
-                // }
-                // action => match action {
-                //     KeyAction::None
-                //     | KeyAction::Quit
-                //     | KeyAction::Run(_)
-                //     | KeyAction::MoveWindow(_)
-                //     | KeyAction::TogglePreview => self.process_common_key_action(action),
-                //
-                //     _ => tracing::warn!(
-                //         ?action,
-                //         output_name,
-                //         "Key action unsupported on on output backend.",
-                //     ),
-                // },
-                Some(action) => self.execute(action),
-                _ => {}
-            },
+            InputEvent::Keyboard { event } => {
+                if let Some(action) = self.keyboard_key_to_action::<B>(event) {
+                    self.execute(action)
+                }
+            }
 
             InputEvent::PointerMotionAbsolute { event } => {
                 let output = self
@@ -701,163 +626,11 @@ impl State {
 impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         match event {
-            InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
-                // KeyAction::VtSwitch(vt) => {
-                //     info!(to = vt, "Trying to switch vt");
-                //     if let Err(err) = self.backend_data.switch_vt(vt) {
-                //         error!(vt, "Error switching vt: {}", err);
-                //     }
-                // }
-                // KeyAction::Screen(num) => {
-                //     let geometry = space
-                //         .outputs()
-                //         .nth(num)
-                //         .map(|o| space.output_geometry(o).unwrap());
-                //
-                //     if let Some(geometry) = geometry {
-                //         let x = geometry.loc.x as f64 + geometry.size.w as f64 / 2.0;
-                //         let y = geometry.size.h as f64 / 2.0;
-                //         let location = (x, y).into();
-                //         let pointer = self.pointer.clone().unwrap();
-                //         let under = self.surface_under(location);
-                //         pointer.motion(
-                //             self,
-                //             under,
-                //             &MotionEvent {
-                //                 location,
-                //                 serial: SCOUNTER.next_serial(),
-                //                 time: 0,
-                //             },
-                //         );
-                //         pointer.frame(self);
-                //     }
-                // }
-                // KeyAction::ScaleUp => {
-                //     let pos = self.pointer_location().to_i32_round();
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| space.output_geometry(o).unwrap().contains(pos))
-                //         .cloned();
-                //
-                //     if let Some(output) = output {
-                //         let (output_location, scale) = (
-                //             space.output_geometry(&output).unwrap().loc,
-                //             output.current_scale().fractional_scale(),
-                //         );
-                //         let new_scale = scale + 0.25;
-                //         output.change_current_state(
-                //             None,
-                //             None,
-                //             Some(Scale::Fractional(new_scale)),
-                //             None,
-                //         );
-                //
-                //         let rescale = scale / new_scale;
-                //         let output_location = output_location.to_f64();
-                //         let mut pointer_output_location = self.pointer_location() - output_location;
-                //         pointer_output_location.x *= rescale;
-                //         pointer_output_location.y *= rescale;
-                //         let pointer_location = output_location + pointer_output_location;
-                //
-                //         crate::shell::fixup_positions(space, pointer_location);
-                //         let pointer = self.pointer.clone().unwrap();
-                //         let under = self.surface_under(pointer_location);
-                //         pointer.motion(
-                //             self,
-                //             under,
-                //             &MotionEvent {
-                //                 location: pointer_location,
-                //                 serial: SCOUNTER.next_serial(),
-                //                 time: 0,
-                //             },
-                //         );
-                //         pointer.frame(self);
-                //         self.backend_data.reset_buffers(&output);
-                //     }
-                // }
-                // KeyAction::ScaleDown => {
-                //     let pos = self.pointer_location().to_i32_round();
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| space.output_geometry(o).unwrap().contains(pos))
-                //         .cloned();
-                //
-                //     if let Some(output) = output {
-                //         let (output_location, scale) = (
-                //             space.output_geometry(&output).unwrap().loc,
-                //             output.current_scale().fractional_scale(),
-                //         );
-                //         let new_scale = f64::max(1.0, scale - 0.25);
-                //         output.change_current_state(
-                //             None,
-                //             None,
-                //             Some(Scale::Fractional(new_scale)),
-                //             None,
-                //         );
-                //
-                //         let rescale = scale / new_scale;
-                //         let output_location = output_location.to_f64();
-                //         let mut pointer_output_location = self.pointer_location() - output_location;
-                //         pointer_output_location.x *= rescale;
-                //         pointer_output_location.y *= rescale;
-                //         let pointer_location = output_location + pointer_output_location;
-                //
-                //         crate::shell::fixup_positions(space, pointer_location);
-                //         let pointer = self.pointer.clone().unwrap();
-                //         let under = self.surface_under(pointer_location);
-                //         pointer.motion(
-                //             self,
-                //             under,
-                //             &MotionEvent {
-                //                 location: pointer_location,
-                //                 serial: SCOUNTER.next_serial(),
-                //                 time: 0,
-                //             },
-                //         );
-                //         pointer.frame(self);
-                //         self.backend_data.reset_buffers(&output);
-                //     }
-                // }
-                // KeyAction::RotateOutput => {
-                //     let pos = self.pointer_location().to_i32_round();
-                //     let output = space
-                //         .outputs()
-                //         .find(|o| space.output_geometry(o).unwrap().contains(pos))
-                //         .cloned();
-                //
-                //     if let Some(output) = output {
-                //         let current_transform = output.current_transform();
-                //         let new_transform = match current_transform {
-                //             Transform::Normal => Transform::_90,
-                //             Transform::_90 => Transform::_180,
-                //             Transform::_180 => Transform::_270,
-                //             Transform::_270 => Transform::Normal,
-                //             _ => Transform::Normal,
-                //         };
-                //         output.change_current_state(None, Some(new_transform), None, None);
-                //         let location = self.pointer_location();
-                //         crate::shell::fixup_positions(space, location);
-                //         self.backend_data.reset_buffers(&output);
-                //     }
-                // }
-                // KeyAction::ToggleTint => {
-                //     let mut debug_flags = self.backend_data.debug_flags();
-                //     debug_flags.toggle(DebugFlags::TINT);
-                //     self.backend_data.set_debug_flags(debug_flags);
-                // }
-                //
-                // action => match action {
-                //     KeyAction::None
-                //     | KeyAction::Quit
-                //     | KeyAction::Run(_)
-                //     | KeyAction::MoveWindow(_)
-                //     | KeyAction::TogglePreview => self.process_common_key_action(action),
-                //
-                //     _ => unreachable!(),
-                // },
-                Some(action) => self.execute(action),
-                _ => {}
-            },
+            InputEvent::Keyboard { event, .. } => {
+                if let Some(action) = self.keyboard_key_to_action::<B>(event) {
+                    self.execute(action)
+                }
+            }
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(event),
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 self.on_pointer_move_absolute::<B>(event)
@@ -1353,15 +1126,15 @@ impl State {
             .find(|output| output.name().starts_with("eDP"))
             .or_else(|| self.outputs.values().next());
 
-        let Some(output) = output else {
-            return None;
-        };
+        let output = output?;
 
         // TODO: Handle multiple spaces
-        let Some(output_geometry) = self.spaces.values().next().unwrap().output_geometry(output)
-        else {
-            return None;
-        };
+        let output_geometry = self
+            .spaces
+            .values()
+            .next()
+            .unwrap()
+            .output_geometry(output)?;
 
         let transform = output.current_transform();
         let size = transform.invert().transform_size(output_geometry.size);

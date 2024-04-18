@@ -64,7 +64,6 @@ impl ApplicationWindow {
             WindowSurface::Wayland(_) => {
                 surface_under.map(|(surface, loc)| (PointerFocusTarget::WlSurface(surface), loc))
             }
-            #[cfg(feature = "xwayland")]
             WindowSurface::X11(s) => {
                 surface_under.map(|(_, loc)| (PointerFocusTarget::X11Surface(s.clone()), loc))
             }

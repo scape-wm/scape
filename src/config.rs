@@ -35,11 +35,15 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl State {
     pub fn load_config(&mut self, args: &GlobalArgs) -> anyhow::Result<()> {
-        let result = load_lua_config(self, args)?;
-
-        Ok(result)
+        load_lua_config(self, args)
     }
 
     pub fn on_startup(&mut self) {
@@ -82,13 +86,13 @@ fn load_lua_config(state: &mut State, args: &GlobalArgs) -> anyhow::Result<()> {
     if let Some(config_path) = &args.config {
         let user_config = fs::read(config_path.as_str())?;
         let config = state.config.lua.load(&user_config);
-        let _result = config.exec()?;
+        config.exec()?;
     } else {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("scape").unwrap();
         for path in xdg_dirs.list_config_files("") {
             let user_config = fs::read(path)?;
             let config = state.config.lua.load(&user_config);
-            let _result = config.exec()?;
+            config.exec()?;
         }
 
         state
@@ -98,7 +102,7 @@ fn load_lua_config(state: &mut State, args: &GlobalArgs) -> anyhow::Result<()> {
                 |path, _, state| {
                     let user_config = fs::read(path).unwrap();
                     let config = state.config.lua.load(&user_config);
-                    let _result = config.exec().unwrap();
+                    config.exec().unwrap();
                 },
             )
             .unwrap();
@@ -244,7 +248,7 @@ fn init_config_module<'lua>(
                             Some(Scale::Integer(config_output.scale)),
                             Some(position),
                         );
-                        space.map_output(&output, position);
+                        space.map_output(output, position);
                         if config_output.default {
                             output
                                 .user_data()

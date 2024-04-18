@@ -72,7 +72,7 @@ impl XdgShellHandler for State {
             let space = self.spaces.get_mut(&space_name).unwrap();
             space.unmap_elem(&window);
 
-            let maybe_window = space.elements().rev().next().cloned();
+            let maybe_window = space.elements().next_back().cloned();
             if let Some(window) = maybe_window {
                 self.focus_window(window, &space_name);
             }

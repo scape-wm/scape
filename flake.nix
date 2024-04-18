@@ -38,6 +38,7 @@
           ./src
           ./Cargo.toml
           ./Cargo.lock
+          ./deny.toml
           ./resources
         ];
       };
@@ -55,10 +56,9 @@
           libinput
           mesa
           llvmPackages.bintools
+          pixman
           libgcc
-          glib # needed for puffin
-          gtk3 # needed for puffin
-          tracy # for profiling with tracy
+          tracy
           just
         ];
         runtimeDependencies = with pkgs; [

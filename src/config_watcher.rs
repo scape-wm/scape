@@ -41,9 +41,9 @@ impl ConfigWatcher {
             })
             .unwrap();
 
-        watcher
-            .watch(path.as_path(), RecursiveMode::NonRecursive)
-            .unwrap();
+        if let Err(err) = watcher.watch(path.as_path(), RecursiveMode::NonRecursive) {
+            error!(?err, "Unable to setup config file change watcher");
+        }
 
         Self {
             channel,

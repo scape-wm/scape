@@ -9,8 +9,6 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
-#[cfg(feature = "renderer_sync")]
-use smithay::backend::drm::compositor::PrimaryPlaneElement;
 use smithay::backend::drm::compositor::RenderFrameResult;
 use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
@@ -660,18 +658,6 @@ impl SurfaceComposition {
         match self {
             SurfaceComposition::Compositor(compositor) => compositor
                 .render_frame(renderer, elements, clear_color)
-                // .map(|render_frame_result| {
-                //     #[cfg(feature = "renderer_sync")]
-                //     if let PrimaryPlaneElement::Swapchain(element) =
-                //         render_frame_result.primary_element
-                //     {
-                //         element.sync.wait();
-                //     }
-                //     // SurfaceCompositorRenderResult {
-                //     //     rendered: !render_frame_result.is_empty,
-                //     //     render_frame_result: render_frame_result,
-                //     // }
-                // })
                 .map_err(|err| match err {
                     smithay::backend::drm::compositor::RenderFrameError::PrepareFrame(err) => {
                         err.into()
@@ -1714,76 +1700,74 @@ fn render_surface<'a>(
 
     // Copy framebuffer for screencopy.
     if let Some(screencopy) = screencopy {
-        {
-            if let Ok(frame_result) = &res {
-                // Mark entire buffer as damaged.
-                let region = screencopy.region();
-                // TODO: check how to get to the damage
-                // if let Some(damage) = frame_result.damage.clone() {
-                //     screencopy.damage(&damage);
-                // }
+        if let Ok(frame_result) = &res {
+            // Mark entire buffer as damaged.
+            let region = screencopy.region();
+            // TODO: check how to get to the damage
+            // if let Some(damage) = frame_result.damage.clone() {
+            //     screencopy.damage(&damage);
+            // }
 
-                let shm_buffer = screencopy.buffer();
+            let shm_buffer = screencopy.buffer();
 
-                // Ignore unknown buffer types.
-                let buffer_type = renderer::buffer_type(shm_buffer);
-                if !matches!(buffer_type, Some(BufferType::Shm)) {
-                    warn!("Unsupported buffer type: {:?}", buffer_type);
-                } else {
-                    // Create and bind an offscreen render buffer.
-                    let buffer_dimensions = renderer::buffer_dimensions(shm_buffer).unwrap();
-                    let offscreen_buffer = Offscreen::<GlesTexture>::create_buffer(
-                        renderer,
-                        Fourcc::Argb8888,
-                        buffer_dimensions,
-                    )
-                    .unwrap();
-                    renderer.bind(offscreen_buffer).unwrap();
-
-                    let output = &screencopy.output;
-                    let scale = output.current_scale().fractional_scale();
-                    let output_size = output.current_mode().unwrap().size;
-                    let transform = output.current_transform();
-
-                    // Calculate drawing area after output transform.
-                    let damage = transform.transform_rect_in(region, &output_size);
-
-                    let _ = frame_result
-                        .blit_frame_result(damage.size, transform, scale, renderer, [damage], [])
-                        .unwrap();
-
-                    let region = Rectangle {
-                        loc: Point::from((region.loc.x, region.loc.y)),
-                        size: Size::from((region.size.w, region.size.h)),
-                    };
-                    let mapping = renderer.copy_framebuffer(region, Fourcc::Argb8888).unwrap();
-                    let buffer = renderer.map_texture(&mapping);
-                    // shm_buffer.
-                    // Copy offscreen buffer's content to the SHM buffer.
-                    shm::with_buffer_contents_mut(
-                        shm_buffer,
-                        |shm_buffer_ptr, shm_len, buffer_data| {
-                            // Ensure SHM buffer is in an acceptable format.
-                            if dbg!(buffer_data.format) != wl_shm::Format::Argb8888
-                                || buffer_data.stride != region.size.w * 4
-                                || buffer_data.height != region.size.h
-                                || shm_len as i32 != buffer_data.stride * buffer_data.height
-                            {
-                                error!("Invalid buffer format");
-                                return;
-                            }
-
-                            // Copy the offscreen buffer's content to the SHM buffer.
-                            unsafe { shm_buffer_ptr.copy_from(buffer.unwrap().as_ptr(), shm_len) };
-                        },
-                    )
-                    .unwrap();
-                }
-                // Mark screencopy frame as successful.
-                screencopy.submit();
+            // Ignore unknown buffer types.
+            let buffer_type = renderer::buffer_type(shm_buffer);
+            if !matches!(buffer_type, Some(BufferType::Shm)) {
+                warn!("Unsupported buffer type: {:?}", buffer_type);
             } else {
-                screencopy.failed()
+                // Create and bind an offscreen render buffer.
+                let buffer_dimensions = renderer::buffer_dimensions(shm_buffer).unwrap();
+                let offscreen_buffer = Offscreen::<GlesTexture>::create_buffer(
+                    renderer,
+                    Fourcc::Argb8888,
+                    buffer_dimensions,
+                )
+                .unwrap();
+                renderer.bind(offscreen_buffer).unwrap();
+
+                let output = &screencopy.output;
+                let scale = output.current_scale().fractional_scale();
+                let output_size = output.current_mode().unwrap().size;
+                let transform = output.current_transform();
+
+                // Calculate drawing area after output transform.
+                let damage = transform.transform_rect_in(region, &output_size);
+
+                let _ = frame_result
+                    .blit_frame_result(damage.size, transform, scale, renderer, [damage], [])
+                    .unwrap();
+
+                let region = Rectangle {
+                    loc: Point::from((region.loc.x, region.loc.y)),
+                    size: Size::from((region.size.w, region.size.h)),
+                };
+                let mapping = renderer.copy_framebuffer(region, Fourcc::Argb8888).unwrap();
+                let buffer = renderer.map_texture(&mapping);
+                // shm_buffer.
+                // Copy offscreen buffer's content to the SHM buffer.
+                shm::with_buffer_contents_mut(
+                    shm_buffer,
+                    |shm_buffer_ptr, shm_len, buffer_data| {
+                        // Ensure SHM buffer is in an acceptable format.
+                        if dbg!(buffer_data.format) != wl_shm::Format::Argb8888
+                            || buffer_data.stride != region.size.w * 4
+                            || buffer_data.height != region.size.h
+                            || shm_len as i32 != buffer_data.stride * buffer_data.height
+                        {
+                            error!("Invalid buffer format");
+                            return;
+                        }
+
+                        // Copy the offscreen buffer's content to the SHM buffer.
+                        unsafe { shm_buffer_ptr.copy_from(buffer.unwrap().as_ptr(), shm_len) };
+                    },
+                )
+                .unwrap();
             }
+            // Mark screencopy frame as successful.
+            screencopy.submit();
+        } else {
+            screencopy.failed()
         };
     }
 

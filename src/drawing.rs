@@ -1,12 +1,11 @@
-#![allow(clippy::too_many_arguments)]
-
+#[cfg(feature = "debug")]
+use smithay::backend::renderer::Texture;
 use smithay::{
     backend::renderer::{
         element::{memory::MemoryRenderBufferRenderElement, surface::WaylandSurfaceRenderElement},
-        ImportAll, ImportMem, Renderer, Texture,
+        ImportAll, ImportMem, Renderer,
     },
     render_elements,
-    utils::{Physical, Point, Scale},
 };
 #[cfg(feature = "debug")]
 use smithay::{
@@ -15,7 +14,7 @@ use smithay::{
         utils::CommitCounter,
         Frame,
     },
-    utils::{Buffer, Logical, Rectangle, Size, Transform},
+    utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform},
 };
 
 pub static CLEAR_COLOR: [f32; 4] = [0.8, 0.8, 0.9, 1.0];

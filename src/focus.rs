@@ -138,7 +138,6 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => {
                 PointerTarget::gesture_swipe_begin(w, seat, data, event)
             }
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => {
                 PointerTarget::gesture_swipe_begin(w, seat, data, event)
             }
@@ -173,7 +172,6 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => {
                 PointerTarget::gesture_swipe_end(w, seat, data, event)
             }
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => {
                 PointerTarget::gesture_swipe_end(w, seat, data, event)
             }
@@ -191,7 +189,6 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => {
                 PointerTarget::gesture_pinch_begin(w, seat, data, event)
             }
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => {
                 PointerTarget::gesture_pinch_begin(w, seat, data, event)
             }
@@ -226,7 +223,6 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => {
                 PointerTarget::gesture_pinch_end(w, seat, data, event)
             }
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => {
                 PointerTarget::gesture_pinch_end(w, seat, data, event)
             }
@@ -452,7 +448,6 @@ impl TouchTarget<State> for PointerFocusTarget {
     ) {
         match self {
             PointerFocusTarget::WlSurface(w) => TouchTarget::orientation(w, seat, data, event, seq),
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => {
                 TouchTarget::orientation(w, seat, data, event, seq)
             }
@@ -465,7 +460,6 @@ impl WaylandFocus for PointerFocusTarget {
     fn wl_surface(&self) -> Option<WlSurface> {
         match self {
             PointerFocusTarget::WlSurface(w) => w.wl_surface(),
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => w.wl_surface(),
             PointerFocusTarget::SSD(_) => None,
         }
@@ -473,7 +467,6 @@ impl WaylandFocus for PointerFocusTarget {
     fn same_client_as(&self, object_id: &ObjectId) -> bool {
         match self {
             PointerFocusTarget::WlSurface(w) => w.same_client_as(object_id),
-            #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(w) => w.same_client_as(object_id),
             PointerFocusTarget::SSD(w) => w
                 .wl_surface()
@@ -512,14 +505,12 @@ impl From<PopupKind> for PointerFocusTarget {
     }
 }
 
-#[cfg(feature = "xwayland")]
 impl From<X11Surface> for PointerFocusTarget {
     fn from(value: X11Surface) -> Self {
         PointerFocusTarget::X11Surface(value)
     }
 }
 
-#[cfg(feature = "xwayland")]
 impl From<&X11Surface> for PointerFocusTarget {
     fn from(value: &X11Surface) -> Self {
         PointerFocusTarget::from(value.clone())

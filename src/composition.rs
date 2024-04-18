@@ -75,7 +75,7 @@ impl State {
                 toplevel.with_pending_state(|state| {
                     state.bounds = Some(output_geometry.size);
                     // state.bounds = Some(size.into());
-                    state.size = Some(size.into());
+                    state.size = Some(size);
                 });
 
                 if send_configure {

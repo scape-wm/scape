@@ -99,7 +99,7 @@ impl XwmHandler for State {
             x11_surface.set_mapped(false).unwrap();
         }
 
-        let maybe_window = space.elements().rev().next().cloned();
+        let maybe_window = space.elements().next_back().cloned();
         if let Some(window) = maybe_window {
             self.focus_window(window, &space_name);
         }
