@@ -411,9 +411,13 @@ pub fn post_repaint(
     space: &Space<ApplicationWindow>,
     dmabuf_feedback: Option<SurfaceDmabufFeedback<'_>>,
     time: impl Into<Duration>,
+    cursor_state: &CursorState,
 ) {
     let time = time.into();
+    // TODO: Check proper value for this
     let throttle = Some(Duration::from_secs(1));
+
+    cursor_state.send_frame(output, time);
 
     space.elements().for_each(|window| {
         window.with_surfaces(|surface, states| {

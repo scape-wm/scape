@@ -292,6 +292,7 @@ fn run_tick(state: &mut State) {
             reset = !surface.alive();
         }
         if reset {
+            tracing::error!("Reset updated the cursor");
             state
                 .cursor_state
                 .update_status(CursorImageStatus::default_named());
@@ -402,7 +403,14 @@ fn run_tick(state: &mut State) {
 
                 // Send frame events so that client start drawing their next frame
                 let time = state.clock.now();
-                post_repaint(&output, &render_output_result.states, space, None, time);
+                post_repaint(
+                    &output,
+                    &render_output_result.states,
+                    space,
+                    None,
+                    time,
+                    &state.cursor_state,
+                );
 
                 if has_rendered {
                     let mut output_presentation_feedback =

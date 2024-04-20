@@ -1786,6 +1786,7 @@ fn render_surface<'a>(
                 scanout_feedback: &feedback.scanout_feedback,
             }),
         clock.now(),
+        cursor_state,
     );
 
     if rendered {

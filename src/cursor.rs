@@ -1,4 +1,6 @@
 use crate::drawing::PointerRenderElement;
+use smithay::desktop::utils::send_frames_surface_tree;
+use smithay::output::Output;
 use smithay::{backend::allocator::Fourcc, utils::Transform};
 use smithay::{
     backend::renderer::{
@@ -152,6 +154,15 @@ impl CursorState {
 
     pub fn status(&self) -> &CursorImageStatus {
         &self.status
+    }
+
+    pub fn send_frame<T>(&self, output: &Output, time: T)
+    where
+        T: Into<Duration>,
+    {
+        if let CursorImageStatus::Surface(surface) = &self.status {
+            send_frames_surface_tree(surface, output, time, Some(Duration::ZERO), |_, _| None);
+        }
     }
 }
 
