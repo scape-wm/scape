@@ -24,10 +24,11 @@ impl ScreencopyHandler for State {
         match &self.backend_data {
             crate::state::BackendData::None => panic!("Cannot craete screencopy without backend"),
             crate::state::BackendData::Udev(udev_data) => {
-                for (node, device) in &udev_data.backends {
-                    for (crtc, surface) in &device.surfaces {
+                for (&node, device) in &udev_data.backends {
+                    for (&crtc, surface) in &device.surfaces {
                         if surface.output == frame.output {
-                            crate::udev::render(self, *node, Some(*crtc), Some(frame));
+                            self.screencopy_frames.push(frame);
+                            crate::udev::schedule_render(self.backend_data.udev_mut(), node, crtc);
                             return;
                         }
                     }
@@ -232,6 +233,7 @@ where
 }
 
 /// Screencopy frame.
+#[derive(Debug)]
 pub struct Screencopy {
     region: Rectangle<i32, Physical>,
     frame: ZwlrScreencopyFrameV1,

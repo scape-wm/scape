@@ -3,7 +3,7 @@ use crate::composition::Zone;
 use crate::config::Config;
 use crate::cursor::CursorState;
 use crate::input_handler::Mods;
-use crate::protocols::wlr_screencopy::ScreencopyManagerState;
+use crate::protocols::wlr_screencopy::{Screencopy, ScreencopyManagerState};
 use crate::udev::{schedule_initial_render, schedule_render, UdevOutputId};
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
@@ -170,6 +170,8 @@ pub struct State {
     pub key_maps: HashMap<Mods, HashMap<Keysym, LuaFunction<'static>>>,
     pub tab_index: usize,
     pub window_rules: HashMap<String, WindowRule>,
+
+    pub screencopy_frames: Vec<Screencopy>,
 }
 
 impl State {
@@ -286,6 +288,7 @@ impl State {
             key_maps: HashMap::new(),
             tab_index: 0,
             window_rules: HashMap::new(),
+            screencopy_frames: Vec::new(),
         })
     }
 

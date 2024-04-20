@@ -358,7 +358,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
 
                         state
                             .loop_handle
-                            .insert_idle(move |state| render(state, node, None, None));
+                            .insert_idle(move |state| render(state, node, None));
                     }
                 }
             }
@@ -1399,7 +1399,7 @@ pub fn schedule_render(udev_data: &mut UdevData, node: DrmNode, crtc: crtc::Hand
                 if let Some(surface) = device_backend.surfaces.get_mut(&crtc) {
                     surface.scheduled = false;
                 }
-                render(state, node, Some(crtc), None);
+                render(state, node, Some(crtc));
             });
         }
     } else {
@@ -1408,12 +1408,7 @@ pub fn schedule_render(udev_data: &mut UdevData, node: DrmNode, crtc: crtc::Hand
 }
 
 // If crtc is `Some()`, render it, else render all crtcs
-pub fn render(
-    state: &mut State,
-    node: DrmNode,
-    crtc: Option<crtc::Handle>,
-    screencopy: Option<Screencopy>,
-) {
+fn render(state: &mut State, node: DrmNode, crtc: Option<crtc::Handle>) {
     let device_backend = match state.backend_data.udev_mut().backends.get_mut(&node) {
         Some(backend) => backend,
         None => {
@@ -1423,21 +1418,16 @@ pub fn render(
     };
 
     if let Some(crtc) = crtc {
-        render_surface_crtc(state, node, crtc, screencopy);
+        render_surface_crtc(state, node, crtc);
     } else {
         let crtcs: Vec<_> = device_backend.surfaces.keys().copied().collect();
         for crtc in crtcs {
-            render_surface_crtc(state, node, crtc, None);
+            render_surface_crtc(state, node, crtc);
         }
     };
 }
 
-fn render_surface_crtc(
-    state: &mut State,
-    node: DrmNode,
-    crtc: crtc::Handle,
-    screencopy: Option<Screencopy>,
-) {
+fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
     let location = state.pointer_location();
     #[cfg(feature = "profiling")]
     profiling::scope!("render_surface", &format!("{crtc:?}"));
@@ -1484,7 +1474,7 @@ fn render_surface_crtc(
         state
             .loop_handle
             .insert_source(Timer::immediate(), move |_, _, state| {
-                render(state, node, Some(crtc), None);
+                render(state, node, Some(crtc));
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1503,7 +1493,7 @@ fn render_surface_crtc(
         &state.clock,
         state.show_window_preview,
         &state.session_lock,
-        screencopy,
+        &mut state.screencopy_frames,
     );
     let reschedule = match &result {
         Ok(has_rendered) => !has_rendered,
@@ -1542,7 +1532,7 @@ fn render_surface_crtc(
         state
             .loop_handle
             .insert_source(timer, move |_, _, state| {
-                render(state, node, Some(crtc), None);
+                render(state, node, Some(crtc));
                 TimeoutAction::Drop
             })
             .expect("failed to schedule frame timer");
@@ -1612,7 +1602,7 @@ fn render_surface<'a>(
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
-    screencopy: Option<Screencopy>,
+    screencopy_frames: &mut Vec<Screencopy>,
 ) -> Result<bool, SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1699,7 +1689,7 @@ fn render_surface<'a>(
             .render_frame::<_, _, GlesTexture>(renderer, &elements, clear_color);
 
     // Copy framebuffer for screencopy.
-    if let Some(screencopy) = screencopy {
+    for screencopy in screencopy_frames.drain(..) {
         if let Ok(frame_result) = &res {
             // Mark entire buffer as damaged.
             let region = screencopy.region();
