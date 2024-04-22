@@ -54,8 +54,16 @@ impl XwmHandler for State {
     }
 
     fn map_window_request(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
-        tracing::warn!("x11_surface is: {:?}", x11_surface);
-        x11_surface.set_mapped(true).unwrap();
+        if x11_surface.is_override_redirect() {
+            // Don't do anything for override-redirect windows
+            return;
+        }
+
+        if let Err(err) = x11_surface.set_mapped(true) {
+            error!(?err, ?x11_surface, "Unable to map x11 surface");
+            return;
+        }
+
         let window = ApplicationWindow(Window::new_x11_window(x11_surface.clone()));
         // TODO: Handle multiple spaces
         let space_name = self.spaces.keys().next().unwrap().clone();
