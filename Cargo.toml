@@ -2,7 +2,7 @@
 edition = "2021"
 name = "scape"
 version = "0.0.1"
-license = "GPL-3.0-only"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 bitflags = "2.4.1"
@@ -26,6 +26,8 @@ bincode = "1.3.3"
 calloop = { version = "0.13.0", features = ["executor"] }
 xdg = "2.5"
 notify = "6.1"
+egui = "0.23"
+egui_glow = "0.23"
 
 [dependencies.smithay]
 default-features = false
@@ -42,6 +44,7 @@ features = [
     "backend_session_libseat",
     "renderer_gl",
     "renderer_pixman",
+    "renderer_glow",
     "renderer_multi",
     "x11rb_event_source",
     "use_system_lib",
