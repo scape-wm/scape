@@ -1,10 +1,12 @@
-use crate::application_window::ApplicationWindow;
 use crate::composition::Zone;
 use crate::config::Config;
 use crate::cursor::CursorState;
+use crate::egui::debug_ui::DebugUi;
+use crate::egui::EguiState;
 use crate::input_handler::Mods;
 use crate::protocols::wlr_screencopy::{Screencopy, ScreencopyManagerState};
 use crate::udev::{schedule_initial_render, schedule_render, UdevOutputId};
+use crate::workspace_window::WorkspaceWindow;
 use crate::xwayland::XWaylandState;
 use crate::{udev::UdevData, winit::WinitData};
 use anyhow::{anyhow, Result};
@@ -121,7 +123,7 @@ pub struct State {
     // desktop
     pub popups: PopupManager,
     pub outputs: HashMap<String, Output>,
-    pub spaces: HashMap<String, Space<ApplicationWindow>>,
+    pub spaces: HashMap<String, Space<WorkspaceWindow>>,
     pub started_outputs: HashSet<Output>,
     pub zones: HashMap<String, Zone>,
     pub default_zone: Option<String>,
@@ -172,6 +174,8 @@ pub struct State {
     pub window_rules: HashMap<String, WindowRule>,
 
     pub screencopy_frames: Vec<Screencopy>,
+
+    pub debug_ui: Option<(EguiState, DebugUi)>,
 }
 
 impl State {
@@ -289,6 +293,7 @@ impl State {
             tab_index: 0,
             window_rules: HashMap::new(),
             screencopy_frames: Vec::new(),
+            debug_ui: None,
         })
     }
 
@@ -411,7 +416,7 @@ pub struct SurfaceDmabufFeedback<'a> {
 pub fn post_repaint(
     output: &Output,
     render_element_states: &RenderElementStates,
-    space: &Space<ApplicationWindow>,
+    space: &Space<WorkspaceWindow>,
     dmabuf_feedback: Option<SurfaceDmabufFeedback<'_>>,
     time: impl Into<Duration>,
     cursor_state: &CursorState,
@@ -422,41 +427,44 @@ pub fn post_repaint(
 
     cursor_state.send_frame(output, time);
 
-    space.elements().for_each(|window| {
-        window.with_surfaces(|surface, states| {
-            let primary_scanout_output = update_surface_primary_scanout_output(
-                surface,
-                output,
-                states,
-                render_element_states,
-                default_primary_scanout_output_compare,
-            );
-
-            if let Some(output) = primary_scanout_output {
-                with_fractional_scale(states, |fraction_scale| {
-                    fraction_scale.set_preferred_scale(output.current_scale().fractional_scale());
-                });
-            }
-        });
-
-        if space.outputs_for_element(window).contains(output) {
-            window.send_frame(output, time, throttle, surface_primary_scanout_output);
-            if let Some(dmabuf_feedback) = dmabuf_feedback {
-                window.send_dmabuf_feedback(
+    for workspace_window in space.elements() {
+        if let WorkspaceWindow::ApplicationWindow(window) = workspace_window {
+            window.with_surfaces(|surface, states| {
+                let primary_scanout_output = update_surface_primary_scanout_output(
+                    surface,
                     output,
-                    surface_primary_scanout_output,
-                    |surface, _| {
-                        select_dmabuf_feedback(
-                            surface,
-                            render_element_states,
-                            dmabuf_feedback.render_feedback,
-                            dmabuf_feedback.scanout_feedback,
-                        )
-                    },
+                    states,
+                    render_element_states,
+                    default_primary_scanout_output_compare,
                 );
+
+                if let Some(output) = primary_scanout_output {
+                    with_fractional_scale(states, |fraction_scale| {
+                        fraction_scale
+                            .set_preferred_scale(output.current_scale().fractional_scale());
+                    });
+                }
+            });
+
+            if space.outputs_for_element(workspace_window).contains(output) {
+                window.send_frame(output, time, throttle, surface_primary_scanout_output);
+                if let Some(dmabuf_feedback) = dmabuf_feedback {
+                    window.send_dmabuf_feedback(
+                        output,
+                        surface_primary_scanout_output,
+                        |surface, _| {
+                            select_dmabuf_feedback(
+                                surface,
+                                render_element_states,
+                                dmabuf_feedback.render_feedback,
+                                dmabuf_feedback.scanout_feedback,
+                            )
+                        },
+                    );
+                }
             }
-        }
-    });
+        };
+    }
     let map = smithay::desktop::layer_map_for_output(output);
     for layer_surface in map.layers() {
         layer_surface.with_surfaces(|surface, states| {

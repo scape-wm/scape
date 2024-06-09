@@ -1,9 +1,9 @@
-use crate::{application_window::ApplicationWindow, config::ConfigZone, state::WindowRule, State};
+use crate::{config::ConfigZone, state::WindowRule, workspace_window::WorkspaceWindow, State};
 use smithay::{
-    desktop::{layer_map_for_output, WindowSurface},
+    desktop::layer_map_for_output,
     utils::{Logical, Rectangle, SERIAL_COUNTER},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct Zone {
@@ -34,7 +34,7 @@ impl State {
     pub fn place_window(
         &mut self,
         space_name: &str,
-        window: &ApplicationWindow,
+        window: &WorkspaceWindow,
         activate: bool,
         zone: Option<&str>,
         send_configure: bool,
@@ -69,30 +69,9 @@ impl State {
             })
             .unwrap_or_else(|| Rectangle::from_loc_and_size((0, 0), (800, 800)));
 
-        // set the initial toplevel bounds
-        match window.0.underlying_surface() {
-            WindowSurface::Wayland(toplevel) => {
-                toplevel.with_pending_state(|state| {
-                    state.bounds = Some(output_geometry.size);
-                    // state.bounds = Some(size.into());
-                    state.size = Some(size);
-                });
-
-                if send_configure {
-                    toplevel.send_pending_configure();
-                }
-            }
-            WindowSurface::X11(x11_surface) => {
-                if send_configure {
-                    x11_surface
-                        .configure(Some(Rectangle::from_loc_and_size(position, size)))
-                        .unwrap();
-                }
-            }
-        }
+        window.position(position, size, output_geometry.size, send_configure);
 
         space.map_element(window.clone(), position, activate);
-        // space.map_element(window.clone(), position, activate);
         Rectangle::from_loc_and_size(position, size)
     }
 
@@ -131,8 +110,11 @@ impl State {
         false
     }
 
-    pub fn focus_window(&mut self, window: ApplicationWindow, space_name: &str) {
-        let space = self.spaces.get_mut(space_name).unwrap();
+    pub fn focus_window(&mut self, window: WorkspaceWindow, space_name: &str) {
+        let Some(space) = self.spaces.get_mut(space_name) else {
+            warn!(%space_name, ?window, "Trying to focus window, but space does not exist");
+            return;
+        };
         space.raise_element(&window, true);
         let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();

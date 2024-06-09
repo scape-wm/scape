@@ -18,7 +18,6 @@ use smithay::{
 };
 
 pub static CLEAR_COLOR: [f32; 4] = [0.8, 0.8, 0.9, 1.0];
-pub static CLEAR_COLOR_FULLSCREEN: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
 
 render_elements! {
     pub PointerRenderElement<R> where R: ImportAll + ImportMem;

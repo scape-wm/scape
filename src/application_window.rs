@@ -1,6 +1,10 @@
 use crate::State;
 use crate::{focus::PointerFocusTarget, ssd::HEADER_BAR_HEIGHT};
 use smithay::input::touch::TouchTarget;
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::utils::Size;
+use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::xwayland::X11Surface;
 use smithay::{
     backend::renderer::{
         element::{
@@ -36,7 +40,7 @@ use smithay::{
     },
 };
 use std::time::Duration;
-use tracing::warn;
+use tracing::{error, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplicationWindow(pub Window);
@@ -161,6 +165,65 @@ impl ApplicationWindow {
                 .close()
                 .unwrap_or_else(|e| warn!(%e, "Unable to close window")),
         }
+    }
+
+    pub fn position(
+        &self,
+        position: Point<i32, Logical>,
+        size: Size<i32, Logical>,
+        bounds: Size<i32, Logical>,
+        send_configure: bool,
+    ) {
+        // set the initial toplevel bounds
+        match self.0.underlying_surface() {
+            WindowSurface::Wayland(toplevel) => {
+                toplevel.with_pending_state(|state| {
+                    state.bounds = Some(bounds);
+                    state.size = Some(size);
+                });
+
+                if send_configure {
+                    toplevel.send_pending_configure();
+                }
+            }
+            WindowSurface::X11(x11_surface) => {
+                if send_configure {
+                    x11_surface
+                        .configure(Some(Rectangle::from_loc_and_size(position, size)))
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    pub fn resize(&self, location: Point<i32, Logical>, size: Size<i32, Logical>) {
+        match &self.0.underlying_surface() {
+            WindowSurface::Wayland(xdg) => {
+                xdg.with_pending_state(|state| {
+                    state.states.set(xdg_toplevel::State::Resizing);
+                    state.size = Some(size);
+                });
+                xdg.send_pending_configure();
+            }
+            WindowSurface::X11(x11) => {
+                let target = Rectangle::from_loc_and_size(location, size);
+                if let Err(e) = x11.configure(target) {
+                    error!("Unable to configure x11 surface: {e}");
+                }
+            }
+        }
+    }
+
+    pub fn on_commit(&self) {
+        self.0.on_commit()
+    }
+
+    pub fn toplevel(&self) -> Option<&ToplevelSurface> {
+        self.0.toplevel()
+    }
+
+    pub fn x11_surface(&self) -> Option<&X11Surface> {
+        self.0.x11_surface()
     }
 }
 

@@ -7,6 +7,8 @@ pub mod config;
 pub mod config_watcher;
 pub mod cursor;
 pub mod drawing;
+pub mod egui;
+pub mod egui_window;
 pub mod focus;
 pub mod grabs;
 pub mod input_handler;
@@ -18,6 +20,7 @@ pub mod state;
 pub mod udev;
 pub mod wayland;
 pub mod winit;
+pub mod workspace_window;
 pub mod xwayland;
 
 pub use state::{ClientState, State};

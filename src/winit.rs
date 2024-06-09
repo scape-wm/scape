@@ -11,6 +11,7 @@ use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::gles::GlesTexture;
+use smithay::backend::renderer::glow::GlowRenderer;
 #[cfg(feature = "debug")]
 use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
 use smithay::{
@@ -21,7 +22,6 @@ use smithay::{
         renderer::{
             damage::{Error as OutputDamageTrackerError, OutputDamageTracker},
             element::AsRenderElements,
-            gles::GlesRenderer,
             ImportDma, ImportMemWl,
         },
         winit::{self, WinitEvent, WinitEventLoop, WinitGraphicsBackend, WinitInput},
@@ -47,7 +47,7 @@ pub const OUTPUT_NAME: &str = "winit";
 
 #[derive(Debug)]
 pub struct WinitData {
-    backend: WinitGraphicsBackend<GlesRenderer>,
+    backend: WinitGraphicsBackend<GlowRenderer>,
     damage_tracker: OutputDamageTracker,
     dmabuf_state: (DmabufState, DmabufGlobal, Option<DmabufFeedback>),
     full_redraw: u8,
@@ -98,7 +98,7 @@ pub fn init_winit(
     event_loop: &mut EventLoop<State>,
 ) -> Result<BackendData> {
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let (mut backend, winit) = winit::init::<GlesRenderer>().map_err(|e| {
+    let (mut backend, winit) = winit::init::<GlowRenderer>().map_err(|e| {
         error!("Failed to initialize Winit backend: {}", e);
         anyhow!("Winit backend cannot be started")
     })?;
@@ -350,7 +350,7 @@ fn run_tick(state: &mut State) {
 
             let renderer = backend.renderer();
 
-            let mut elements = Vec::<CustomRenderElements<GlesRenderer>>::new();
+            let mut elements = Vec::<CustomRenderElements<GlowRenderer>>::new();
 
             elements.extend(state.cursor_state.render_elements(
                 renderer,
@@ -362,7 +362,7 @@ fn run_tick(state: &mut State) {
             // draw the dnd icon if any
             if let Some(surface) = dnd_icon {
                 if surface.alive() {
-                    elements.extend(AsRenderElements::<GlesRenderer>::render_elements(
+                    elements.extend(AsRenderElements::<GlowRenderer>::render_elements(
                         &smithay::desktop::space::SurfaceTree::from_surface(surface),
                         renderer,
                         cursor_pos_scaled,

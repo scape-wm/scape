@@ -1,10 +1,8 @@
-use crate::{
-    application_window::ApplicationWindow, focus::PointerFocusTarget, shell::SurfaceData,
-    state::State,
-};
+use crate::workspace_window::WorkspaceWindow;
+use crate::{focus::PointerFocusTarget, state::State};
 use smithay::input::touch::{GrabStartData as TouchGrabStartData, TouchGrab};
+use smithay::xwayland::xwm::ResizeEdge as X11ResizeEdge;
 use smithay::{
-    desktop::{space::SpaceElement, WindowSurface},
     input::pointer::{
         AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
         GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
@@ -15,13 +13,11 @@ use smithay::{
     utils::{IsAlive, Logical, Point, Serial, Size},
     wayland::{compositor::with_states, shell::xdg::SurfaceCachedState},
 };
-use smithay::{utils::Rectangle, xwayland::xwm::ResizeEdge as X11ResizeEdge};
-use std::cell::RefCell;
-use tracing::{error, warn};
+use tracing::warn;
 
 pub struct PointerMoveSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
-    pub window: ApplicationWindow,
+    pub window: WorkspaceWindow,
     pub space_name: String,
     pub initial_window_location: Point<i32, Logical>,
 }
@@ -162,7 +158,7 @@ impl PointerGrab<State> for PointerMoveSurfaceGrab {
 
 pub struct TouchMoveSurfaceGrab {
     pub start_data: TouchGrabStartData<State>,
-    pub window: ApplicationWindow,
+    pub window: WorkspaceWindow,
     pub initial_window_location: Point<i32, Logical>,
 }
 
@@ -342,7 +338,7 @@ pub enum ResizeState {
 
 pub struct PointerResizeSurfaceGrab {
     pub start_data: PointerGrabStartData<State>,
-    pub window: ApplicationWindow,
+    pub window: WorkspaceWindow,
     pub space_name: String,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
@@ -418,24 +414,9 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
 
         self.last_window_size = (new_window_width, new_window_height).into();
 
-        match &self.window.0.underlying_surface() {
-            WindowSurface::Wayland(xdg) => {
-                xdg.with_pending_state(|state| {
-                    state.states.set(xdg_toplevel::State::Resizing);
-                    state.size = Some(self.last_window_size);
-                });
-                xdg.send_pending_configure();
-            }
-            WindowSurface::X11(x11) => {
-                let Some(location) = data.spaces[&self.space_name].element_location(&self.window)
-                else {
-                    warn!("Surface to move was not found in the space");
-                    return;
-                };
-                let target = Rectangle::from_loc_and_size(location, self.last_window_size);
-                if let Err(e) = x11.configure(target) {
-                    error!("Unable to configure x11 surface: {e}");
-                }
+        if let Some(space_name) = data.space_of_window(&self.window) {
+            if let Some(location) = data.spaces[&space_name].element_location(&self.window) {
+                self.window.resize(location, self.last_window_size);
             }
         }
     }
@@ -462,124 +443,125 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
             handle.unset_grab(data, event.serial, event.time, true);
 
             // If toplevel is dead, we can't resize it, so we return early.
-            if !self.window.alive() {
-                return;
-            }
+            // if !self.window.alive() {
+            //     return;
+            // }
 
-            match &self.window.0.underlying_surface() {
-                WindowSurface::Wayland(xdg) => {
-                    xdg.with_pending_state(|state| {
-                        state.states.unset(xdg_toplevel::State::Resizing);
-                        state.size = Some(self.last_window_size);
-                    });
-                    xdg.send_pending_configure();
-                    if self.edges.intersects(ResizeEdge::TOP_LEFT) {
-                        let geometry = self.window.geometry();
-                        let Some(mut location) =
-                            data.spaces[&self.space_name].element_location(&self.window)
-                        else {
-                            warn!("Window not found in space: {:?}", self.window);
-                            return;
-                        };
-
-                        if self.edges.intersects(ResizeEdge::LEFT) {
-                            location.x = self.initial_window_location.x
-                                + (self.initial_window_size.w - geometry.size.w);
-                        }
-                        if self.edges.intersects(ResizeEdge::TOP) {
-                            location.y = self.initial_window_location.y
-                                + (self.initial_window_size.h - geometry.size.h);
-                        }
-
-                        data.spaces.get_mut(&self.space_name).unwrap().map_element(
-                            self.window.clone(),
-                            location,
-                            true,
-                        );
-                    }
-
-                    let Some(wl_surface) = &self.window.wl_surface() else {
-                        warn!("Wl_surface not found on window {:?}", self.window);
-                        return;
-                    };
-                    with_states(wl_surface, |states| {
-                        let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
-                        else {
-                            warn!("No surface data found on surface {:?}", wl_surface);
-                            return;
-                        };
-                        let Ok(mut data) = surface_data.try_borrow_mut() else {
-                            warn!(
-                                "Cannot borrow surface data as mut of surface {:?}",
-                                wl_surface
-                            );
-                            return;
-                        };
-                        if let ResizeState::Resizing(resize_data) = data.resize_state {
-                            data.resize_state =
-                                ResizeState::WaitingForFinalAck(resize_data, event.serial);
-                        } else {
-                            warn!("Invalid resize state: {:?}", data.resize_state);
-                        }
-                    });
-                }
-                WindowSurface::X11(x11) => {
-                    let Some(mut location) =
-                        data.spaces[&self.space_name].element_location(&self.window)
-                    else {
-                        warn!("Window {:?} not found in space", self.window);
-                        return;
-                    };
-                    if self.edges.intersects(ResizeEdge::TOP_LEFT) {
-                        let geometry = self.window.geometry();
-
-                        if self.edges.intersects(ResizeEdge::LEFT) {
-                            location.x = self.initial_window_location.x
-                                + (self.initial_window_size.w - geometry.size.w);
-                        }
-                        if self.edges.intersects(ResizeEdge::TOP) {
-                            location.y = self.initial_window_location.y
-                                + (self.initial_window_size.h - geometry.size.h);
-                        }
-
-                        data.spaces.get_mut(&self.space_name).unwrap().map_element(
-                            self.window.clone(),
-                            location,
-                            true,
-                        );
-                    }
-                    if let Err(e) = x11.configure(Rectangle::from_loc_and_size(
-                        location,
-                        self.last_window_size,
-                    )) {
-                        error!(
-                            "Unable to configure new location on X11 surface {:?}: {}",
-                            x11, e
-                        );
-                    }
-
-                    let Some(surface) = self.window.wl_surface() else {
-                        // X11 Window got unmapped, abort
-                        return;
-                    };
-                    with_states(&surface, |states| {
-                        let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
-                        else {
-                            warn!("No surface data found on surface {:?}", surface);
-                            return;
-                        };
-                        let Ok(mut data) = surface_data.try_borrow_mut() else {
-                            warn!("Cannot borrow surface data as mut of surface {:?}", surface);
-                            return;
-                        };
-                        if let ResizeState::Resizing(resize_data) = data.resize_state {
-                            data.resize_state = ResizeState::WaitingForCommit(resize_data);
-                        } else {
-                            warn!("Invalid resize state: {:?}", data.resize_state);
-                        }
-                    });
-                }
-            }
+            // TODO: Impl resizing using cursor
+            // match &self.window.0.underlying_surface() {
+            //     WindowSurface::Wayland(xdg) => {
+            //         xdg.with_pending_state(|state| {
+            //             state.states.unset(xdg_toplevel::State::Resizing);
+            //             state.size = Some(self.last_window_size);
+            //         });
+            //         xdg.send_pending_configure();
+            //         if self.edges.intersects(ResizeEdge::TOP_LEFT) {
+            //             let geometry = self.window.geometry();
+            //             let Some(mut location) =
+            //                 data.spaces[&self.space_name].element_location(&self.window)
+            //             else {
+            //                 warn!("Window not found in space: {:?}", self.window);
+            //                 return;
+            //             };
+            //
+            //             if self.edges.intersects(ResizeEdge::LEFT) {
+            //                 location.x = self.initial_window_location.x
+            //                     + (self.initial_window_size.w - geometry.size.w);
+            //             }
+            //             if self.edges.intersects(ResizeEdge::TOP) {
+            //                 location.y = self.initial_window_location.y
+            //                     + (self.initial_window_size.h - geometry.size.h);
+            //             }
+            //
+            //             data.spaces.get_mut(&self.space_name).unwrap().map_element(
+            //                 self.window.clone(),
+            //                 location,
+            //                 true,
+            //             );
+            //         }
+            //
+            //         let Some(wl_surface) = &self.window.wl_surface() else {
+            //             warn!("Wl_surface not found on window {:?}", self.window);
+            //             return;
+            //         };
+            //         with_states(wl_surface, |states| {
+            //             let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
+            //             else {
+            //                 warn!("No surface data found on surface {:?}", wl_surface);
+            //                 return;
+            //             };
+            //             let Ok(mut data) = surface_data.try_borrow_mut() else {
+            //                 warn!(
+            //                     "Cannot borrow surface data as mut of surface {:?}",
+            //                     wl_surface
+            //                 );
+            //                 return;
+            //             };
+            //             if let ResizeState::Resizing(resize_data) = data.resize_state {
+            //                 data.resize_state =
+            //                     ResizeState::WaitingForFinalAck(resize_data, event.serial);
+            //             } else {
+            //                 warn!("Invalid resize state: {:?}", data.resize_state);
+            //             }
+            //         });
+            //     }
+            //     WindowSurface::X11(x11) => {
+            //         let Some(mut location) =
+            //             data.spaces[&self.space_name].element_location(&self.window)
+            //         else {
+            //             warn!("Window {:?} not found in space", self.window);
+            //             return;
+            //         };
+            //         if self.edges.intersects(ResizeEdge::TOP_LEFT) {
+            //             let geometry = self.window.geometry();
+            //
+            //             if self.edges.intersects(ResizeEdge::LEFT) {
+            //                 location.x = self.initial_window_location.x
+            //                     + (self.initial_window_size.w - geometry.size.w);
+            //             }
+            //             if self.edges.intersects(ResizeEdge::TOP) {
+            //                 location.y = self.initial_window_location.y
+            //                     + (self.initial_window_size.h - geometry.size.h);
+            //             }
+            //
+            //             data.spaces.get_mut(&self.space_name).unwrap().map_element(
+            //                 self.window.clone(),
+            //                 location,
+            //                 true,
+            //             );
+            //         }
+            //         if let Err(e) = x11.configure(Rectangle::from_loc_and_size(
+            //             location,
+            //             self.last_window_size,
+            //         )) {
+            //             error!(
+            //                 "Unable to configure new location on X11 surface {:?}: {}",
+            //                 x11, e
+            //             );
+            //         }
+            //
+            //         let Some(surface) = self.window.wl_surface() else {
+            //             // X11 Window got unmapped, abort
+            //             return;
+            //         };
+            //         with_states(&surface, |states| {
+            //             let Some(surface_data) = states.data_map.get::<RefCell<SurfaceData>>()
+            //             else {
+            //                 warn!("No surface data found on surface {:?}", surface);
+            //                 return;
+            //             };
+            //             let Ok(mut data) = surface_data.try_borrow_mut() else {
+            //                 warn!("Cannot borrow surface data as mut of surface {:?}", surface);
+            //                 return;
+            //             };
+            //             if let ResizeState::Resizing(resize_data) = data.resize_state {
+            //                 data.resize_state = ResizeState::WaitingForCommit(resize_data);
+            //             } else {
+            //                 warn!("Invalid resize state: {:?}", data.resize_state);
+            //             }
+            //         });
+            //     }
+            // }
         }
     }
 
@@ -675,7 +657,7 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
 
 pub struct TouchResizeSurfaceGrab {
     pub start_data: TouchGrabStartData<State>,
-    pub window: ApplicationWindow,
+    pub window: WorkspaceWindow,
     pub edges: ResizeEdge,
     pub initial_window_location: Point<i32, Logical>,
     pub initial_window_size: Size<i32, Logical>,
@@ -709,209 +691,211 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         handle.unset_grab(data);
 
         // If toplevel is dead, we can't resize it, so we return early.
-        if !self.window.alive() {
-            return;
-        }
+        // if !self.window.alive() {
+        //     return;
+        // }
 
-        match self.window.0.underlying_surface() {
-            WindowSurface::Wayland(xdg) => {
-                xdg.with_pending_state(|state| {
-                    state.states.unset(xdg_toplevel::State::Resizing);
-                    state.size = Some(self.last_window_size);
-                });
-                xdg.send_pending_configure();
-                if self.edges.intersects(ResizeEdge::TOP_LEFT) {
-                    let geometry = self.window.geometry();
-                    // TODO: find out from which space this window is
-                    let mut location = data
-                        .spaces
-                        .values_mut()
-                        .next()
-                        .unwrap()
-                        .element_location(&self.window)
-                        .unwrap();
-
-                    if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x = self.initial_window_location.x
-                            + (self.initial_window_size.w - geometry.size.w);
-                    }
-                    if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y = self.initial_window_location.y
-                            + (self.initial_window_size.h - geometry.size.h);
-                    }
-
-                    // TODO: find out from which space this window is
-                    data.spaces.values_mut().next().unwrap().map_element(
-                        self.window.clone(),
-                        location,
-                        true,
-                    );
-                }
-
-                with_states(&self.window.wl_surface().unwrap(), |states| {
-                    let mut data = states
-                        .data_map
-                        .get::<RefCell<SurfaceData>>()
-                        .unwrap()
-                        .borrow_mut();
-                    if let ResizeState::Resizing(resize_data) = data.resize_state {
-                        data.resize_state =
-                            ResizeState::WaitingForFinalAck(resize_data, event.serial);
-                    } else {
-                        panic!("invalid resize state: {:?}", data.resize_state);
-                    }
-                });
-            }
-            WindowSurface::X11(x11) => {
-                // TODO: find out from which space this window is
-                let mut location = data
-                    .spaces
-                    .values_mut()
-                    .next()
-                    .unwrap()
-                    .element_location(&self.window)
-                    .unwrap();
-                if self.edges.intersects(ResizeEdge::TOP_LEFT) {
-                    let geometry = self.window.geometry();
-
-                    if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x = self.initial_window_location.x
-                            + (self.initial_window_size.w - geometry.size.w);
-                    }
-                    if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y = self.initial_window_location.y
-                            + (self.initial_window_size.h - geometry.size.h);
-                    }
-
-                    // TODO: find out from which space this window is
-                    data.spaces.values_mut().next().unwrap().map_element(
-                        self.window.clone(),
-                        location,
-                        true,
-                    );
-                }
-                x11.configure(Rectangle::from_loc_and_size(
-                    location,
-                    self.last_window_size,
-                ))
-                .unwrap();
-
-                let Some(surface) = self.window.wl_surface() else {
-                    // X11 Window got unmapped, abort
-                    return;
-                };
-                with_states(&surface, |states| {
-                    let mut data = states
-                        .data_map
-                        .get::<RefCell<SurfaceData>>()
-                        .unwrap()
-                        .borrow_mut();
-                    if let ResizeState::Resizing(resize_data) = data.resize_state {
-                        data.resize_state = ResizeState::WaitingForCommit(resize_data);
-                    } else {
-                        panic!("invalid resize state: {:?}", data.resize_state);
-                    }
-                });
-            }
-        }
+        // TODO: Impl resize using cursor
+        // match self.window.0.underlying_surface() {
+        //     WindowSurface::Wayland(xdg) => {
+        //         xdg.with_pending_state(|state| {
+        //             state.states.unset(xdg_toplevel::State::Resizing);
+        //             state.size = Some(self.last_window_size);
+        //         });
+        //         xdg.send_pending_configure();
+        //         if self.edges.intersects(ResizeEdge::TOP_LEFT) {
+        //             let geometry = self.window.geometry();
+        //             // TODO: find out from which space this window is
+        //             let mut location = data
+        //                 .spaces
+        //                 .values_mut()
+        //                 .next()
+        //                 .unwrap()
+        //                 .element_location(&self.window)
+        //                 .unwrap();
+        //
+        //             if self.edges.intersects(ResizeEdge::LEFT) {
+        //                 location.x = self.initial_window_location.x
+        //                     + (self.initial_window_size.w - geometry.size.w);
+        //             }
+        //             if self.edges.intersects(ResizeEdge::TOP) {
+        //                 location.y = self.initial_window_location.y
+        //                     + (self.initial_window_size.h - geometry.size.h);
+        //             }
+        //
+        //             // TODO: find out from which space this window is
+        //             data.spaces.values_mut().next().unwrap().map_element(
+        //                 self.window.clone(),
+        //                 location,
+        //                 true,
+        //             );
+        //         }
+        //
+        //         with_states(&self.window.wl_surface().unwrap(), |states| {
+        //             let mut data = states
+        //                 .data_map
+        //                 .get::<RefCell<SurfaceData>>()
+        //                 .unwrap()
+        //                 .borrow_mut();
+        //             if let ResizeState::Resizing(resize_data) = data.resize_state {
+        //                 data.resize_state =
+        //                     ResizeState::WaitingForFinalAck(resize_data, event.serial);
+        //             } else {
+        //                 panic!("invalid resize state: {:?}", data.resize_state);
+        //             }
+        //         });
+        //     }
+        //     WindowSurface::X11(x11) => {
+        //         // TODO: find out from which space this window is
+        //         let mut location = data
+        //             .spaces
+        //             .values_mut()
+        //             .next()
+        //             .unwrap()
+        //             .element_location(&self.window)
+        //             .unwrap();
+        //         if self.edges.intersects(ResizeEdge::TOP_LEFT) {
+        //             let geometry = self.window.geometry();
+        //
+        //             if self.edges.intersects(ResizeEdge::LEFT) {
+        //                 location.x = self.initial_window_location.x
+        //                     + (self.initial_window_size.w - geometry.size.w);
+        //             }
+        //             if self.edges.intersects(ResizeEdge::TOP) {
+        //                 location.y = self.initial_window_location.y
+        //                     + (self.initial_window_size.h - geometry.size.h);
+        //             }
+        //
+        //             // TODO: find out from which space this window is
+        //             data.spaces.values_mut().next().unwrap().map_element(
+        //                 self.window.clone(),
+        //                 location,
+        //                 true,
+        //             );
+        //         }
+        //         x11.configure(Rectangle::from_loc_and_size(
+        //             location,
+        //             self.last_window_size,
+        //         ))
+        //         .unwrap();
+        //
+        //         let Some(surface) = self.window.wl_surface() else {
+        //             // X11 Window got unmapped, abort
+        //             return;
+        //         };
+        //         with_states(&surface, |states| {
+        //             let mut data = states
+        //                 .data_map
+        //                 .get::<RefCell<SurfaceData>>()
+        //                 .unwrap()
+        //                 .borrow_mut();
+        //             if let ResizeState::Resizing(resize_data) = data.resize_state {
+        //                 data.resize_state = ResizeState::WaitingForCommit(resize_data);
+        //             } else {
+        //                 panic!("invalid resize state: {:?}", data.resize_state);
+        //             }
+        //         });
+        //     }
+        // }
     }
 
     fn motion(
         &mut self,
-        data: &mut State,
-        handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
+        _data: &mut State,
+        _handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
         _focus: Option<(
             <State as smithay::input::SeatHandler>::TouchFocus,
             Point<i32, Logical>,
         )>,
-        event: &smithay::input::touch::MotionEvent,
+        _event: &smithay::input::touch::MotionEvent,
         _seq: Serial,
     ) {
-        if event.slot != self.start_data.slot {
-            return;
-        }
+        // if event.slot != self.start_data.slot {
+        //     return;
+        // }
 
         // It is impossible to get `min_size` and `max_size` of dead toplevel, so we return early.
-        if !self.window.alive() {
-            handle.unset_grab(data);
-            return;
-        }
+        // if !self.window.alive() {
+        //     handle.unset_grab(data);
+        //     return;
+        // }
 
-        let (mut dx, mut dy) = (event.location - self.start_data.location).into();
-
-        let mut new_window_width = self.initial_window_size.w;
-        let mut new_window_height = self.initial_window_size.h;
-
-        let left_right = ResizeEdge::LEFT | ResizeEdge::RIGHT;
-        let top_bottom = ResizeEdge::TOP | ResizeEdge::BOTTOM;
-
-        if self.edges.intersects(left_right) {
-            if self.edges.intersects(ResizeEdge::LEFT) {
-                dx = -dx;
-            }
-
-            new_window_width = (self.initial_window_size.w as f64 + dx) as i32;
-        }
-
-        if self.edges.intersects(top_bottom) {
-            if self.edges.intersects(ResizeEdge::TOP) {
-                dy = -dy;
-            }
-
-            new_window_height = (self.initial_window_size.h as f64 + dy) as i32;
-        }
-
-        let (min_size, max_size) = if let Some(surface) = self.window.wl_surface() {
-            with_states(&surface, |states| {
-                let data = states.cached_state.current::<SurfaceCachedState>();
-                (data.min_size, data.max_size)
-            })
-        } else {
-            ((0, 0).into(), (0, 0).into())
-        };
-
-        let min_width = min_size.w.max(1);
-        let min_height = min_size.h.max(1);
-        let max_width = if max_size.w == 0 {
-            i32::max_value()
-        } else {
-            max_size.w
-        };
-        let max_height = if max_size.h == 0 {
-            i32::max_value()
-        } else {
-            max_size.h
-        };
-
-        new_window_width = new_window_width.max(min_width).min(max_width);
-        new_window_height = new_window_height.max(min_height).min(max_height);
-
-        self.last_window_size = (new_window_width, new_window_height).into();
-
-        match self.window.0.underlying_surface() {
-            WindowSurface::Wayland(xdg) => {
-                xdg.with_pending_state(|state| {
-                    state.states.set(xdg_toplevel::State::Resizing);
-                    state.size = Some(self.last_window_size);
-                });
-                xdg.send_pending_configure();
-            }
-            WindowSurface::X11(x11) => {
-                // TODO: find from which space this window is
-                let location = data
-                    .spaces
-                    .values_mut()
-                    .next()
-                    .unwrap()
-                    .element_location(&self.window)
-                    .unwrap();
-                x11.configure(Rectangle::from_loc_and_size(
-                    location,
-                    self.last_window_size,
-                ))
-                .unwrap();
-            }
-        }
+        // TODO: Impl resize using cursor
+        // let (mut dx, mut dy) = (event.location - self.start_data.location).into();
+        //
+        // let mut new_window_width = self.initial_window_size.w;
+        // let mut new_window_height = self.initial_window_size.h;
+        //
+        // let left_right = ResizeEdge::LEFT | ResizeEdge::RIGHT;
+        // let top_bottom = ResizeEdge::TOP | ResizeEdge::BOTTOM;
+        //
+        // if self.edges.intersects(left_right) {
+        //     if self.edges.intersects(ResizeEdge::LEFT) {
+        //         dx = -dx;
+        //     }
+        //
+        //     new_window_width = (self.initial_window_size.w as f64 + dx) as i32;
+        // }
+        //
+        // if self.edges.intersects(top_bottom) {
+        //     if self.edges.intersects(ResizeEdge::TOP) {
+        //         dy = -dy;
+        //     }
+        //
+        //     new_window_height = (self.initial_window_size.h as f64 + dy) as i32;
+        // }
+        //
+        // let (min_size, max_size) = if let Some(surface) = self.window.wl_surface() {
+        //     with_states(&surface, |states| {
+        //         let data = states.cached_state.current::<SurfaceCachedState>();
+        //         (data.min_size, data.max_size)
+        //     })
+        // } else {
+        //     ((0, 0).into(), (0, 0).into())
+        // };
+        //
+        // let min_width = min_size.w.max(1);
+        // let min_height = min_size.h.max(1);
+        // let max_width = if max_size.w == 0 {
+        //     i32::max_value()
+        // } else {
+        //     max_size.w
+        // };
+        // let max_height = if max_size.h == 0 {
+        //     i32::max_value()
+        // } else {
+        //     max_size.h
+        // };
+        //
+        // new_window_width = new_window_width.max(min_width).min(max_width);
+        // new_window_height = new_window_height.max(min_height).min(max_height);
+        //
+        // self.last_window_size = (new_window_width, new_window_height).into();
+        //
+        // match self.window.0.underlying_surface() {
+        //     WindowSurface::Wayland(xdg) => {
+        //         xdg.with_pending_state(|state| {
+        //             state.states.set(xdg_toplevel::State::Resizing);
+        //             state.size = Some(self.last_window_size);
+        //         });
+        //         xdg.send_pending_configure();
+        //     }
+        //     WindowSurface::X11(x11) => {
+        //         // TODO: find from which space this window is
+        //         let location = data
+        //             .spaces
+        //             .values_mut()
+        //             .next()
+        //             .unwrap()
+        //             .element_location(&self.window)
+        //             .unwrap();
+        //         x11.configure(Rectangle::from_loc_and_size(
+        //             location,
+        //             self.last_window_size,
+        //         ))
+        //         .unwrap();
+        //     }
+        // }
     }
 
     fn frame(

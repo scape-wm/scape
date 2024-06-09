@@ -50,10 +50,7 @@ impl XdgActivationHandler for State {
                 .find(|window| window.wl_surface().map(|s| s == surface).unwrap_or(false))
                 .cloned();
             if let Some(window) = w {
-                self.spaces
-                    .get_mut(&space_name)
-                    .unwrap()
-                    .raise_element(&window, true);
+                self.focus_window(window, &space_name);
             }
         }
     }

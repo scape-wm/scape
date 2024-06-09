@@ -1,8 +1,9 @@
-use crate::application_window::ApplicationWindow;
 use crate::cursor::CursorState;
 use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::protocols::wlr_screencopy::Screencopy;
+use crate::render::GlMultiRenderer;
 use crate::state::{ActiveSpace, BackendData, SessionLock, SurfaceDmabufFeedback};
+use crate::workspace_window::WorkspaceWindow;
 use crate::{
     drawing::*,
     render::*,
@@ -14,6 +15,7 @@ use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
 use smithay::backend::input::InputEvent;
 use smithay::backend::renderer::element::RenderElement;
+use smithay::backend::renderer::glow::GlowRenderer;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::multigpu::MultiTexture;
 #[cfg(feature = "debug")]
@@ -39,15 +41,15 @@ use smithay::{
         allocator::{dmabuf::Dmabuf, Fourcc},
         drm::{
             compositor::DrmCompositor, CreateDrmNodeError, DrmDevice, DrmDeviceFd, DrmError,
-            DrmEvent, DrmEventMetadata, DrmNode, GbmBufferedSurface, NodeType,
+            DrmEvent, DrmEventMetadata, DrmNode, NodeType,
         },
         egl::{self, EGLDevice, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             damage::Error as OutputDamageTrackerError,
             element::AsRenderElements,
-            gles::{GlesRenderer, GlesTexture},
-            multigpu::{gbm::GbmGlesBackend, GpuManager, MultiRenderer},
+            gles::GlesTexture,
+            multigpu::{gbm::GbmGlesBackend, GpuManager},
             Bind, DebugFlags, ImportDma, Renderer,
         },
         session::{
@@ -111,13 +113,6 @@ const SUPPORTED_FORMATS: &[Fourcc] = &[
 ];
 const SUPPORTED_FORMATS_8BIT_ONLY: &[Fourcc] = &[Fourcc::Abgr8888, Fourcc::Argb8888];
 
-type UdevRenderer<'a> = MultiRenderer<
-    'a,
-    'a,
-    GbmGlesBackend<GlesRenderer, DrmDeviceFd>,
-    GbmGlesBackend<GlesRenderer, DrmDeviceFd>,
->;
-
 #[derive(Debug, PartialEq)]
 pub struct UdevOutputId {
     pub device_id: DrmNode,
@@ -128,7 +123,7 @@ pub struct UdevData {
     pub session: LibSeatSession,
     dmabuf_state: Option<(DmabufState, DmabufGlobal)>,
     primary_gpu: DrmNode,
-    gpus: GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
+    gpus: GpuManager<GbmGlesBackend<GlowRenderer, DrmDeviceFd>>,
     pub backends: HashMap<DrmNode, DeviceData>,
     #[cfg(feature = "debug")]
     fps_texture: Option<MultiTexture>,
@@ -577,9 +572,6 @@ impl DrmLeaseHandler for State {
 }
 delegate_drm_lease!(State);
 
-pub type RenderSurface =
-    GbmBufferedSurface<GbmAllocator<DrmDeviceFd>, Option<OutputPresentationFeedback>>;
-
 pub type GbmDrmCompositor = DrmCompositor<
     GbmAllocator<DrmDeviceFd>,
     GbmDevice<DrmDeviceFd>,
@@ -741,7 +733,7 @@ enum DeviceAddError {
 fn get_surface_dmabuf_feedback(
     primary_gpu: DrmNode,
     render_node: DrmNode,
-    gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
+    gpus: &mut GpuManager<GbmGlesBackend<GlowRenderer, DrmDeviceFd>>,
     composition: &SurfaceComposition,
 ) -> Option<DrmSurfaceDmabufFeedback> {
     let primary_formats = gpus
@@ -1593,8 +1585,8 @@ pub fn schedule_initial_render(
 #[cfg_attr(feature = "profiling", profiling::function)]
 fn render_surface<'a>(
     surface: &'a mut SurfaceData,
-    renderer: &mut UdevRenderer<'a>,
-    space: &Space<ApplicationWindow>,
+    renderer: &mut GlMultiRenderer<'a>,
+    space: &Space<WorkspaceWindow>,
     output: &Output,
     pointer_location: Point<f64, Logical>,
     cursor_state: &mut CursorState,
@@ -1656,13 +1648,15 @@ fn render_surface<'a>(
         {
             if let Some(wl_surface) = dnd_icon.as_ref() {
                 if wl_surface.alive() {
-                    custom_elements.extend(AsRenderElements::<UdevRenderer<'a>>::render_elements(
-                        &SurfaceTree::from_surface(wl_surface),
-                        renderer,
-                        cursor_pos_scaled,
-                        scale,
-                        1.0,
-                    ));
+                    custom_elements.extend(
+                        AsRenderElements::<GlMultiRenderer<'a>>::render_elements(
+                            &SurfaceTree::from_surface(wl_surface),
+                            renderer,
+                            cursor_pos_scaled,
+                            scale,
+                            1.0,
+                        ),
+                    );
                 }
             }
         }
@@ -1792,7 +1786,7 @@ fn render_surface<'a>(
 
 fn initial_render(
     surface: &mut SurfaceData,
-    renderer: &mut UdevRenderer<'_>,
+    renderer: &mut GlMultiRenderer<'_>,
 ) -> Result<(), SwapBuffersError> {
     surface
         .compositor

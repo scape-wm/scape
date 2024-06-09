@@ -225,6 +225,17 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "toggle_debug_ui",
+        lua.create_function(move |_, ()| {
+            lh.insert_idle(move |state| {
+                state.toggle_debug_ui();
+            });
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {

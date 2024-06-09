@@ -1,6 +1,7 @@
 use crate::focus::KeyboardFocusTarget;
 use crate::grabs::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeData, ResizeState};
-use crate::shell::{FullscreenSurface, SurfaceData};
+use crate::shell::SurfaceData;
+use crate::workspace_window::WorkspaceWindow;
 use crate::{application_window::ApplicationWindow, State};
 use smithay::desktop::Window;
 use smithay::{
@@ -49,6 +50,7 @@ impl XwmHandler for State {
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {
         warn!("new window requested");
     }
+
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {
         warn!("new override redirect window requested");
     }
@@ -64,7 +66,9 @@ impl XwmHandler for State {
             return;
         }
 
-        let window = ApplicationWindow(Window::new_x11_window(x11_surface.clone()));
+        let window = WorkspaceWindow::from(ApplicationWindow(Window::new_x11_window(
+            x11_surface.clone(),
+        )));
         // TODO: Handle multiple spaces
         let space_name = self.spaces.keys().next().unwrap().clone();
         let rect = self.place_window(&space_name, &window, true, None, false);
@@ -83,7 +87,7 @@ impl XwmHandler for State {
         let space_name = self.spaces.keys().next().unwrap().clone();
 
         self.spaces.get_mut(&space_name).unwrap().map_element(
-            ApplicationWindow(Window::new_x11_window(x11_surface)),
+            WorkspaceWindow::from(ApplicationWindow(Window::new_x11_window(x11_surface))),
             // TODO: Check why wired starts with a crazy high value
             if location.x > 10_000 {
                 (0, 0)
@@ -200,15 +204,6 @@ impl XwmHandler for State {
         x11_surface.set_fullscreen(true).unwrap();
         window.set_ssd(false);
         x11_surface.configure(geometry).unwrap();
-        output
-            .user_data()
-            .insert_if_missing(FullscreenSurface::default);
-        output
-            .user_data()
-            .get::<FullscreenSurface>()
-            .unwrap()
-            .set(window.clone());
-        trace!("Fullscreening: {:?}", window);
     }
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, x11_surface: X11Surface) {
@@ -218,26 +213,11 @@ impl XwmHandler for State {
         let Some((window, space_name)) = self.window_and_space_for_surface(&wl_surface) else {
             return;
         };
-        let space = self.spaces.get_mut(&space_name).unwrap();
+        // let space = self.spaces.get_mut(&space_name).unwrap();
 
         x11_surface.set_fullscreen(false).unwrap();
         window.set_ssd(!x11_surface.is_decorated());
-        if let Some(output) = space.outputs().find(|o| {
-            o.user_data()
-                .get::<FullscreenSurface>()
-                .and_then(|f| f.get())
-                .map(|w| w == window)
-                .unwrap_or(false)
-        }) {
-            trace!("Unfullscreening: {:?}", window);
-            output
-                .user_data()
-                .get::<FullscreenSurface>()
-                .unwrap()
-                .clear();
-            x11_surface.configure(space.element_bbox(&window)).unwrap();
-            self.backend_data.reset_buffers(output);
-        }
+        self.place_window(&space_name, &window, false, None, true);
     }
 
     fn resize_request(
@@ -293,15 +273,11 @@ impl XwmHandler for State {
         self.move_request_x11(&window)
     }
 
-    fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
+    fn allow_selection_access(&mut self, _xwm: XwmId, _selection: SelectionTarget) -> bool {
         if let Some(keyboard) = self.seat.as_ref().unwrap().get_keyboard() {
             // check that an X11 window is focused
             if let Some(KeyboardFocusTarget::Window(window)) = keyboard.current_focus() {
-                if let Some(surface) = window.x11_surface() {
-                    if surface.xwm_id().unwrap() == xwm {
-                        return true;
-                    }
-                }
+                return window.is_x11();
             }
         }
         false

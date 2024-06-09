@@ -64,9 +64,11 @@ impl State {
                 }
             }
             Action::Close => {
-                let (_, space) = self.spaces.iter().next().unwrap();
+                let (_, space) = self.spaces.iter_mut().next().unwrap();
                 if let Some(window) = space.elements().last().cloned() {
-                    window.close();
+                    if window.close() {
+                        space.unmap_elem(&window);
+                    }
                 }
             }
             Action::Tab { index } => {

@@ -1,7 +1,6 @@
-use crate::application_window::ApplicationWindow;
-use crate::grabs::ResizeState;
-use crate::state::ActiveSpace;
-use crate::{ClientState, State};
+use crate::{
+    grabs::ResizeState, state::ActiveSpace, workspace_window::WorkspaceWindow, ClientState, State,
+};
 use smithay::xwayland::X11Wm;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
@@ -31,23 +30,6 @@ use smithay::{
 };
 use std::cell::RefCell;
 use tracing::{info, warn};
-
-#[derive(Default)]
-pub struct FullscreenSurface(RefCell<Option<ApplicationWindow>>);
-
-impl FullscreenSurface {
-    pub fn set(&self, window: ApplicationWindow) {
-        *self.0.borrow_mut() = Some(window);
-    }
-
-    pub fn get(&self) -> Option<ApplicationWindow> {
-        self.0.borrow().clone()
-    }
-
-    pub fn clear(&self) -> Option<ApplicationWindow> {
-        self.0.borrow_mut().take()
-    }
-}
 
 impl BufferHandler for State {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
@@ -125,7 +107,7 @@ impl CompositorHandler for State {
             }
 
             if let Some((window, _)) = self.window_and_space_for_surface(&root) {
-                window.0.on_commit();
+                window.on_commit();
             }
         }
         self.popups.commit(surface);
@@ -150,7 +132,7 @@ impl State {
     pub fn window_and_space_for_surface(
         &self,
         surface: &WlSurface,
-    ) -> Option<(ApplicationWindow, String)> {
+    ) -> Option<(WorkspaceWindow, String)> {
         self.spaces
             .iter()
             .map(|(space_name, space)| {
@@ -160,6 +142,15 @@ impl State {
                     .map(|window| (window.to_owned(), space_name.clone()))
             })
             .next()?
+    }
+
+    pub fn space_of_window(&self, window: &WorkspaceWindow) -> Option<String> {
+        self.spaces.iter().find_map(|(space_name, space)| {
+            space
+                .elements()
+                .find(|w| *w == window)
+                .map(|_| space_name.clone())
+        })
     }
 }
 
@@ -171,7 +162,7 @@ pub struct SurfaceData {
 
 fn ensure_initial_configure(
     surface: &WlSurface,
-    space: &Space<ApplicationWindow>,
+    space: &Space<WorkspaceWindow>,
     popups: &mut PopupManager,
 ) {
     with_surface_tree_upward(
@@ -192,7 +183,7 @@ fn ensure_initial_configure(
         .cloned()
     {
         // send the initial configure if relevant
-        if let Some(toplevel) = window.0.toplevel() {
+        if let Some(toplevel) = window.toplevel() {
             let initial_configure_sent = with_states(surface, |states| {
                 if let Ok(data) = states
                     .data_map

@@ -1,5 +1,5 @@
 use crate::action::Action;
-use crate::{focus::PointerFocusTarget, shell::FullscreenSurface, State};
+use crate::{focus::PointerFocusTarget, State};
 use mlua::Function as LuaFunction;
 use smithay::backend::input::GestureSwipeUpdateEvent;
 use smithay::backend::input::{GesturePinchUpdateEvent, TouchEvent};
@@ -326,29 +326,6 @@ impl State {
                     .1
                     .output_geometry(output)
                     .unwrap();
-                if let Some(window) = output
-                    .user_data()
-                    .get::<FullscreenSurface>()
-                    .and_then(|f| f.get())
-                {
-                    if let Some((_, _)) = window.surface_under(
-                        pointer_location - output_geo.loc.to_f64(),
-                        WindowSurfaceType::ALL,
-                    ) {
-                        if let Some(surface) = window.0.x11_surface() {
-                            if let Some(ref mut xwayland_state) = &mut self.xwayland_state {
-                                xwayland_state
-                                    .wm
-                                    .as_mut()
-                                    .unwrap()
-                                    .raise_window(surface)
-                                    .unwrap();
-                            }
-                        }
-                        keyboard.set_focus(self, Some(window.into()), serial);
-                        return;
-                    }
-                }
 
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
@@ -384,7 +361,7 @@ impl State {
                     .unwrap()
                     .1
                     .raise_element(&window, true);
-                if let Some(surface) = window.0.x11_surface() {
+                if let Some(surface) = window.x11_surface() {
                     let Some(ref mut xwayland_state) = &mut self.xwayland_state else {
                         return;
                     };
@@ -446,14 +423,7 @@ impl State {
         let layers = layer_map_for_output(output);
 
         let mut under = None;
-        if let Some((surface, loc)) = output
-            .user_data()
-            .get::<FullscreenSurface>()
-            .and_then(|f| f.get())
-            .and_then(|w| w.surface_under(pos - output_geo.loc.to_f64(), WindowSurfaceType::ALL))
-        {
-            under = Some((surface, loc + output_geo.loc));
-        } else if let Some(focus) = layers
+        if let Some(focus) = layers
             .layer_under(WlrLayer::Overlay, pos)
             .or_else(|| layers.layer_under(WlrLayer::Top, pos))
             .and_then(|layer| {

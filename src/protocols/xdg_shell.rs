@@ -3,7 +3,8 @@ use crate::grabs::{
     PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeData, ResizeEdge, ResizeState,
     TouchMoveSurfaceGrab, TouchResizeSurfaceGrab,
 };
-use crate::shell::{FullscreenSurface, SurfaceData};
+use crate::shell::SurfaceData;
+use crate::workspace_window::WorkspaceWindow;
 use crate::{application_window::ApplicationWindow, state::State};
 use smithay::delegate_xdg_shell;
 use smithay::desktop::Space;
@@ -36,7 +37,7 @@ use smithay::{
     },
 };
 use std::cell::RefCell;
-use tracing::{trace, warn};
+use tracing::warn;
 
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -47,7 +48,9 @@ impl XdgShellHandler for State {
         // Do not send a configure here, the initial configure
         // of a xdg_surface has to be sent during the commit if
         // the surface is not already configured
-        let window = ApplicationWindow(Window::new_wayland_window(surface.clone()));
+        let window = WorkspaceWindow::from(ApplicationWindow(Window::new_wayland_window(
+            surface.clone(),
+        )));
         // TODO: Handle multiple spaces
         self.place_window(
             &self.spaces.keys().next().unwrap().clone(),
@@ -319,7 +322,7 @@ impl XdgShellHandler for State {
             // independently from its buffer size
             let wl_surface = surface.wl_surface();
 
-            let Some((window, space_name)) = self.window_and_space_for_surface(wl_surface) else {
+            let Some((_window, space_name)) = self.window_and_space_for_surface(wl_surface) else {
                 return;
             };
             let Some(space) = self.spaces.get_mut(&space_name) else {
@@ -343,15 +346,6 @@ impl XdgShellHandler for State {
                     state.size = Some(geometry.size);
                     state.fullscreen_output = wl_output;
                 });
-                output
-                    .user_data()
-                    .insert_if_missing(FullscreenSurface::default);
-                output
-                    .user_data()
-                    .get::<FullscreenSurface>()
-                    .unwrap()
-                    .set(window.clone());
-                trace!("Fullscreening: {:?}", window);
             }
         }
         // The protocol demands us to always reply with a configure,
@@ -375,11 +369,7 @@ impl XdgShellHandler for State {
         });
         if let Some(output) = ret {
             let output = Output::from_resource(&output).unwrap();
-            if let Some(fullscreen) = output.user_data().get::<FullscreenSurface>() {
-                trace!("Unfullscreening: {:?}", fullscreen.get());
-                fullscreen.clear();
-                self.backend_data.reset_buffers(&output);
-            }
+            self.backend_data.reset_buffers(&output);
         }
         surface.send_pending_configure();
     }
@@ -500,7 +490,7 @@ impl XdgShellHandler for State {
 fn fullscreen_output_geometry(
     wl_surface: &WlSurface,
     wl_output: Option<&wl_output::WlOutput>,
-    space: &mut smithay::desktop::Space<ApplicationWindow>,
+    space: &mut Space<WorkspaceWindow>,
 ) -> Option<Rectangle<i32, Logical>> {
     // First test if a specific output has been requested
     // if the requested output is not found ignore the request
@@ -696,7 +686,7 @@ impl State {
 delegate_xdg_shell!(State);
 
 /// Should be called on `WlSurface::commit` of xdg toplevel
-fn handle_toplevel_commit(space: &mut Space<ApplicationWindow>, surface: &WlSurface) -> Option<()> {
+fn handle_toplevel_commit(space: &mut Space<WorkspaceWindow>, surface: &WlSurface) -> Option<()> {
     let window = space
         .elements()
         .find(|w| w.wl_surface().as_ref() == Some(surface))

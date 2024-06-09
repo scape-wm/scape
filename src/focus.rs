@@ -23,6 +23,8 @@ use smithay::{input::touch::TouchTarget, xwayland::X11Surface};
 
 use crate::{
     application_window::{ApplicationWindow, SSD},
+    egui_window::EguiWindow,
+    workspace_window::WorkspaceWindow,
     State,
 };
 
@@ -32,6 +34,7 @@ pub enum KeyboardFocusTarget {
     LayerSurface(LayerSurface),
     Popup(PopupKind),
     LockScreen(LockSurface),
+    Egui(EguiWindow),
 }
 
 impl IsAlive for KeyboardFocusTarget {
@@ -41,6 +44,7 @@ impl IsAlive for KeyboardFocusTarget {
             KeyboardFocusTarget::LayerSurface(l) => l.alive(),
             KeyboardFocusTarget::Popup(p) => p.alive(),
             KeyboardFocusTarget::LockScreen(l) => l.alive(),
+            KeyboardFocusTarget::Egui(w) => w.alive(),
         }
     }
 }
@@ -50,6 +54,7 @@ pub enum PointerFocusTarget {
     WlSurface(WlSurface),
     X11Surface(X11Surface),
     SSD(SSD),
+    Egui(EguiWindow),
 }
 
 impl IsAlive for PointerFocusTarget {
@@ -58,6 +63,7 @@ impl IsAlive for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => w.alive(),
             PointerFocusTarget::X11Surface(w) => w.alive(),
             PointerFocusTarget::SSD(x) => x.alive(),
+            PointerFocusTarget::Egui(w) => w.alive(),
         }
     }
 }
@@ -74,6 +80,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::enter(w, seat, data, event),
             PointerFocusTarget::X11Surface(w) => PointerTarget::enter(w, seat, data, event),
             PointerFocusTarget::SSD(w) => PointerTarget::enter(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::enter(e, seat, data, event),
         }
     }
 
@@ -82,6 +89,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::motion(w, seat, data, event),
             PointerFocusTarget::X11Surface(w) => PointerTarget::motion(w, seat, data, event),
             PointerFocusTarget::SSD(w) => PointerTarget::motion(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::motion(e, seat, data, event),
         }
     }
 
@@ -94,6 +102,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::relative_motion(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::relative_motion(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::relative_motion(e, seat, data, event),
         }
     }
 
@@ -102,6 +111,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::button(w, seat, data, event),
             PointerFocusTarget::X11Surface(w) => PointerTarget::button(w, seat, data, event),
             PointerFocusTarget::SSD(w) => PointerTarget::button(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::button(e, seat, data, event),
         }
     }
     fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {
@@ -109,6 +119,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::axis(w, seat, data, frame),
             PointerFocusTarget::X11Surface(w) => PointerTarget::axis(w, seat, data, frame),
             PointerFocusTarget::SSD(w) => PointerTarget::axis(w, seat, data, frame),
+            PointerFocusTarget::Egui(e) => PointerTarget::axis(e, seat, data, frame),
         }
     }
 
@@ -117,6 +128,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::frame(w, seat, data),
             PointerFocusTarget::X11Surface(w) => PointerTarget::frame(w, seat, data),
             PointerFocusTarget::SSD(w) => PointerTarget::frame(w, seat, data),
+            PointerFocusTarget::Egui(e) => PointerTarget::frame(e, seat, data),
         }
     }
 
@@ -125,6 +137,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => PointerTarget::leave(w, seat, data, serial, time),
             PointerFocusTarget::X11Surface(w) => PointerTarget::leave(w, seat, data, serial, time),
             PointerFocusTarget::SSD(w) => PointerTarget::leave(w, seat, data, serial, time),
+            PointerFocusTarget::Egui(e) => PointerTarget::leave(e, seat, data, serial, time),
         }
     }
 
@@ -142,6 +155,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_swipe_begin(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_swipe_begin(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_swipe_begin(e, seat, data, event),
         }
     }
 
@@ -159,6 +173,9 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_swipe_update(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_swipe_update(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => {
+                PointerTarget::gesture_swipe_update(e, seat, data, event)
+            }
         }
     }
 
@@ -176,6 +193,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_swipe_end(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_swipe_end(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_swipe_end(e, seat, data, event),
         }
     }
 
@@ -193,6 +211,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_pinch_begin(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_pinch_begin(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_pinch_begin(e, seat, data, event),
         }
     }
 
@@ -210,6 +229,9 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_pinch_update(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_pinch_update(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => {
+                PointerTarget::gesture_pinch_update(e, seat, data, event)
+            }
         }
     }
 
@@ -227,6 +249,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_pinch_end(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_pinch_end(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_pinch_end(e, seat, data, event),
         }
     }
 
@@ -244,6 +267,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_hold_begin(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_hold_begin(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_hold_begin(e, seat, data, event),
         }
     }
 
@@ -256,6 +280,7 @@ impl PointerTarget<State> for PointerFocusTarget {
                 PointerTarget::gesture_hold_end(w, seat, data, event)
             }
             PointerFocusTarget::SSD(w) => PointerTarget::gesture_hold_end(w, seat, data, event),
+            PointerFocusTarget::Egui(e) => PointerTarget::gesture_hold_end(e, seat, data, event),
         }
     }
 }
@@ -284,6 +309,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockScreen(l) => {
                 KeyboardTarget::enter(l.wl_surface(), seat, data, keys, serial)
             }
+            KeyboardFocusTarget::Egui(e) => KeyboardTarget::enter(e, seat, data, keys, serial),
         }
     }
 
@@ -304,6 +330,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockScreen(l) => {
                 KeyboardTarget::leave(l.wl_surface(), seat, data, serial)
             }
+            KeyboardFocusTarget::Egui(e) => KeyboardTarget::leave(e, seat, data, serial),
         }
     }
 
@@ -334,6 +361,9 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockScreen(l) => {
                 KeyboardTarget::key(l.wl_surface(), seat, data, key, state, serial, time)
             }
+            KeyboardFocusTarget::Egui(e) => {
+                KeyboardTarget::key(e, seat, data, key, state, serial, time)
+            }
         }
     }
 
@@ -362,6 +392,9 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockScreen(l) => {
                 KeyboardTarget::modifiers(l.wl_surface(), seat, data, modifiers, serial)
             }
+            KeyboardFocusTarget::Egui(e) => {
+                KeyboardTarget::modifiers(e, seat, data, modifiers, serial)
+            }
         }
     }
 }
@@ -378,6 +411,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::down(w, seat, data, event, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::down(w, seat, data, event, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::down(w, seat, data, event, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -392,6 +427,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::up(w, seat, data, event, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::up(w, seat, data, event, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::up(w, seat, data, event, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -406,6 +443,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::motion(w, seat, data, event, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::motion(w, seat, data, event, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::motion(w, seat, data, event, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -414,6 +453,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::frame(w, seat, data, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::frame(w, seat, data, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::frame(w, seat, data, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -422,6 +463,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::cancel(w, seat, data, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::cancel(w, seat, data, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::cancel(w, seat, data, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -436,6 +479,8 @@ impl TouchTarget<State> for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => TouchTarget::shape(w, seat, data, event, seq),
             PointerFocusTarget::X11Surface(w) => TouchTarget::shape(w, seat, data, event, seq),
             PointerFocusTarget::SSD(w) => TouchTarget::shape(w, seat, data, event, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 
@@ -452,6 +497,8 @@ impl TouchTarget<State> for PointerFocusTarget {
                 TouchTarget::orientation(w, seat, data, event, seq)
             }
             PointerFocusTarget::SSD(w) => TouchTarget::orientation(w, seat, data, event, seq),
+            // TODO: Impl touch for egui state
+            PointerFocusTarget::Egui(_) => (),
         }
     }
 }
@@ -462,8 +509,10 @@ impl WaylandFocus for PointerFocusTarget {
             PointerFocusTarget::WlSurface(w) => w.wl_surface(),
             PointerFocusTarget::X11Surface(w) => w.wl_surface(),
             PointerFocusTarget::SSD(_) => None,
+            PointerFocusTarget::Egui(_) => None,
         }
     }
+
     fn same_client_as(&self, object_id: &ObjectId) -> bool {
         match self {
             PointerFocusTarget::WlSurface(w) => w.same_client_as(object_id),
@@ -472,6 +521,7 @@ impl WaylandFocus for PointerFocusTarget {
                 .wl_surface()
                 .map(|surface| surface.same_client_as(object_id))
                 .unwrap_or(false),
+            PointerFocusTarget::Egui(_) => false,
         }
     }
 }
@@ -483,6 +533,7 @@ impl WaylandFocus for KeyboardFocusTarget {
             KeyboardFocusTarget::LayerSurface(l) => Some(l.wl_surface().clone()),
             KeyboardFocusTarget::Popup(p) => Some(p.wl_surface().clone()),
             KeyboardFocusTarget::LockScreen(l) => Some(l.wl_surface().clone()),
+            KeyboardFocusTarget::Egui(_) => None,
         }
     }
 }
@@ -541,6 +592,15 @@ impl From<LockSurface> for KeyboardFocusTarget {
     }
 }
 
+impl From<WorkspaceWindow> for KeyboardFocusTarget {
+    fn from(window: WorkspaceWindow) -> Self {
+        match window {
+            WorkspaceWindow::ApplicationWindow(w) => KeyboardFocusTarget::Window(w.0.clone()),
+            WorkspaceWindow::EguiWindow(w) => KeyboardFocusTarget::Egui(w),
+        }
+    }
+}
+
 impl From<KeyboardFocusTarget> for PointerFocusTarget {
     fn from(value: KeyboardFocusTarget) -> Self {
         match value {
@@ -553,6 +613,7 @@ impl From<KeyboardFocusTarget> for PointerFocusTarget {
             }
             KeyboardFocusTarget::Popup(popup) => PointerFocusTarget::from(popup.wl_surface()),
             KeyboardFocusTarget::LockScreen(popup) => PointerFocusTarget::from(popup.wl_surface()),
+            KeyboardFocusTarget::Egui(e) => PointerFocusTarget::Egui(e),
         }
     }
 }

@@ -7,7 +7,7 @@ use smithay::{
 impl XWaylandKeyboardGrabHandler for State {
     fn keyboard_focus_for_xsurface(&self, surface: &WlSurface) -> Option<KeyboardFocusTarget> {
         let (window, _) = self.window_and_space_for_surface(surface)?;
-        Some(KeyboardFocusTarget::Window(window.0))
+        Some(window.into())
     }
 }
 
