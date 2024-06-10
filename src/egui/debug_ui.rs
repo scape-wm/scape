@@ -31,7 +31,8 @@ impl DebugUi {
                 ui.text_edit_singleline(&mut self.name)
                     .labelled_by(name_label.id);
             });
-            ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
+            ui.add(egui::Slider::new(&mut self.age, 0..=isize::MAX).text("age"));
+            self.age += 1;
             if ui.button("Increment").clicked() {
                 self.age += 1;
             }

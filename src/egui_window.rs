@@ -124,7 +124,7 @@ where
     fn render_elements<C: From<Self::RenderElement>>(
         &self,
         renderer: &mut R,
-        _location: Point<i32, Physical>,
+        location: Point<i32, Physical>,
         scale: Scale<f64>,
         alpha: f32,
     ) -> Vec<C> {
@@ -132,6 +132,7 @@ where
             |ctx| self.app_state.lock().unwrap().udpate_ui(ctx),
             renderer.glow_renderer_mut(),
             // TODO: also consider scale.y
+            location,
             scale.x,
             alpha,
         );

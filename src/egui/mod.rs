@@ -28,9 +28,6 @@ use smithay::{
     },
     utils::{IsAlive, Logical, Physical, Point, Rectangle, Serial, Size, Transform},
 };
-use tracing::error;
-use xkbcommon::xkb::Keycode;
-
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -39,6 +36,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
+use tracing::{error, warn};
+use xkbcommon::xkb::Keycode;
 
 pub mod debug_ui;
 mod input;
@@ -94,9 +93,14 @@ impl fmt::Debug for EguiInner {
 struct GlState {
     painter: Painter,
     render_buffers: HashMap<usize, TextureRenderBuffer<GlesTexture>>,
-    #[cfg(feature = "image")]
-    images: HashMap<String, egui_extras::image::RetainedImage>,
 }
+
+impl Drop for GlState {
+    fn drop(&mut self) {
+        self.painter.destroy();
+    }
+}
+
 type UserDataType = Rc<RefCell<GlState>>;
 
 impl EguiState {
@@ -272,6 +276,7 @@ impl EguiState {
         &self,
         ui: impl FnOnce(&Context),
         renderer: &mut GlowRenderer,
+        location: Point<i32, Physical>,
         scale: f64,
         alpha: f32,
     ) -> Result<TextureRenderElement<GlesTexture>, GlesError> {
@@ -293,8 +298,6 @@ impl EguiState {
                 UserDataType::new(RefCell::new(GlState {
                     painter,
                     render_buffers: HashMap::new(),
-                    #[cfg(feature = "image")]
-                    images: HashMap::new(),
                 }))
             });
         }
@@ -377,6 +380,33 @@ impl EguiState {
 
         render_buffer.render().draw(|tex| {
             renderer.bind(tex.clone())?;
+
+            // unsafe {
+            //     use smithay::backend::renderer::gles::ffi;
+            //     let gl = ffi::Gles2::load_with(|s| {
+            //         smithay::backend::egl::get_proc_address(s) as *const _
+            //     });
+            //     let status = gl.CheckFramebufferStatus(ffi::FRAMEBUFFER);
+            //     match status {
+            //         ffi::FRAMEBUFFER_COMPLETE => error!("Framebuffer is complete"),
+            //         ffi::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => {
+            //             error!("Framebuffer incomplete attachment")
+            //         }
+            //         ffi::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => {
+            //             error!("Framebuffer incomplete missing attachment")
+            //         }
+            //         ffi::FRAMEBUFFER_UNDEFINED => error!("Framebuffer undefined"),
+            //         ffi::FRAMEBUFFER_UNSUPPORTED => error!("Framebuffer unsupported"),
+            //         ffi::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
+            //             error!("Framebuffer incomplete multisample")
+            //         }
+            //         ffi::FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => {
+            //             error!("Framebuffer incomplete layer targets")
+            //         }
+            //         _ => error!("Framebuffer status: {:?}", status),
+            //     }
+            // }
+
             let physical_area = inner.next_area.to_physical(int_scale);
             {
                 let mut frame = renderer.render(physical_area.size, Transform::Normal)?;
@@ -408,108 +438,16 @@ impl EguiState {
             .to_buffer(int_scale, Transform::Flipped180, &inner.next_area.size)])
         })?;
 
+        warn!("drawing complete");
+
         Ok(TextureRenderElement::from_texture_render_buffer(
-            inner.next_area.loc.to_f64().to_physical(scale),
+            location.to_f64(),
             render_buffer,
             Some(alpha),
             None,
             None,
             Kind::Unspecified,
         ))
-    }
-
-    #[cfg(all(feature = "image", any(feature = "png", feature = "jpg")))]
-    pub fn load_image(
-        &self,
-        renderer: &mut GlowRenderer,
-        name: String,
-        bytes: &[u8],
-    ) -> Result<(), String> {
-        let user_data = renderer.egl_context().user_data();
-        if user_data.get::<UserDataType>().is_none() {
-            let painter = {
-                let mut frame = renderer
-                    .render((1, 1).into(), Transform::Normal)
-                    .map_err(|err| format!("{}", err))?;
-                frame
-                    .with_context(|context| Painter::new(context.clone(), "", None))
-                    .map_err(|err| format!("{}", err))??
-            };
-            renderer.egl_context().user_data().insert_if_missing(|| {
-                UserDataType::new(RefCell::new(GlState {
-                    painter,
-                    render_buffers: HashMap::new(),
-                    #[cfg(feature = "image")]
-                    images: HashMap::new(),
-                }))
-            });
-        }
-
-        let gl_state = renderer
-            .egl_context()
-            .user_data()
-            .get::<UserDataType>()
-            .unwrap()
-            .clone();
-        let mut borrow = gl_state.borrow_mut();
-
-        let image = egui_extras::RetainedImage::from_image_bytes(name.clone(), bytes)?;
-        borrow.images.insert(name, image);
-
-        Ok(())
-    }
-
-    #[cfg(all(feature = "image", feature = "svg"))]
-    pub fn load_svg(
-        &self,
-        renderer: &mut GlowRenderer,
-        name: String,
-        bytes: &[u8],
-    ) -> Result<(), String> {
-        let user_data = renderer.egl_context().user_data();
-        if user_data.get::<UserDataType>().is_none() {
-            let painter = {
-                let mut frame = renderer
-                    .render((1, 1).into(), Transform::Normal)
-                    .map_err(|err| format!("{}", err))?;
-                frame
-                    .with_context(|context| Painter::new(context.clone(), "", None))
-                    .map_err(|err| format!("{}", err))??
-            };
-            renderer.egl_context().user_data().insert_if_missing(|| {
-                UserDataType::new(RefCell::new(GlState {
-                    painter,
-                    render_buffers: HashMap::new(),
-                    #[cfg(feature = "image")]
-                    images: HashMap::new(),
-                }))
-            });
-        }
-
-        let gl_state = renderer
-            .egl_context()
-            .user_data()
-            .get::<UserDataType>()
-            .unwrap()
-            .clone();
-        let mut borrow = gl_state.borrow_mut();
-
-        let image = egui_extras::RetainedImage::from_svg_bytes(name.clone(), bytes)?;
-        borrow.images.insert(name, image);
-
-        Ok(())
-    }
-
-    #[cfg(feature = "image")]
-    pub fn with_image<F, R>(&self, renderer: &mut GlowRenderer, name: &str, closure: F) -> Option<R>
-    where
-        F: FnOnce(&egui_extras::RetainedImage, &Context) -> R,
-    {
-        let user_data = renderer.egl_context().user_data();
-        let state = user_data.get::<UserDataType>()?;
-        let state_ref = state.borrow();
-        let img = state_ref.images.get(name)?;
-        Some(closure(img, &self.ctx))
     }
 
     /// Sets the z_index as reported by [`SpaceElement::z_index`].
