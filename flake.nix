@@ -29,8 +29,8 @@
     ...
   }:
     flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux"] (system: let
-      pkgs = import nixpkgs {inherit system;};
-      craneLib = crane.lib.${system}.overrideToolchain fenix.packages.${system}.stable.toolchain;
+      pkgs = nixpkgs.legacyPackages.${system};
+      craneLib = (crane.mkLib pkgs).overrideToolchain fenix.packages.${system}.stable.toolchain;
 
       src = nix-filter.lib.filter {
         root = ./.;
