@@ -329,7 +329,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
                     if let Err(err) = libinput_context.resume() {
                         error!("Failed to resume libinput context: {:?}", err);
                     }
-                    for (node, backend) in udev_data
+                    for (_node, backend) in udev_data
                         .backends
                         .iter_mut()
                         .map(|(handle, backend)| (*handle, backend))
@@ -350,11 +350,9 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
                             // otherwise
                             surface.compositor.reset_buffers();
                         }
-
-                        state
-                            .loop_handle
-                            .insert_idle(move |state| render(state, node, None));
                     }
+
+                    state.backend_data.schedule_render();
                 }
             }
         })
@@ -1462,19 +1460,16 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
     };
 
     let Some(ActiveSpace(space_name)) = output.user_data().get::<ActiveSpace>() else {
-        // space not set on output. Try again later
-        state
-            .loop_handle
-            .insert_source(Timer::immediate(), move |_, _, state| {
-                render(state, node, Some(crtc));
-                TimeoutAction::Drop
-            })
-            .expect("failed to schedule frame timer");
+        error!(
+            output = output.name(),
+            "Cannot render output, because it has no active space"
+        );
         return;
     };
+
     let space = &state.spaces[space_name];
 
-    let result = render_surface(
+    let _result = render_surface(
         surface,
         &mut renderer,
         space,
@@ -1487,52 +1482,12 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         &state.session_lock,
         &mut state.screencopy_frames,
     );
-    let reschedule = match &result {
-        Ok(has_rendered) => !has_rendered,
-        Err(err) => {
-            warn!("Error during rendering: {:?}", err);
-            match err {
-                SwapBuffersError::AlreadySwapped => false,
-                SwapBuffersError::TemporaryFailure(err) => match err.downcast_ref::<DrmError>() {
-                    Some(DrmError::DeviceInactive) => true,
-                    Some(DrmError::Access(DrmAccessError { source, .. })) => {
-                        source.kind() == io::ErrorKind::PermissionDenied
-                    }
-                    _ => false,
-                },
-                SwapBuffersError::ContextLost(err) => panic!("Rendering loop lost: {}", err),
-            }
-        }
-    };
 
-    if reschedule {
-        let output_refresh = match output.current_mode() {
-            Some(mode) => mode.refresh,
-            None => return,
-        };
-        // If reschedule is true we either hit a temporary failure or more likely rendering
-        // did not cause any damage on the output. In this case we just re-schedule a repaint
-        // after approx. one frame to re-test for damage.
-        let reschedule_duration =
-            Duration::from_millis((1_000_000f32 / output_refresh as f32) as u64);
-        trace!(
-            "reschedule repaint timer with delay {:?} on {:?}",
-            reschedule_duration,
-            crtc,
-        );
-        let timer = Timer::from_duration(reschedule_duration);
-        state
-            .loop_handle
-            .insert_source(timer, move |_, _, state| {
-                render(state, node, Some(crtc));
-                TimeoutAction::Drop
-            })
-            .expect("failed to schedule frame timer");
-    } else {
-        let elapsed = start.elapsed();
-        tracing::trace!(?elapsed, "rendered surface");
-    }
+    // TODO: Handle result errors differently depending on the type
+    // for example, try to regain the render context after it was lost
 
+    let elapsed = start.elapsed();
+    tracing::trace!(?elapsed, "rendered surface");
     #[cfg(feature = "profiling")]
     profiling::finish_frame!();
 }
