@@ -1,8 +1,7 @@
 use crate::composition::Zone;
 use crate::config::Config;
 use crate::cursor::CursorState;
-use crate::egui::debug_ui::DebugUi;
-use crate::egui::EguiState;
+use crate::egui_window::EguiWindow;
 use crate::input_handler::Mods;
 use crate::protocols::wlr_screencopy::{Screencopy, ScreencopyManagerState};
 use crate::udev::{schedule_initial_render, schedule_render, UdevOutputId};
@@ -175,7 +174,7 @@ pub struct State {
 
     pub screencopy_frames: Vec<Screencopy>,
 
-    pub debug_ui: Option<(EguiState, DebugUi)>,
+    pub debug_ui: Option<EguiWindow>,
 }
 
 impl State {

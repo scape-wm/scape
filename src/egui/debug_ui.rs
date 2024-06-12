@@ -1,42 +1,63 @@
-use egui::Context;
-use smithay::utils::Rectangle;
-
 use crate::{
     egui_window::{EguiAppState, EguiWindow},
     workspace_window::WorkspaceWindow,
     State,
 };
+use egui::Context;
 
-use super::EguiState;
+#[derive(Debug, PartialEq, Clone)]
+struct Space {
+    name: String,
+    windows: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct DebugState {
+    spaces: Vec<Space>,
+}
+
+impl From<&State> for DebugState {
+    fn from(value: &State) -> Self {
+        let spaces = value
+            .spaces
+            .iter()
+            .map(|(name, space)| Space {
+                name: name.to_string(),
+                windows: space.elements().map(|window| window.app_id()).collect(),
+            })
+            .collect();
+
+        DebugState { spaces }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DebugUi {
-    age: isize,
-    name: String,
+    debug_state: Option<DebugState>,
 }
 
 impl DebugUi {
     pub fn new() -> Self {
-        DebugUi {
-            age: 0,
-            name: "Test".to_string(),
-        }
+        DebugUi { debug_state: None }
+    }
+
+    pub fn update(&mut self, debug_state: DebugState) {
+        self.debug_state = Some(debug_state);
     }
 
     pub fn show(&mut self, ctx: &Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("My egui Application");
-            ui.horizontal(|ui| {
-                let name_label = ui.label("Your name: ");
-                ui.text_edit_singleline(&mut self.name)
-                    .labelled_by(name_label.id);
-            });
-            ui.add(egui::Slider::new(&mut self.age, 0..=isize::MAX).text("age"));
-            self.age += 1;
-            if ui.button("Increment").clicked() {
-                self.age += 1;
+            ui.heading("Debug UI");
+            ui.separator();
+
+            if let Some(debug_state) = &self.debug_state {
+                for space in &debug_state.spaces {
+                    ui.heading(&space.name);
+                    for window in &space.windows {
+                        ui.label(window);
+                    }
+                }
             }
-            ui.label(format!("Hello '{}', age {}", self.name, self.age));
         });
     }
 }
@@ -49,19 +70,24 @@ impl Default for DebugUi {
 
 impl State {
     pub fn toggle_debug_ui(&mut self) {
-        if self.debug_ui.take().is_none() {
-            self.debug_ui = Some((
-                EguiState::new(Rectangle::from_loc_and_size((0, 0), (500, 500))),
-                DebugUi::default(),
-            ));
-            if let Some(space_name) = self.spaces.keys().next().cloned() {
-                self.place_window(
-                    &space_name,
-                    &WorkspaceWindow::from(EguiWindow::new(DebugUi::default())),
-                    true,
-                    None,
-                    true,
-                );
+        match self.debug_ui.take() {
+            Some(window) => {
+                if let Some(space) = self.spaces.values_mut().next() {
+                    space.unmap_elem(&WorkspaceWindow::from(window));
+                }
+            }
+            None => {
+                let window = EguiWindow::new(DebugUi::default());
+                self.debug_ui = Some(window.clone());
+                if let Some(space_name) = self.spaces.keys().next().cloned() {
+                    self.place_window(
+                        &space_name,
+                        &WorkspaceWindow::from(window),
+                        true,
+                        None,
+                        true,
+                    );
+                }
             }
         }
     }

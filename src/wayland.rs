@@ -1,4 +1,4 @@
-use crate::{args::GlobalArgs, state::BackendData, State};
+use crate::{args::GlobalArgs, egui::debug_ui::DebugState, state::BackendData, State};
 use calloop::EventLoop;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use std::time::Duration;
@@ -61,6 +61,12 @@ fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Resu
         state.popups.cleanup();
         if let Err(e) = state.display_handle.flush_clients() {
             error!(err = %e, "Unable to flush clients");
+        }
+
+        if let Some(debug_ui) = &state.debug_ui {
+            debug_ui
+                .to_owned()
+                .update_debug_ui(DebugState::from(&*state));
         }
     })?;
 

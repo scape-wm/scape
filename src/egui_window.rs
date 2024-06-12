@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    egui::{debug_ui::DebugUi, EguiState},
+    egui::{
+        debug_ui::{DebugState, DebugUi},
+        EguiState,
+    },
     render::AsGlowRenderer,
     State,
 };
@@ -62,6 +65,12 @@ impl EguiWindow {
         Self {
             egui_state: EguiState::new(area),
             app_state: Arc::new(Mutex::new(app_state.into())),
+        }
+    }
+
+    pub fn update_debug_ui(&mut self, debug_state: DebugState) {
+        match &mut *self.app_state.lock().unwrap() {
+            EguiAppState::DebugUi(debug_ui) => debug_ui.update(debug_state),
         }
     }
 
