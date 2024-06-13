@@ -4,11 +4,21 @@ use crate::{
     State,
 };
 use egui::Context;
+use smithay::desktop::space::SpaceElement;
 
 #[derive(Debug, PartialEq, Clone)]
 struct Space {
     name: String,
-    windows: Vec<String>,
+    windows: Vec<Window>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+struct Window {
+    name: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -23,7 +33,20 @@ impl From<&State> for DebugState {
             .iter()
             .map(|(name, space)| Space {
                 name: name.to_string(),
-                windows: space.elements().map(|window| window.app_id()).collect(),
+                windows: space
+                    .elements()
+                    .map(|window| {
+                        let geometry = window.geometry();
+
+                        Window {
+                            name: window.app_id(),
+                            x: geometry.loc.x,
+                            y: geometry.loc.y,
+                            width: geometry.size.w,
+                            height: geometry.size.h,
+                        }
+                    })
+                    .collect(),
             })
             .collect();
 
@@ -41,8 +64,14 @@ impl DebugUi {
         DebugUi { debug_state: None }
     }
 
-    pub fn update(&mut self, debug_state: DebugState) {
-        self.debug_state = Some(debug_state);
+    pub fn update(&mut self, debug_state: DebugState) -> bool {
+        let new_state = Some(debug_state);
+        if self.debug_state != new_state {
+            self.debug_state = new_state;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn show(&mut self, ctx: &Context) {
@@ -54,7 +83,11 @@ impl DebugUi {
                 for space in &debug_state.spaces {
                     ui.heading(&space.name);
                     for window in &space.windows {
-                        ui.label(window);
+                        ui.label(window.name.to_string());
+                        ui.label(format!(
+                            "({}, {}, {}, {})",
+                            window.x, window.y, window.width, window.height
+                        ));
                     }
                 }
             }

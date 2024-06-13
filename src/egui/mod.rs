@@ -36,7 +36,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use tracing::{error, warn};
+use tracing::error;
 use xkbcommon::xkb::Keycode;
 
 pub mod debug_ui;
@@ -438,8 +438,6 @@ impl EguiState {
             .to_buffer(int_scale, Transform::Flipped180, &inner.next_area.size)])
         })?;
 
-        warn!("drawing complete");
-
         Ok(TextureRenderElement::from_texture_render_buffer(
             location.to_f64(),
             render_buffer,
@@ -609,13 +607,7 @@ impl SpaceElement for EguiState {
     }
 
     fn is_in_input_region(&self, point: &Point<f64, Logical>) -> bool {
-        let pos: Point<i32, _> = point.to_i32_round();
-        let last_pos = self.inner.lock().unwrap().last_pointer_position;
-        if (pos.x - last_pos.x) + (pos.y - last_pos.y) < 10 {
-            self.wants_pointer()
-        } else {
-            false
-        }
+        self.geometry().contains(point.to_i32_round())
     }
 
     fn set_activate(&self, _activated: bool) {}

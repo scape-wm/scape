@@ -64,9 +64,13 @@ fn run_loop(mut state: State, event_loop: &mut EventLoop<State>) -> anyhow::Resu
         }
 
         if let Some(debug_ui) = &state.debug_ui {
-            debug_ui
+            let needs_redraw = debug_ui
                 .to_owned()
                 .update_debug_ui(DebugState::from(&*state));
+
+            if needs_redraw {
+                state.backend_data.schedule_render();
+            }
         }
     })?;
 

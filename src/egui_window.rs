@@ -68,7 +68,7 @@ impl EguiWindow {
         }
     }
 
-    pub fn update_debug_ui(&mut self, debug_state: DebugState) {
+    pub fn update_debug_ui(&mut self, debug_state: DebugState) -> bool {
         match &mut *self.app_state.lock().unwrap() {
             EguiAppState::DebugUi(debug_ui) => debug_ui.update(debug_state),
         }
@@ -158,10 +158,12 @@ where
 
 impl PointerTarget<State> for EguiWindow {
     fn enter(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
+        tracing::warn!("enter");
         PointerTarget::enter(&self.egui_state, seat, data, event)
     }
 
     fn motion(&self, seat: &Seat<State>, data: &mut State, event: &MotionEvent) {
+        tracing::warn!("motion");
         PointerTarget::motion(&self.egui_state, seat, data, event)
     }
 
