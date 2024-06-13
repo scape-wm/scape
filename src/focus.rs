@@ -601,6 +601,20 @@ impl From<WorkspaceWindow> for KeyboardFocusTarget {
     }
 }
 
+impl TryFrom<KeyboardFocusTarget> for WorkspaceWindow {
+    type Error = ();
+
+    fn try_from(value: KeyboardFocusTarget) -> Result<Self, Self::Error> {
+        match value {
+            KeyboardFocusTarget::Window(w) => {
+                Ok(WorkspaceWindow::ApplicationWindow(ApplicationWindow(w)))
+            }
+            KeyboardFocusTarget::Egui(e) => Ok(WorkspaceWindow::EguiWindow(e)),
+            _ => Err(()),
+        }
+    }
+}
+
 impl From<KeyboardFocusTarget> for PointerFocusTarget {
     fn from(value: KeyboardFocusTarget) -> Self {
         match value {

@@ -3,7 +3,7 @@ use std::process::Command;
 use mlua::Function as LuaFunction;
 use tracing::{error, info, warn};
 
-use crate::State;
+use crate::{workspace_window::WorkspaceWindow, State};
 
 #[derive(Debug)]
 pub enum Action {
@@ -58,9 +58,18 @@ impl State {
                 rotation: _,
             } => todo!(),
             Action::MoveWindow { window: _, zone } => {
-                let (space_name, space) = self.spaces.iter().next().unwrap();
-                if let Some(window) = space.elements().last().cloned() {
-                    self.place_window(&space_name.to_owned(), &window, false, Some(&zone), true);
+                let (space_name, _) = self.spaces.iter().next().unwrap();
+                let keyboard = self.seat.as_ref().unwrap().get_keyboard().unwrap();
+                if let Some(focus) = keyboard.current_focus() {
+                    if let Ok(window) = WorkspaceWindow::try_from(focus) {
+                        self.place_window(
+                            &space_name.to_owned(),
+                            &window,
+                            false,
+                            Some(&zone),
+                            true,
+                        );
+                    }
                 }
             }
             Action::Close => {
