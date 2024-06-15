@@ -433,7 +433,7 @@ impl XdgShellHandler for State {
                 .next()
                 .unwrap()
                 .elements()
-                .find(|w| w.wl_surface().map(|s| s == root).unwrap_or(false))
+                .find(|w| w.wl_surface().map(|s| *s == root).unwrap_or(false))
                 .cloned()
                 .map(KeyboardFocusTarget::from)
                 .or_else(|| {
@@ -462,7 +462,7 @@ impl XdgShellHandler for State {
                         return;
                     }
                     keyboard.set_focus(self, grab.current_grab(), serial);
-                    keyboard.set_grab(PopupKeyboardGrab::new(&grab), serial);
+                    keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
                 }
                 if let Some(pointer) = seat.get_pointer() {
                     if pointer.is_grabbed()
@@ -500,7 +500,7 @@ fn fullscreen_output_geometry(
             let w = space.elements().find(|window| {
                 window
                     .wl_surface()
-                    .map(|s| s == *wl_surface)
+                    .map(|s| &*s == wl_surface)
                     .unwrap_or(false)
             });
             w.and_then(|w| space.outputs_for_element(w).first().cloned())
@@ -689,37 +689,38 @@ delegate_xdg_shell!(State);
 fn handle_toplevel_commit(space: &mut Space<WorkspaceWindow>, surface: &WlSurface) -> Option<()> {
     let window = space
         .elements()
-        .find(|w| w.wl_surface().as_ref() == Some(surface))
+        .find(|w| w.wl_surface().as_deref() == Some(surface))
         .cloned()?;
 
     let mut window_loc = space.element_location(&window)?;
     let geometry = window.geometry();
 
-    let new_loc: Point<Option<i32>, Logical> = with_states(&window.wl_surface()?, |states| {
-        let data = states.data_map.get::<RefCell<SurfaceData>>()?.borrow_mut();
+    let new_loc: Point<Option<i32>, Logical> =
+        with_states(window.wl_surface().as_deref()?, |states| {
+            let data = states.data_map.get::<RefCell<SurfaceData>>()?.borrow_mut();
 
-        if let ResizeState::Resizing(resize_data) = data.resize_state {
-            let edges = resize_data.edges;
-            let loc = resize_data.initial_window_location;
-            let size = resize_data.initial_window_size;
+            if let ResizeState::Resizing(resize_data) = data.resize_state {
+                let edges = resize_data.edges;
+                let loc = resize_data.initial_window_location;
+                let size = resize_data.initial_window_size;
 
-            // If the window is being resized by top or left, its location must be adjusted
-            // accordingly.
-            edges.intersects(ResizeEdge::TOP_LEFT).then(|| {
-                let new_x = edges
-                    .intersects(ResizeEdge::LEFT)
-                    .then_some(loc.x + (size.w - geometry.size.w));
+                // If the window is being resized by top or left, its location must be adjusted
+                // accordingly.
+                edges.intersects(ResizeEdge::TOP_LEFT).then(|| {
+                    let new_x = edges
+                        .intersects(ResizeEdge::LEFT)
+                        .then_some(loc.x + (size.w - geometry.size.w));
 
-                let new_y = edges
-                    .intersects(ResizeEdge::TOP)
-                    .then_some(loc.y + (size.h - geometry.size.h));
+                    let new_y = edges
+                        .intersects(ResizeEdge::TOP)
+                        .then_some(loc.y + (size.h - geometry.size.h));
 
-                (new_x, new_y).into()
-            })
-        } else {
-            None
-        }
-    })?;
+                    (new_x, new_y).into()
+                })
+            } else {
+                None
+            }
+        })?;
 
     if let Some(new_x) = new_loc.x {
         window_loc.x = new_x;

@@ -117,7 +117,7 @@ impl State {
                     .chain(
                         self.xwayland_state
                             .as_ref()
-                            .and_then(|v| v.display)
+                            .and_then(|v| v.display_number)
                             .map(|v| ("DISPLAY", format!(":{}", v))),
                     ),
             )

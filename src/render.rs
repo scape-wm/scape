@@ -10,7 +10,7 @@ use crate::{
 use smithay::backend::renderer::element::{Element, Id, UnderlyingStorage};
 use smithay::backend::renderer::glow::GlowFrame;
 use smithay::backend::renderer::multigpu::MultiFrame;
-use smithay::backend::renderer::utils::{CommitCounter, DamageSet};
+use smithay::backend::renderer::utils::{CommitCounter, DamageSet, OpaqueRegions};
 use smithay::backend::renderer::Frame;
 use smithay::utils::{Buffer, Physical, Transform};
 use smithay::{
@@ -229,7 +229,7 @@ where
         }
     }
 
-    fn opaque_regions(&self, scale: Scale<f64>) -> Vec<Rectangle<i32, Physical>> {
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
         match self {
             Self::Space(elem) => elem.opaque_regions(scale),
             Self::Window(elem) => elem.opaque_regions(scale),
@@ -290,13 +290,14 @@ where
         src: Rectangle<f64, Buffer>,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
     ) -> Result<(), <R as Renderer>::Error> {
         match self {
-            Self::Space(elem) => elem.draw(frame, src, dst, damage),
-            Self::Window(elem) => elem.draw(frame, src, dst, damage),
-            Self::Custom(elem) => elem.draw(frame, src, dst, damage),
-            Self::WaylandSurface(elem) => elem.draw(frame, src, dst, damage),
-            Self::Preview(elem) => elem.draw(frame, src, dst, damage),
+            Self::Space(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
+            Self::Window(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
+            Self::Custom(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
+            Self::WaylandSurface(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
+            Self::Preview(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
         }
     }
 
@@ -399,7 +400,7 @@ pub fn space_preview_elements<'a, R, C>(
 ) -> impl Iterator<Item = C> + 'a
 where
     R: Renderer + ImportAll + ImportMem + AsGlowRenderer,
-    <R as Renderer>::TextureId: 'static,
+    <R as Renderer>::TextureId: Clone + 'static,
     WorkspaceWindowRenderElement<R>: RenderElement<R>,
     C: From<
             CropRenderElement<
@@ -471,6 +472,7 @@ pub fn output_elements<R>(
 ) -> (Vec<OutputRenderElements<R>>, [f32; 4])
 where
     R: Renderer + ImportAll + ImportMem + AsGlowRenderer,
+    <R as Renderer>::TextureId: Clone,
     WorkspaceWindowRenderElement<R>: RenderElement<R>,
 {
     if let Some(session_lock) = session_lock {
@@ -508,6 +510,7 @@ fn session_lock_elements<R>(
 ) -> Vec<OutputRenderElements<R>>
 where
     R: Renderer + ImportAll + ImportMem,
+    <R as Renderer>::TextureId: Clone,
     WorkspaceWindowRenderElement<R>: RenderElement<R>,
 {
     if let Some(surface) = session_lock.surfaces.get(output) {
@@ -538,7 +541,7 @@ pub fn render_output<'a, 'damage, R>(
 ) -> Result<RenderOutputResult<'damage>, OutputDamageTrackerError<R>>
 where
     R: Renderer + ImportAll + ImportMem + AsGlowRenderer,
-    <R as Renderer>::TextureId: 'static,
+    <R as Renderer>::TextureId: Clone + 'static,
     WorkspaceWindowRenderElement<R>: RenderElement<R>,
     OutputRenderElements<R>: RenderElement<R>,
 {

@@ -51,13 +51,13 @@ features = [
     "xwayland",
 ]
 git = "https://github.com/Dirli-V/smithay"
-rev = "f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
+rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
 # path = "../smithay"
 
 [dependencies.smithay-drm-extras]
 default-features = false
 git = "https://github.com/Dirli-V/smithay"
-rev = "f3f42a2d84a6c2997cb8faa584a2c23a9c74c9bd"
+rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
 # path = "../smithay/smithay-drm-extras"
 
 [dependencies.x11rb]

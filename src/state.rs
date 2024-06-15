@@ -23,6 +23,7 @@ use smithay::wayland::session_lock::LockSurface;
 use smithay::wayland::session_lock::SessionLockManagerState;
 use smithay::wayland::tablet_manager::TabletManagerState;
 use smithay::wayland::xdg_foreign::XdgForeignState;
+use smithay::wayland::xwayland_shell::XWaylandShellState;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -145,6 +146,7 @@ pub struct State {
     pub fractional_scale_manager_state: FractionalScaleManagerState,
     pub session_lock_state: SessionLockManagerState,
     pub xdg_foreign_state: XdgForeignState,
+    pub xwayland_shell_state: XWaylandShellState,
     pub session_lock: Option<SessionLock>,
 
     pub dnd_icon: Option<WlSurface>,
@@ -217,6 +219,7 @@ impl State {
         let fractional_scale_manager_state =
             FractionalScaleManagerState::new::<Self>(&display_handle);
         let xdg_foreign_state = XdgForeignState::new::<Self>(&display_handle);
+        let xwayland_shell_state = XWaylandShellState::new::<Self>(&display_handle);
         let _text_input_manager_state = TextInputManagerState::new::<Self>(&display_handle);
         let _input_method_manager_state =
             InputMethodManagerState::new::<Self, _>(&display_handle, |_client| {
@@ -265,6 +268,7 @@ impl State {
             xdg_decoration_state,
             xdg_shell_state,
             presentation_state,
+            xwayland_shell_state,
             fractional_scale_manager_state,
             xdg_foreign_state,
             dnd_icon: None,

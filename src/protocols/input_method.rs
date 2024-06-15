@@ -36,10 +36,12 @@ impl InputMethodHandler for State {
         self.spaces[&space_name]
             .elements()
             .find_map(|window| {
-                (window.wl_surface().as_ref() == Some(parent)).then(|| window.geometry())
+                (window.wl_surface().as_deref() == Some(parent)).then(|| window.geometry())
             })
             .unwrap_or_default()
     }
+
+    fn popup_repositioned(&mut self, _surface: PopupSurface) {}
 }
 
 delegate_input_method_manager!(State);

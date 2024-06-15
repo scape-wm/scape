@@ -3,7 +3,9 @@ use crate::grabs::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeData,
 use crate::shell::SurfaceData;
 use crate::workspace_window::WorkspaceWindow;
 use crate::{application_window::ApplicationWindow, State};
+use smithay::delegate_xwayland_shell;
 use smithay::desktop::Window;
+use smithay::wayland::xwayland_shell::{XWaylandShellHandler, XWaylandShellState};
 use smithay::{
     desktop::space::SpaceElement,
     input::pointer::Focus,
@@ -426,5 +428,13 @@ impl State {
 
         let pointer = self.pointer.clone().unwrap();
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
+    }
+}
+
+delegate_xwayland_shell!(State);
+
+impl XWaylandShellHandler for State {
+    fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
+        &mut self.xwayland_shell_state
     }
 }

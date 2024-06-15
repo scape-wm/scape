@@ -1,6 +1,8 @@
 use crate::workspace_window::WorkspaceWindow;
 use crate::{focus::PointerFocusTarget, state::State};
-use smithay::input::touch::{GrabStartData as TouchGrabStartData, TouchGrab};
+use smithay::input::touch::{
+    GrabStartData as TouchGrabStartData, OrientationEvent, ShapeEvent, TouchGrab,
+};
 use smithay::xwayland::xwm::ResizeEdge as X11ResizeEdge;
 use smithay::{
     input::pointer::{
@@ -62,7 +64,7 @@ impl PointerGrab<State> for PointerMoveSurfaceGrab {
         handle.button(data, event);
         if handle.current_pressed().is_empty() {
             // No more buttons are pressed, release the grab.
-            handle.unset_grab(data, event.serial, event.time, true);
+            handle.unset_grab(self, data, event.serial, event.time, true);
         }
     }
 
@@ -154,6 +156,8 @@ impl PointerGrab<State> for PointerMoveSurfaceGrab {
     ) {
         handle.gesture_hold_end(data, event);
     }
+
+    fn unset(&mut self, _data: &mut State) {}
 }
 
 pub struct TouchMoveSurfaceGrab {
@@ -188,7 +192,7 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         }
 
         handle.up(data, event, seq);
-        handle.unset_grab(data);
+        handle.unset_grab(self, data);
     }
 
     fn motion(
@@ -231,12 +235,34 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         seq: Serial,
     ) {
         handle.cancel(data, seq);
-        handle.unset_grab(data);
+        handle.unset_grab(self, data);
     }
 
     fn start_data(&self) -> &smithay::input::touch::GrabStartData<State> {
         &self.start_data
     }
+
+    fn shape(
+        &mut self,
+        data: &mut State,
+        handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
+        event: &ShapeEvent,
+        seq: Serial,
+    ) {
+        handle.shape(data, event, seq);
+    }
+
+    fn orientation(
+        &mut self,
+        data: &mut State,
+        handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
+        event: &OrientationEvent,
+        seq: Serial,
+    ) {
+        handle.orientation(data, event, seq);
+    }
+
+    fn unset(&mut self, _data: &mut State) {}
 }
 
 bitflags::bitflags! {
@@ -359,7 +385,7 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
 
         // It is impossible to get `min_size` and `max_size` of dead toplevel, so we return early.
         if !self.window.alive() {
-            handle.unset_grab(data, event.serial, event.time, true);
+            handle.unset_grab(self, data, event.serial, event.time, true);
             return;
         }
 
@@ -440,7 +466,7 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
         handle.button(data, event);
         if handle.current_pressed().is_empty() {
             // No more buttons are pressed, release the grab.
-            handle.unset_grab(data, event.serial, event.time, true);
+            handle.unset_grab(self, data, event.serial, event.time, true);
 
             // If toplevel is dead, we can't resize it, so we return early.
             // if !self.window.alive() {
@@ -653,6 +679,8 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
     ) {
         handle.gesture_hold_end(data, event);
     }
+
+    fn unset(&mut self, _data: &mut State) {}
 }
 
 pub struct TouchResizeSurfaceGrab {
@@ -688,7 +716,7 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         if event.slot != self.start_data.slot {
             return;
         }
-        handle.unset_grab(data);
+        handle.unset_grab(self, data);
 
         // If toplevel is dead, we can't resize it, so we return early.
         // if !self.window.alive() {
@@ -913,10 +941,32 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         seq: Serial,
     ) {
         handle.cancel(data, seq);
-        handle.unset_grab(data);
+        handle.unset_grab(self, data);
     }
 
     fn start_data(&self) -> &smithay::input::touch::GrabStartData<State> {
         &self.start_data
     }
+
+    fn shape(
+        &mut self,
+        data: &mut State,
+        handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
+        event: &ShapeEvent,
+        seq: Serial,
+    ) {
+        handle.shape(data, event, seq);
+    }
+
+    fn orientation(
+        &mut self,
+        data: &mut State,
+        handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
+        event: &OrientationEvent,
+        seq: Serial,
+    ) {
+        handle.orientation(data, event, seq);
+    }
+
+    fn unset(&mut self, _data: &mut State) {}
 }

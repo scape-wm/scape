@@ -166,7 +166,7 @@ impl CursorState {
     }
 }
 
-impl<T: Texture + 'static, R> AsRenderElements<R> for CursorState
+impl<T: Texture + Clone + 'static, R> AsRenderElements<R> for CursorState
 where
     R: Renderer<TextureId = T> + ImportAll + ImportMem,
 {

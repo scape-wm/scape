@@ -1,7 +1,6 @@
 use crate::{
     grabs::ResizeState, state::ActiveSpace, workspace_window::WorkspaceWindow, ClientState, State,
 };
-use smithay::xwayland::X11Wm;
 use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     desktop::{
@@ -72,22 +71,22 @@ impl CompositorHandler for State {
                     .buffer
                     .as_ref()
                     .and_then(|assignment| match assignment {
-                        BufferAssignment::NewBuffer(buffer) => get_dmabuf(buffer).ok(),
+                        BufferAssignment::NewBuffer(buffer) => get_dmabuf(buffer).cloned().ok(),
                         _ => None,
                     })
             });
             if let Some(dmabuf) = maybe_dmabuf {
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
-                    let client = surface.client().unwrap();
-                    let res = state.loop_handle.insert_source(source, move |_, _, state| {
-                        let dh = state.display_handle.clone();
-                        state
-                            .client_compositor_state(&client)
-                            .blocker_cleared(state, &dh);
-                        Ok(())
-                    });
-                    if res.is_ok() {
-                        add_blocker(surface, blocker);
+                    if let Some(client) = surface.client() {
+                        let res = state.loop_handle.insert_source(source, move |_, _, data| {
+                            let dh = data.display_handle.clone();
+                            data.client_compositor_state(&client)
+                                .blocker_cleared(data, &dh);
+                            Ok(())
+                        });
+                        if res.is_ok() {
+                            add_blocker(surface, blocker);
+                        }
                     }
                 }
             }
@@ -95,8 +94,6 @@ impl CompositorHandler for State {
     }
 
     fn commit(&mut self, surface: &WlSurface) {
-        X11Wm::commit_hook::<State>(surface);
-
         on_commit_buffer_handler::<Self>(surface);
         self.backend_data.early_import(surface);
 
@@ -138,7 +135,7 @@ impl State {
             .map(|(space_name, space)| {
                 space
                     .elements()
-                    .find(|window| window.wl_surface().map(|s| s == *surface).unwrap_or(false))
+                    .find(|window| window.wl_surface().map(|s| &*s == surface).unwrap_or(false))
                     .map(|window| (window.to_owned(), space_name.clone()))
             })
             .next()?
@@ -179,7 +176,7 @@ fn ensure_initial_configure(
 
     if let Some(window) = space
         .elements()
-        .find(|window| window.wl_surface().map(|s| s == *surface).unwrap_or(false))
+        .find(|window| window.wl_surface().map(|s| &*s == surface).unwrap_or(false))
         .cloned()
     {
         // send the initial configure if relevant

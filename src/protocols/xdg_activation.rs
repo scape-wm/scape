@@ -47,7 +47,7 @@ impl XdgActivationHandler for State {
             });
             let w = self.spaces[&space_name]
                 .elements()
-                .find(|window| window.wl_surface().map(|s| s == surface).unwrap_or(false))
+                .find(|window| window.wl_surface().map(|s| *s == surface).unwrap_or(false))
                 .cloned();
             if let Some(window) = w {
                 self.focus_window(window, &space_name);

@@ -10,9 +10,11 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
+use smithay::backend::allocator::gbm::GbmBuffer;
 use smithay::backend::drm::compositor::RenderFrameResult;
 use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
+use smithay::backend::egl::context::ContextPriority;
 use smithay::backend::input::InputEvent;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::glow::GlowRenderer;
@@ -26,7 +28,6 @@ use smithay::delegate_drm_lease;
 use smithay::input::keyboard::LedState;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
-use smithay::reexports::gbm::BufferObject;
 use smithay::reexports::input::DeviceCapability;
 use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::utils::{Rectangle, Size};
@@ -243,13 +244,11 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
     })?;
     info!("Using {} as primary gpu", primary_gpu);
 
-    let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(
-        egl::context::ContextPriority::High,
-    ))
-    .map_err(|e| {
-        error!("Could not initialize GpuManager: {}", e);
-        e
-    })?;
+    let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(ContextPriority::High))
+        .map_err(|e| {
+            error!("Could not initialize GpuManager: {}", e);
+            e
+        })?;
 
     let loop_handle = event_loop.handle();
     let udev_data = UdevData {
@@ -638,7 +637,7 @@ impl SurfaceComposition {
         renderer: &mut R,
         elements: &'a [E],
         clear_color: [f32; 4],
-    ) -> Result<RenderFrameResult<'_, BufferObject<()>, GbmFramebuffer, E>, SwapBuffersError>
+    ) -> Result<RenderFrameResult<'_, GbmBuffer, GbmFramebuffer, E>, SwapBuffersError>
     where
         R: Renderer + Bind<Dmabuf> + Bind<Target> + Offscreen<Target> + ExportMem,
         <R as Renderer>::TextureId: 'static,

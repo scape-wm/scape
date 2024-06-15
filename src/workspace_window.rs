@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     application_window::{ApplicationWindow, WindowRenderElement},
     egui_window::EguiWindow,
@@ -12,7 +14,7 @@ use smithay::{
         },
         gles::GlesTexture,
         glow::GlowRenderer,
-        utils::{CommitCounter, DamageSet},
+        utils::{CommitCounter, DamageSet, OpaqueRegions},
         ImportAll, ImportMem, Renderer,
     },
     desktop::{space::SpaceElement, WindowSurfaceType},
@@ -73,7 +75,7 @@ impl WorkspaceWindow {
         }
     }
 
-    pub fn wl_surface(&self) -> Option<WlSurface> {
+    pub fn wl_surface(&self) -> Option<Cow<'_, WlSurface>> {
         match self {
             WorkspaceWindow::ApplicationWindow(w) => w.wl_surface(),
             WorkspaceWindow::EguiWindow(_) => None,
@@ -230,7 +232,7 @@ where
         }
     }
 
-    fn opaque_regions(&self, scale: Scale<f64>) -> Vec<Rectangle<i32, Physical>> {
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
         match self {
             Self::ApplicationWindow(elem) => elem.opaque_regions(scale),
             Self::Egui(elem) => elem.opaque_regions(scale),
@@ -252,13 +254,21 @@ impl<'a> RenderElement<GlMultiRenderer<'a>> for WorkspaceWindowRenderElement<GlM
         src: Rectangle<f64, Buffer>,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
     ) -> Result<(), GlMultiError> {
         match self {
-            Self::ApplicationWindow(elem) => elem.draw(frame, src, dst, damage),
+            Self::ApplicationWindow(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
             Self::Egui(elem) => {
                 let glow_frame = frame.glow_frame_mut();
-                RenderElement::<GlowRenderer>::draw(elem, glow_frame, src, dst, damage)
-                    .map_err(GlMultiError::Render)
+                RenderElement::<GlowRenderer>::draw(
+                    elem,
+                    glow_frame,
+                    src,
+                    dst,
+                    damage,
+                    opaque_regions,
+                )
+                .map_err(GlMultiError::Render)
             }
         }
     }
@@ -286,10 +296,13 @@ impl RenderElement<GlowRenderer> for WorkspaceWindowRenderElement<GlowRenderer> 
         src: Rectangle<f64, Buffer>,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
+        opaque_regions: &[Rectangle<i32, Physical>],
     ) -> Result<(), <GlowRenderer as Renderer>::Error> {
         match self {
-            Self::ApplicationWindow(elem) => elem.draw(frame, src, dst, damage),
-            Self::Egui(elem) => RenderElement::<GlowRenderer>::draw(elem, frame, src, dst, damage),
+            Self::ApplicationWindow(elem) => elem.draw(frame, src, dst, damage, opaque_regions),
+            Self::Egui(elem) => {
+                RenderElement::<GlowRenderer>::draw(elem, frame, src, dst, damage, opaque_regions)
+            }
         }
     }
 
@@ -341,7 +354,7 @@ where
 impl<R> AsRenderElements<R> for WorkspaceWindow
 where
     R: Renderer + ImportAll + ImportMem + AsGlowRenderer,
-    <R as Renderer>::TextureId: 'static,
+    <R as Renderer>::TextureId: Clone + 'static,
     WorkspaceWindowRenderElement<R>: RenderElement<R>,
 {
     type RenderElement = WorkspaceWindowRenderElement<R>;
