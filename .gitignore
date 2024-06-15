@@ -4,3 +4,6 @@ debug.log
 release.log
 /result
 init.lua
+perf.data
+perf.data.old
+flamegraph.svg

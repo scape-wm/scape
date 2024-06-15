@@ -41,7 +41,11 @@ impl State {
             return;
         }
         match action {
-            Action::Quit => self.stop_loop(),
+            Action::Quit => {
+                self.stop_loop();
+                self.config.stop();
+                self.clear_key_map();
+            }
             Action::VtSwitch(vt) => {
                 info!(to = vt, "Trying to switch vt");
                 if let Err(err) = self.backend_data.switch_vt(vt) {

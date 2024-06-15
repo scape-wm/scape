@@ -73,6 +73,10 @@ default = []
 debug = ["fps_ticker", "image/png"]
 profile-with-tracy = ["profiling", "profiling/profile-with-tracy"]
 
+[profile.release]
+codegen-units = 1
+lto = true
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true

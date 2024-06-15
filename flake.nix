@@ -45,7 +45,12 @@
 
       pkgDef = {
         inherit src;
-        nativeBuildInputs = with pkgs; [pkg-config autoPatchelfHook xwayland];
+        nativeBuildInputs = with pkgs; [
+          pkg-config
+          autoPatchelfHook
+          xwayland
+          cargo-flamegraph
+        ];
         buildInputs = with pkgs; [
           udev
           dbus

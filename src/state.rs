@@ -181,6 +181,7 @@ impl State {
     pub fn stop_loop(&mut self) {
         info!("Stopping loop");
         self.loop_signal.stop();
+        self.loop_signal.wakeup();
     }
 }
 

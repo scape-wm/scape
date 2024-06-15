@@ -71,6 +71,10 @@ impl State {
         self.key_maps.entry(mods).or_default().insert(key, callback);
     }
 
+    pub fn clear_key_map(&mut self) {
+        self.key_maps.clear();
+    }
+
     // fn process_common_key_action(&mut self, action: KeyAction) {
     //     match action {
     //         KeyAction::None => (),

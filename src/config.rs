@@ -33,6 +33,11 @@ impl Config {
             on_connector_change: None,
         }
     }
+
+    pub fn stop(&mut self) {
+        self.on_startup = None;
+        self.on_connector_change = None;
+    }
 }
 
 impl Default for Config {
@@ -231,6 +236,17 @@ fn init_config_module<'lua>(
         lua.create_function(move |_, ()| {
             lh.insert_idle(move |state| {
                 state.toggle_debug_ui();
+            });
+            Ok(())
+        })?,
+    )?;
+
+    let lh = loop_handle.clone();
+    exports.set(
+        "quit",
+        lua.create_function(move |_, ()| {
+            lh.insert_idle(move |state| {
+                state.execute(Action::Quit);
             });
             Ok(())
         })?,
