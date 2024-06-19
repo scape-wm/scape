@@ -77,6 +77,7 @@
           xorg.libXrandr # needed for winit on x11
           xorg.libXi # needed for winit on x11
         ];
+        LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       };
 
       cargoArtifacts = craneLib.buildDepsOnly pkgDef;

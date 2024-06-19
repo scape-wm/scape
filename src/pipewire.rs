@@ -116,22 +116,22 @@ pub fn setup_video_steam() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn process(stream: &StreamRef, data: &mut Data) {
+fn process(_stream: &StreamRef, _data: &mut Data) {
     info!("process");
 }
 
-fn state_changed(stream: &StreamRef, data: &mut Data, old: StreamState, new: StreamState) {
+fn state_changed(_stream: &StreamRef, _data: &mut Data, old: StreamState, new: StreamState) {
     info!(?old, ?new, "state_changed");
 }
 
-fn add_buffer(stream: &StreamRef, data: &mut Data, pw_buffer: *mut pw_buffer) {
+fn add_buffer(_stream: &StreamRef, _data: &mut Data, _pw_buffer: *mut pw_buffer) {
     info!("add_buffer");
 }
 
-fn remove_buffer(stream: &StreamRef, data: &mut Data, pw_buffer: *mut pw_buffer) {
+fn remove_buffer(_stream: &StreamRef, _data: &mut Data, _pw_buffer: *mut pw_buffer) {
     info!("remove_buffer");
 }
 
-fn param_changed(stream: &StreamRef, data: &mut Data, id: u32, param: Option<&Pod>) {
+fn param_changed(_stream: &StreamRef, _data: &mut Data, _id: u32, _param: Option<&Pod>) {
     info!("param_changed");
 }
