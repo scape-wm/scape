@@ -50,6 +50,7 @@
           autoPatchelfHook
           xwayland
           cargo-flamegraph
+          clang
         ];
         buildInputs = with pkgs; [
           udev
@@ -65,6 +66,8 @@
           libgcc
           tracy
           just
+          pipewire
+          stdenv.cc.cc.lib
         ];
         runtimeDependencies = with pkgs; [
           libglvnd
@@ -125,6 +128,7 @@
       devShells.default = pkgs.mkShell {
         inputsFrom = builtins.attrValues self.checks.${system};
         LD_LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath pkgDef.runtimeDependencies;
+        LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       };
     });
 

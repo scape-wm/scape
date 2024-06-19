@@ -12,6 +12,7 @@ pub mod egui_window;
 pub mod focus;
 pub mod grabs;
 pub mod input_handler;
+pub mod pipewire;
 pub mod protocols;
 pub mod render;
 pub mod shell;
