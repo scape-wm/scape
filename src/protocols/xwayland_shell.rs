@@ -349,6 +349,20 @@ impl XwmHandler for State {
             }
         }
     }
+
+    fn map_window_notify(&mut self, _xwm: XwmId, _window: X11Surface) {}
+
+    fn property_notify(
+        &mut self,
+        _xwm: XwmId,
+        _window: X11Surface,
+        _property: smithay::xwayland::xwm::WmWindowProperty,
+    ) {
+    }
+
+    fn minimize_request(&mut self, _xwm: XwmId, _window: X11Surface) {}
+
+    fn unminimize_request(&mut self, _xwm: XwmId, _window: X11Surface) {}
 }
 
 impl State {

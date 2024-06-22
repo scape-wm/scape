@@ -116,6 +116,7 @@ impl PointerTarget<State> for PointerFocusTarget {
             PointerFocusTarget::Egui(e) => PointerTarget::button(e, seat, data, event),
         }
     }
+
     fn axis(&self, seat: &Seat<State>, data: &mut State, frame: AxisFrame) {
         match self {
             PointerFocusTarget::WlSurface(w) => PointerTarget::axis(w, seat, data, frame),

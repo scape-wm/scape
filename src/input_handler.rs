@@ -359,6 +359,12 @@ impl State {
                 .element_under(pointer_location)
                 .map(|(w, p)| (w.clone(), p))
             {
+                if let Some(surface) = window.x11_surface() {
+                    // users should not be able to focus override redirect windows
+                    if surface.is_override_redirect() {
+                        return;
+                    }
+                }
                 self.spaces // FIXME: handle multiple spaces
                     .iter_mut()
                     .next()
