@@ -164,6 +164,22 @@ impl SpaceElement for WorkspaceWindow {
             WorkspaceWindow::EguiWindow(w) => w.output_leave(output),
         }
     }
+
+    fn geometry(&self) -> Rectangle<i32, Logical> {
+        match self {
+            WorkspaceWindow::ApplicationWindow(w) => w.geometry(),
+            WorkspaceWindow::EguiWindow(w) => w.geometry(),
+        }
+    }
+
+    fn z_index(&self) -> u8 {
+        match self {
+            WorkspaceWindow::ApplicationWindow(w) => w.z_index(),
+            WorkspaceWindow::EguiWindow(w) => w.z_index(),
+        }
+    }
+
+    fn refresh(&self) {}
 }
 
 pub enum WorkspaceWindowRenderElement<R>
