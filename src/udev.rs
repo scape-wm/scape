@@ -1642,8 +1642,15 @@ fn render_surface<'a>(
             // Mark entire buffer as damaged.
             let region = screencopy.region();
             // TODO: check how to get to the damage
-            // if let Some(damage) = frame_result.damage.clone() {
-            //     screencopy.damage(&damage);
+            // match frame_result.primary_element {
+            //     smithay::backend::drm::compositor::PrimaryPlaneElement::Swapchain(
+            //         swapchain_element,
+            //     ) => {
+            //         for damage in swapchain_element.damage.damage() {
+            //             // screencopy.damage(damage.map(|d| d.size));
+            //         }
+            //     }
+            //     smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_) => todo!(),
             // }
 
             let shm_buffer = screencopy.buffer();

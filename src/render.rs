@@ -250,34 +250,6 @@ where
     }
 }
 
-// impl<'a> RenderElement<GlMultiRenderer<'a>> for OutputRenderElements<GlMultiRenderer<'a>> {
-//     fn draw(
-//         &self,
-//         frame: &mut <GlMultiRenderer<'a> as Renderer>::Frame<'_>,
-//         src: Rectangle<f64, Buffer>,
-//         dst: Rectangle<i32, Physical>,
-//         damage: &[Rectangle<i32, Physical>],
-//     ) -> Result<(), <GlMultiRenderer<'a> as Renderer>::Error> {
-//         match self {
-//             Self::Space(elem) => elem.draw(frame, src, dst, damage),
-//             Self::Window(elem) => elem.draw(frame, src, dst, damage),
-//             Self::Custom(elem) => elem.draw(frame, src, dst, damage),
-//             Self::WaylandSurface(elem) => elem.draw(frame, src, dst, damage),
-//             Self::Preview(elem) => elem.draw(frame, src, dst, damage),
-//         }
-//     }
-//
-//     fn underlying_storage(&self, renderer: &mut GlMultiRenderer<'a>) -> Option<UnderlyingStorage> {
-//         match self {
-//             Self::Space(elem) => elem.underlying_storage(renderer),
-//             Self::Window(elem) => elem.underlying_storage(renderer),
-//             Self::Custom(elem) => elem.underlying_storage(renderer),
-//             Self::WaylandSurface(elem) => elem.underlying_storage(renderer),
-//             Self::Preview(elem) => elem.underlying_storage(renderer),
-//         }
-//     }
-// }
-
 impl<R> RenderElement<R> for OutputRenderElements<R>
 where
     R: Renderer + ImportAll + ImportMem,
