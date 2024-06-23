@@ -33,3 +33,7 @@ flamegraph:
 # run in release mode with flamegraph
 flamegraph-graph:
 	RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph -c "record -g" --profile release-with-debug -- --config ./init.lua -l release.log
+
+# run in release mode with flamegraph with normal config
+flamegraph-graph-config:
+	RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph -c "record -g" --profile release-with-debug -- -l release.log
