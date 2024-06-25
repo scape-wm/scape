@@ -1,3 +1,9 @@
+use std::os::fd::{AsFd, BorrowedFd};
+use std::time::Duration;
+
+use anyhow::anyhow;
+use calloop::generic::Generic;
+use calloop::{Interest, LoopHandle, Mode, PostAction};
 use pipewire as pw;
 use pipewire::{
     context::Context,
@@ -7,6 +13,7 @@ use pipewire::{
     spa::{pod::Pod, utils::Direction},
     stream::{Stream, StreamFlags, StreamRef, StreamState},
 };
+use pw::core::Core;
 use pw::spa::param::format::FormatProperties;
 use pw::spa::param::format::MediaSubtype;
 use pw::spa::param::format::MediaType;
@@ -17,6 +24,45 @@ use pw::spa::pod::property;
 use pw::spa::utils::SpaTypes;
 use pw::sys::pw_buffer;
 use tracing::info;
+
+use crate::State;
+
+struct MainLoopAsFd(MainLoop);
+
+impl AsFd for MainLoopAsFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.loop_().fd()
+    }
+}
+
+pub struct PipeWire {
+    // hold on to the context, which also holds on to the main loop
+    _context: Context,
+    _core: Core,
+}
+
+impl PipeWire {
+    pub fn new(loop_handle: LoopHandle<'static, State>) -> anyhow::Result<Self> {
+        let main_loop = MainLoop::new(None)?;
+        let context = Context::new(&main_loop)?;
+        let core = context.connect(None)?;
+
+        loop_handle
+            .insert_source(
+                Generic::new(MainLoopAsFd(main_loop), Interest::READ, Mode::Level),
+                |_, main_loop, _| {
+                    main_loop.0.loop_().iterate(Duration::ZERO);
+                    Ok(PostAction::Continue)
+                },
+            )
+            .map_err(|e| anyhow!("Unable to start pipewire main loop: {}", e))?;
+
+        Ok(Self {
+            _context: context,
+            _core: core,
+        })
+    }
+}
 
 struct Data {}
 
