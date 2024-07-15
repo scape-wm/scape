@@ -1,4 +1,5 @@
 use crate::cursor::CursorState;
+use crate::pipewire::VideoStream;
 use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::protocols::wlr_screencopy::Screencopy;
 use crate::render::GlMultiRenderer;
@@ -161,6 +162,14 @@ impl UdevData {
 
     pub fn debug_flags(&self) -> DebugFlags {
         self.debug_flags
+    }
+
+    /// Returns the gbm device for the primary gpu
+    pub fn gbm_device(&self) -> Option<GbmDevice<DrmDeviceFd>> {
+        self.backends
+            .values()
+            .find(|device| device.render_node == self.primary_gpu)
+            .map(|device| device.gbm.clone())
     }
 }
 
@@ -1277,6 +1286,8 @@ fn frame_finish(
         }
     };
 
+    let should_schedule_render = should_schedule_render || !state.video_streams.is_empty();
+
     if should_schedule_render {
         let output_refresh = match output.current_mode() {
             Some(mode) => mode.refresh,
@@ -1480,6 +1491,7 @@ fn render_surface_crtc(state: &mut State, node: DrmNode, crtc: crtc::Handle) {
         state.show_window_preview,
         &state.session_lock,
         &mut state.screencopy_frames,
+        &mut state.video_streams,
     );
 
     // TODO: Handle result errors differently depending on the type
@@ -1549,6 +1561,7 @@ fn render_surface<'a>(
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
     screencopy_frames: &mut Vec<Screencopy>,
+    video_streams: &mut Vec<VideoStream>,
 ) -> Result<bool, SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -1717,6 +1730,11 @@ fn render_surface<'a>(
     }
 
     let res = res?;
+
+    for video_stream in video_streams {
+        video_stream.render_frame(renderer, &res, output);
+    }
+
     let rendered = !res.is_empty;
 
     post_repaint(

@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::cursor::CursorState;
 use crate::egui_window::EguiWindow;
 use crate::input_handler::Mods;
+use crate::pipewire::{Pipewire, VideoStream};
 use crate::protocols::wlr_screencopy::{Screencopy, ScreencopyManagerState};
 use crate::udev::{schedule_initial_render, schedule_render, UdevOutputId};
 use crate::workspace_window::WorkspaceWindow;
@@ -12,8 +13,9 @@ use anyhow::{anyhow, Result};
 use calloop::generic::Generic;
 use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use mlua::Function as LuaFunction;
-use smithay::backend::drm::DrmNode;
+use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::input::keyboard::{Keysym, LedState};
+use smithay::reexports::gbm::Device as GbmDevice;
 use smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1;
 use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
@@ -175,6 +177,8 @@ pub struct State {
     pub window_rules: HashMap<String, WindowRule>,
 
     pub screencopy_frames: Vec<Screencopy>,
+    pub pipewire: Option<Pipewire>,
+    pub video_streams: Vec<VideoStream>,
 
     pub debug_ui: Option<EguiWindow>,
 }
@@ -298,6 +302,8 @@ impl State {
             window_rules: HashMap::new(),
             screencopy_frames: Vec::new(),
             debug_ui: None,
+            pipewire: None,
+            video_streams: Vec::new(),
         })
     }
 
@@ -657,6 +663,13 @@ impl BackendData {
             {
                 schedule_render(udev_data, drm_node, handle);
             }
+        }
+    }
+
+    pub fn gbm_device(&self) -> Option<GbmDevice<DrmDeviceFd>> {
+        match self {
+            BackendData::Udev(udev_data) => udev_data.gbm_device(),
+            _ => unreachable!("No gbm device available"),
         }
     }
 }

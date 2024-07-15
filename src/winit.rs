@@ -12,6 +12,7 @@ use calloop::timer::{TimeoutAction, Timer};
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::renderer::glow::GlowRenderer;
+use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
 use smithay::{
@@ -41,6 +42,7 @@ use smithay::{
     },
 };
 use std::{sync::Mutex, time::Duration};
+use tracing::info;
 use tracing::{error, warn};
 
 pub const OUTPUT_NAME: &str = "winit";
@@ -179,7 +181,6 @@ pub fn init_winit(
         (dmabuf_state, dmabuf_global, None)
     };
 
-    #[cfg(feature = "egl")]
     if backend.renderer().bind_wl_display(&display_handle).is_ok() {
         info!("EGL hardware-acceleration enabled");
     };

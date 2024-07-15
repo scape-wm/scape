@@ -8,7 +8,7 @@ alias fgg := flamegraph-graph
 
 # run in dev mode
 run:
-	cargo run >> debug.log
+	cargo run -- --config ./init.lua -l release.log
 
 # run in release mode
 run-release:

@@ -252,6 +252,17 @@ fn init_config_module<'lua>(
         })?,
     )?;
 
+    let lh = loop_handle.clone();
+    exports.set(
+        "start_video_stream",
+        lua.create_function(move |_, ()| {
+            lh.insert_idle(move |state| {
+                state.execute(Action::StartVideoStream);
+            });
+            Ok(())
+        })?,
+    )?;
+
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {
@@ -499,8 +510,11 @@ impl<'lua> FromLua<'lua> for ConfigMapKey {
         // SAFETY: The callback is valid as long as the lua instance is alive.
         // The lua instance is never dropped, therefore the lifetime of the callback is
         // effectively 'static.
-        let callback =
-            unsafe { std::mem::transmute(table.get::<_, LuaFunction<'_>>("callback").unwrap()) };
+        let callback = unsafe {
+            std::mem::transmute::<LuaFunction<'_>, LuaFunction<'_>>(
+                table.get::<_, LuaFunction<'_>>("callback").unwrap(),
+            )
+        };
 
         Ok(ConfigMapKey {
             key,

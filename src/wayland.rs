@@ -1,10 +1,7 @@
 use crate::{args::GlobalArgs, egui::debug_ui::DebugState, state::BackendData, State};
 use calloop::EventLoop;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use std::{
-    thread::{self},
-    time::Duration,
-};
+use std::time::Duration;
 use tracing::error;
 
 pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
@@ -16,9 +13,6 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     state.load_config(args)?;
     state.init(display, backend_data)?;
 
-    let _ = thread::spawn(move || {
-        crate::pipewire::setup_video_steam().unwrap();
-    });
     run_loop(state, &mut event_loop)
 }
 

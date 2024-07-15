@@ -3,7 +3,7 @@ use std::process::Command;
 use mlua::Function as LuaFunction;
 use tracing::{error, info, warn};
 
-use crate::{workspace_window::WorkspaceWindow, State};
+use crate::{pipewire::Pipewire, workspace_window::WorkspaceWindow, State};
 
 #[derive(Debug)]
 pub enum Action {
@@ -29,7 +29,9 @@ pub enum Action {
     Tab { index: usize },
     /// Close current window
     Close,
-    /// Do nothing more
+    /// Start pipewire video stream
+    StartVideoStream,
+    /// Do nothing
     None,
 }
 
@@ -98,6 +100,35 @@ impl State {
                         command,
                         args: Vec::new(),
                     });
+                }
+            }
+            Action::StartVideoStream => {
+                if self.pipewire.is_none() {
+                    match Pipewire::new(self.loop_handle.clone()) {
+                        Ok(pipewire) => self.pipewire = Some(pipewire),
+                        Err(err) => {
+                            error!("Failed to initialize pipewire: {}", err);
+                            return;
+                        }
+                    }
+                }
+
+                let Some(gbm_device) = self.backend_data.gbm_device() else {
+                    error!("No gbm device available");
+                    return;
+                };
+
+                match self
+                    .pipewire
+                    .as_ref()
+                    .unwrap()
+                    .start_video_stream(gbm_device)
+                {
+                    Ok(stream) => {
+                        info!("Pipewire video stream started");
+                        self.video_streams.push(stream);
+                    }
+                    Err(err) => error!(?err, "Failed to start pipewire video stream"),
                 }
             }
             Action::None => {}
