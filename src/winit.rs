@@ -15,6 +15,8 @@ use smithay::backend::renderer::glow::GlowRenderer;
 use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
+use smithay::reexports::winit::platform::wayland::WindowBuilderExtWayland;
+use smithay::reexports::winit::window::WindowBuilder;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -99,8 +101,13 @@ pub fn init_winit(
     display_handle: DisplayHandle,
     event_loop: &mut EventLoop<State>,
 ) -> Result<BackendData> {
-    #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let (mut backend, winit) = winit::init::<GlowRenderer>().map_err(|e| {
+    let (mut backend, winit) = winit::init_from_builder::<GlowRenderer>(
+        WindowBuilder::new()
+            .with_visible(true)
+            .with_title("Scape")
+            .with_name("scape.Scape", "Scape"),
+    )
+    .map_err(|e| {
         error!("Failed to initialize Winit backend: {}", e);
         anyhow!("Winit backend cannot be started")
     })?;
