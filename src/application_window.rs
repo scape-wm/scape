@@ -189,6 +189,10 @@ impl ApplicationWindow {
             }
             WindowSurface::X11(x11_surface) => {
                 if send_configure {
+                    let size = size.clamp(
+                        x11_surface.min_size().unwrap_or(size),
+                        x11_surface.min_size().unwrap_or(size),
+                    );
                     x11_surface
                         .configure(Some(Rectangle::from_loc_and_size(position, size)))
                         .unwrap();
