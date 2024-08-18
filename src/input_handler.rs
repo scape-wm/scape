@@ -212,61 +212,62 @@ impl State {
             .map(|inhibitor| inhibitor.is_active())
             .unwrap_or(false);
 
-        let action = keyboard
-            .input(
-                self,
-                keycode,
-                evt_state,
-                serial,
-                time,
-                |state, modifiers, handle| {
-                    let keysym = handle.modified_sym();
+        let action = keyboard.input(
+            self,
+            keycode,
+            evt_state,
+            serial,
+            time,
+            |state, modifiers, handle| {
+                let keysym = handle.modified_sym();
 
-                    debug!(
-                        ?evt_state,
-                        mods = ?modifiers,
-                        keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
-                        "keysym"
-                    );
+                debug!(
+                    ?evt_state,
+                    mods = ?modifiers,
+                    keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
+                    "keysym"
+                );
 
-                    if !modifiers.alt {
-                        state.tab_index = 0;
-                    }
+                if !modifiers.alt {
+                    state.tab_index = 0;
+                }
 
-                    // If the key is pressed and triggered a action
-                    // we will not forward the key to the client.
-                    // Additionally add the key to the suppressed keys
-                    // so that we can decide on a release if the key
-                    // should be forwarded to the client or not.
-                    if let KeyState::Pressed = evt_state {
-                        if !inhibited {
-                            let action = state.process_keyboard_shortcut(*modifiers, keysym);
+                // If the key is pressed and triggered a action
+                // we will not forward the key to the client.
+                // Additionally add the key to the suppressed keys
+                // so that we can decide on a release if the key
+                // should be forwarded to the client or not.
+                if let KeyState::Pressed = evt_state {
+                    if !inhibited {
+                        let action = state.process_keyboard_shortcut(*modifiers, keysym);
 
-                            if action.is_some() {
-                                suppressed_keys.push(keysym);
-                            }
-
-                            action
-                                .map(FilterResult::Intercept)
-                                .unwrap_or(FilterResult::Forward)
-                        } else {
-                            FilterResult::Forward
+                        if action.is_some() {
+                            suppressed_keys.push(keysym);
                         }
+
+                        action
+                            .map(FilterResult::Intercept)
+                            .unwrap_or(FilterResult::Forward)
                     } else {
-                        let suppressed = suppressed_keys.contains(&keysym);
-                        if suppressed {
-                            suppressed_keys.retain(|k| *k != keysym);
-                            FilterResult::Intercept(Action::None)
-                        } else {
-                            FilterResult::Forward
-                        }
+                        FilterResult::Forward
                     }
-                },
-            )
-            .unwrap_or(Action::None);
+                } else {
+                    let suppressed = suppressed_keys.contains(&keysym);
+                    if suppressed {
+                        suppressed_keys.retain(|k| *k != keysym);
+                        FilterResult::Intercept(Action::None)
+                    } else {
+                        FilterResult::Forward
+                    }
+                }
+            },
+        );
 
         self.suppressed_keys = suppressed_keys;
-        Some(action)
+        match action {
+            None | Some(Action::None) => None,
+            _ => action,
+        }
     }
 
     fn on_pointer_button<B: InputBackend>(&mut self, evt: B::PointerButtonEvent) {
