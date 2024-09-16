@@ -1,7 +1,7 @@
-use crate::{args::GlobalArgs, egui::debug_ui::DebugState, state::BackendData, State};
+use crate::{args::GlobalArgs, dbus, egui::debug_ui::DebugState, state::BackendData, State};
 use calloop::EventLoop;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
-use std::time::Duration;
+use std::{thread, time::Duration};
 use tracing::error;
 
 pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
@@ -13,6 +13,10 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     state.load_config(args)?;
     state.init(display, backend_data)?;
 
+    thread::spawn(move || {
+        let _ = dbus::run_dbus_services();
+    });
+
     run_loop(state, &mut event_loop)
 }
 
@@ -20,8 +24,7 @@ fn create_display() -> anyhow::Result<Display<State>> {
     tracing::info!("Creating new display");
     let display = Display::new().inspect_err(|e| {
         tracing::error!(
-        err = %e,
-            "Unable to create display. libwayland-server.so is probably missing",
+            err = %e, "Unable to create display. libwayland-server.so is probably missing",
         );
     })?;
     tracing::info!("Created display successfully");

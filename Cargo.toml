@@ -29,6 +29,7 @@ notify = "6.1"
 egui = "0.23"
 egui_glow = "0.23"
 pipewire = "0.8.0"
+zbus = "4.3.1"
 
 [dependencies.smithay]
 default-features = false
@@ -40,7 +41,6 @@ features = [
     "backend_udev",
     "backend_drm",
     "backend_gbm",
-    "backend_vulkan",
     "backend_egl",
     "backend_session_libseat",
     "renderer_gl",

@@ -1,9 +1,12 @@
-use std::process::Command;
+use std::{process::Command, sync::atomic::Ordering};
 
 use mlua::Function as LuaFunction;
 use tracing::{error, info, warn};
 
-use crate::{pipewire::Pipewire, workspace_window::WorkspaceWindow, State};
+use crate::{
+    dbus::portals::screen_cast::NODE_ID, pipewire::Pipewire, workspace_window::WorkspaceWindow,
+    State,
+};
 
 #[derive(Debug)]
 pub enum Action {
@@ -126,6 +129,7 @@ impl State {
                 {
                     Ok(stream) => {
                         info!("Pipewire video stream started");
+                        NODE_ID.store(stream.node_id(), Ordering::SeqCst);
                         self.video_streams.push(stream);
                     }
                     Err(err) => error!(?err, "Failed to start pipewire video stream"),

@@ -62,6 +62,13 @@ impl AsFd for MainLoopAsFd {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum CursorMode {
+    Hidden,
+    Embedded,
+    Stream,
+}
+
 pub struct VideoStream {
     _listener: StreamListener<VideoStreamData>,
     dmabufs: Rc<RefCell<HashMap<i64, Dmabuf>>>,
@@ -79,6 +86,10 @@ impl std::fmt::Debug for VideoStream {
 }
 
 impl VideoStream {
+    pub fn node_id(&self) -> u32 {
+        self.stream.node_id()
+    }
+
     pub fn render_frame<'a, 'b, E>(
         &self,
         renderer: &mut GlMultiRenderer<'a>,

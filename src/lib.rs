@@ -6,6 +6,7 @@ pub mod composition;
 pub mod config;
 pub mod config_watcher;
 pub mod cursor;
+pub mod dbus;
 pub mod drawing;
 pub mod egui;
 pub mod egui_window;
