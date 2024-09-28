@@ -1,5 +1,4 @@
 use crate::action::Action;
-use crate::args::GlobalArgs;
 use crate::config_watcher::ConfigWatcher;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
@@ -8,6 +7,7 @@ use crate::State;
 use calloop::LoopHandle;
 use mlua::prelude::*;
 use mlua::Table;
+use scape_shared::GlobalArgs;
 use smithay::output::Output;
 use smithay::output::Scale;
 use smithay::utils::Logical;

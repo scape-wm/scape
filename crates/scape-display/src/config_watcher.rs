@@ -35,7 +35,7 @@ impl ConfigWatcher {
                         }
                     }
                     Err(err) => {
-                        error!(?err, "File watcher had error")
+                        error!(?err, "File watcher had an error")
                     }
                 }
             })

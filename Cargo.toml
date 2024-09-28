@@ -4,34 +4,36 @@ name = "scape"
 version = "0.0.1"
 license = "MIT OR Apache-2.0"
 
-[dependencies]
-bitflags = "2.4.1"
-# remove dependency and replace with impl
-fps_ticker = { version = "1.0.0", optional = true }
-# remove dependency when fps in egui
-image = { version = "0.24.6", default-features = false }
+[workspace]
+members = [
+    "crates/scape-display",
+    "crates/scape-input",
+    "crates/scape-renderer",
+    "crates/scape-shared",
+]
+
+[workspace.dependencies]
+calloop = { version = "0.13.0", features = ["executor"] }
 tracing = { version = "0.1.37", features = [
     "max_level_trace",
     "release_max_level_debug",
 ] }
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-thiserror = "1.0"
-xcursor = { version = "0.3" }
-xkbcommon = "0.7"
-clap = { version = "4.3.19", features = ["derive"] }
-mlua = { version = "0.9.6", features = ["lua54", "vendored"] }
 anyhow = "1.0.72"
-profiling = { version = "1.0.13", optional = true }
-bincode = "1.3.3"
-calloop = { version = "0.13.0", features = ["executor"] }
-xdg = "2.5"
-notify = "6.1"
-egui = "0.23"
-egui_glow = "0.23"
-pipewire = "0.8.0"
-zbus = "4.3.1"
+profiling = "1.0.13"
 
-[dependencies.smithay]
+
+[dependencies]
+scape-display = { path = "./crates/scape-display" }
+scape-input = { path = "./crates/scape-input" }
+scape-renderer = { path = "./crates/scape-renderer" }
+scape-shared = { path = "./crates/scape-shared" }
+calloop = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+profiling = { workspace = true, optional = true }
+
+[workspace.dependencies.smithay]
 default-features = false
 features = [
     "desktop",
@@ -55,24 +57,16 @@ git = "https://github.com/Dirli-V/smithay"
 rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
 # path = "../smithay"
 
-[dependencies.smithay-drm-extras]
+[workspace.dependencies.smithay-drm-extras]
 default-features = false
 git = "https://github.com/Dirli-V/smithay"
 rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
 # path = "../smithay/smithay-drm-extras"
 
-[dependencies.x11rb]
-default-features = false
-features = ["composite"]
-version = "0.13.0"
-
-[build-dependencies]
-gl_generator = "0.14"
-
 [features]
 default = []
-debug = ["fps_ticker", "image/png"]
-profile-with-tracy = ["profiling", "profiling/profile-with-tracy"]
+debug = ["scape-display/debug"]
+profile-with-tracy = ["profiling", "scape-display/profile-with-tracy"]
 
 [profile.release]
 codegen-units = 1

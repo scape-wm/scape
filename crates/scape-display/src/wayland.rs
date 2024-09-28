@@ -1,5 +1,7 @@
-use crate::{args::GlobalArgs, dbus, egui::debug_ui::DebugState, state::BackendData, State};
+use crate::{dbus, egui::debug_ui::DebugState, state::BackendData, State};
+use anyhow::Context;
 use calloop::EventLoop;
+use scape_shared::GlobalArgs;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use std::{thread, time::Duration};
 use tracing::error;
@@ -13,6 +15,7 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
     state.load_config(args)?;
     state.init(display, backend_data)?;
 
+    // thread running dbus services
     thread::spawn(move || {
         let _ = dbus::run_dbus_services();
     });
@@ -22,20 +25,15 @@ pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
 
 fn create_display() -> anyhow::Result<Display<State>> {
     tracing::info!("Creating new display");
-    let display = Display::new().inspect_err(|e| {
-        tracing::error!(
-            err = %e, "Unable to create display. libwayland-server.so is probably missing",
-        );
-    })?;
+    let display = Display::new()
+        .context("Unable to create display. libwayland-server.so is probably missing")?;
     tracing::info!("Created display successfully");
     Ok(display)
 }
 
 fn create_event_loop() -> anyhow::Result<EventLoop<'static, State>> {
     tracing::info!("Creating new event loop");
-    let event_loop = EventLoop::try_new().inspect_err(|e| {
-        tracing::error!(err = %e, "Unable to create event loop");
-    })?;
+    let event_loop = EventLoop::try_new().context("Unable to create event loop")?;
     tracing::info!("Created event loop successfully");
     Ok(event_loop)
 }

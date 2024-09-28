@@ -1,0 +1,9 @@
+[package]
+name = "scape-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+scape-shared = { path = "../scape-shared" }
+calloop = { workspace = true }
+tracing = { workspace = true }

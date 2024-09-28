@@ -1,0 +1,9 @@
+[package]
+name = "scape-shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+calloop = { workspace = true }
+tracing = { workspace = true }
+clap = { version = "4.3.19", features = ["derive"] }
