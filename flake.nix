@@ -6,7 +6,6 @@
     nix-filter.url = "github:numtide/nix-filter";
     crane = {
       url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
     fenix = {
       url = "github:nix-community/fenix";
