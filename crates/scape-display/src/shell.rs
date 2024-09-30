@@ -7,6 +7,7 @@ use smithay::{
         layer_map_for_output, space::SpaceElement, PopupKind, PopupManager, Space,
         WindowSurfaceType,
     },
+    input::pointer::{CursorImageStatus, CursorImageSurfaceData},
     reexports::{
         calloop::Interest,
         wayland_server::{
@@ -23,12 +24,13 @@ use smithay::{
             CompositorState, SurfaceAttributes, TraversalAction,
         },
         dmabuf::get_dmabuf,
-        shell::xdg::{XdgPopupSurfaceData, XdgToplevelSurfaceData},
+        drm_syncobj::DrmSyncobjCachedState,
+        shell::xdg::XdgToplevelSurfaceData,
     },
     xwayland::XWaylandClientData,
 };
 use std::cell::RefCell;
-use tracing::{info, warn};
+use tracing::info;
 
 impl BufferHandler for State {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
@@ -64,10 +66,19 @@ impl CompositorHandler for State {
         });
 
         add_pre_commit_hook::<Self, _>(surface, move |state, _dh, surface| {
+            let mut acquire_point = None;
             let maybe_dmabuf = with_states(surface, |surface_data| {
+                acquire_point.clone_from(
+                    &surface_data
+                        .cached_state
+                        .get::<DrmSyncobjCachedState>()
+                        .pending()
+                        .acquire_point,
+                );
                 surface_data
                     .cached_state
-                    .pending::<SurfaceAttributes>()
+                    .get::<SurfaceAttributes>()
+                    .pending()
                     .buffer
                     .as_ref()
                     .and_then(|assignment| match assignment {
@@ -76,6 +87,21 @@ impl CompositorHandler for State {
                     })
             });
             if let Some(dmabuf) = maybe_dmabuf {
+                if let Some(acquire_point) = acquire_point {
+                    if let Ok((blocker, source)) = acquire_point.generate_blocker() {
+                        let client = surface.client().unwrap();
+                        let res = state.loop_handle.insert_source(source, move |_, _, data| {
+                            let dh = data.display_handle.clone();
+                            data.client_compositor_state(&client)
+                                .blocker_cleared(data, &dh);
+                            Ok(())
+                        });
+                        if res.is_ok() {
+                            add_blocker(surface, blocker);
+                            return;
+                        }
+                    }
+                }
                 if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
                     if let Some(client) = surface.client() {
                         let res = state.loop_handle.insert_source(source, move |_, _, data| {
@@ -103,11 +129,65 @@ impl CompositorHandler for State {
                 root = parent;
             }
 
-            if let Some((window, _)) = self.window_and_space_for_surface(&root) {
+            if let Some((window, space_name)) = self.window_and_space_for_surface(&root) {
                 window.on_commit();
+
+                if &root == surface {
+                    let buffer_offset = with_states(surface, |states| {
+                        states
+                            .cached_state
+                            .get::<SurfaceAttributes>()
+                            .current()
+                            .buffer_delta
+                            .take()
+                    });
+                    if let Some(buffer_offset) = buffer_offset {
+                        self.spaces.entry(space_name).and_modify(|space| {
+                            let current_loc = space.element_location(&window).unwrap();
+                            space.map_element(window, current_loc + buffer_offset, false);
+                        });
+                    }
+                }
             }
         }
         self.popups.commit(surface);
+
+        // TODO: Maybe move this to the cursor module
+        if matches!(&self.cursor_state.status(), CursorImageStatus::Surface(cursor_surface) if cursor_surface == surface)
+        {
+            with_states(surface, |states| {
+                let cursor_image_attributes = states.data_map.get::<CursorImageSurfaceData>();
+                if let Some(mut cursor_image_attributes) =
+                    cursor_image_attributes.map(|attrs| attrs.lock().unwrap())
+                {
+                    let buffer_delta = states
+                        .cached_state
+                        .get::<SurfaceAttributes>()
+                        .current()
+                        .buffer_delta
+                        .take();
+                    if let Some(buffer_delta) = buffer_delta {
+                        tracing::trace!(hotspot = ?cursor_image_attributes.hotspot, ?buffer_delta, "decrementing cursor hotspot");
+                        cursor_image_attributes.hotspot -= buffer_delta;
+                    }
+                }
+            });
+        }
+
+        if matches!(&self.dnd_icon, Some(icon) if &icon.surface == surface) {
+            let dnd_icon = self.dnd_icon.as_mut().unwrap();
+            with_states(&dnd_icon.surface, |states| {
+                let buffer_delta = states
+                    .cached_state
+                    .get::<SurfaceAttributes>()
+                    .current()
+                    .buffer_delta
+                    .take()
+                    .unwrap_or_default();
+                tracing::trace!(offset = ?dnd_icon.offset, ?buffer_delta, "moving dnd offset");
+                dnd_icon.offset += buffer_delta;
+            });
+        }
 
         let space_name = with_states(surface, |surface_data| {
             surface_data
@@ -157,6 +237,7 @@ pub struct SurfaceData {
     pub resize_state: ResizeState,
 }
 
+// TODO: Try to find a better way to do this (this seems inefficient)
 fn ensure_initial_configure(
     surface: &WlSurface,
     space: &Space<WorkspaceWindow>,
@@ -181,20 +262,7 @@ fn ensure_initial_configure(
     {
         // send the initial configure if relevant
         if let Some(toplevel) = window.toplevel() {
-            let initial_configure_sent = with_states(surface, |states| {
-                if let Ok(data) = states
-                    .data_map
-                    .get::<XdgToplevelSurfaceData>()
-                    .unwrap()
-                    .try_lock()
-                {
-                    data.initial_configure_sent
-                } else {
-                    warn!("Unable to lock XdgToplevelSurfaceData in ensure_initial_configure 1");
-                    true
-                }
-            });
-            if !initial_configure_sent {
+            if !toplevel.is_initial_configure_sent() {
                 toplevel.send_configure();
             }
         }
@@ -224,20 +292,7 @@ fn ensure_initial_configure(
                 return;
             }
         };
-        let initial_configure_sent = with_states(surface, |states| {
-            if let Ok(data) = states
-                .data_map
-                .get::<XdgPopupSurfaceData>()
-                .unwrap()
-                .try_lock()
-            {
-                data.initial_configure_sent
-            } else {
-                warn!("Unable to lock XdgPopupSurfaceData in ensure_initial_configure 2");
-                true
-            }
-        });
-        if !initial_configure_sent {
+        if !popup.is_initial_configure_sent() {
             // NOTE: This should never fail as the initial configure is always
             // allowed.
             popup.send_configure().expect("initial configure failed");

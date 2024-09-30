@@ -29,7 +29,7 @@ impl PointerGrab<State> for PointerMoveSurfaceGrab {
         &mut self,
         data: &mut State,
         handle: &mut PointerInnerHandle<'_, State>,
-        _focus: Option<(PointerFocusTarget, Point<i32, Logical>)>,
+        _focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         // While the grab is active, no client has pointer focus
@@ -49,7 +49,7 @@ impl PointerGrab<State> for PointerMoveSurfaceGrab {
         &mut self,
         data: &mut State,
         handle: &mut PointerInnerHandle<'_, State>,
-        focus: Option<(PointerFocusTarget, Point<i32, Logical>)>,
+        focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
         handle.relative_motion(data, focus, event);
@@ -173,7 +173,7 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
         _focus: Option<(
             <State as smithay::input::SeatHandler>::TouchFocus,
-            Point<i32, Logical>,
+            Point<f64, Logical>,
         )>,
         _event: &smithay::input::touch::DownEvent,
         _seq: Serial,
@@ -201,7 +201,7 @@ impl TouchGrab<State> for TouchMoveSurfaceGrab {
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
         _focus: Option<(
             <State as smithay::input::SeatHandler>::TouchFocus,
-            Point<i32, Logical>,
+            Point<f64, Logical>,
         )>,
         event: &smithay::input::touch::MotionEvent,
         _seq: Serial,
@@ -377,7 +377,7 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
         &mut self,
         data: &mut State,
         handle: &mut PointerInnerHandle<'_, State>,
-        _focus: Option<(PointerFocusTarget, Point<i32, Logical>)>,
+        _focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
         // While the grab is active, no client has pointer focus
@@ -415,7 +415,8 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
 
         let (min_size, max_size) = if let Some(surface) = self.window.wl_surface() {
             with_states(&surface, |states| {
-                let data = states.cached_state.current::<SurfaceCachedState>();
+                let mut guard = states.cached_state.get::<SurfaceCachedState>();
+                let data = guard.current();
                 (data.min_size, data.max_size)
             })
         } else {
@@ -451,7 +452,7 @@ impl PointerGrab<State> for PointerResizeSurfaceGrab {
         &mut self,
         data: &mut State,
         handle: &mut PointerInnerHandle<'_, State>,
-        focus: Option<(PointerFocusTarget, Point<i32, Logical>)>,
+        focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
         event: &RelativeMotionEvent,
     ) {
         handle.relative_motion(data, focus, event);
@@ -699,7 +700,7 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
         _focus: Option<(
             <State as smithay::input::SeatHandler>::TouchFocus,
-            Point<i32, Logical>,
+            Point<f64, Logical>,
         )>,
         _event: &smithay::input::touch::DownEvent,
         _seq: Serial,
@@ -833,7 +834,7 @@ impl TouchGrab<State> for TouchResizeSurfaceGrab {
         _handle: &mut smithay::input::touch::TouchInnerHandle<'_, State>,
         _focus: Option<(
             <State as smithay::input::SeatHandler>::TouchFocus,
-            Point<i32, Logical>,
+            Point<f64, Logical>,
         )>,
         _event: &smithay::input::touch::MotionEvent,
         _seq: Serial,

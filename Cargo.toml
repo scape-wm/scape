@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.dependencies]
-calloop = { version = "0.13.0", features = ["executor"] }
+calloop = { version = "0.14.0", features = ["executor"] }
 tracing = { version = "0.1.37", features = [
     "max_level_trace",
     "release_max_level_debug",
@@ -54,13 +54,12 @@ features = [
     "xwayland",
 ]
 git = "https://github.com/Dirli-V/smithay"
-rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
+rev = "55feba8c8"
 # path = "../smithay"
 
 [workspace.dependencies.smithay-drm-extras]
-default-features = false
 git = "https://github.com/Dirli-V/smithay"
-rev = "dfbcad2fe1a84f295a6ac180da15032ce8dfa12a"
+rev = "55feba8c8"
 # path = "../smithay/smithay-drm-extras"
 
 [features]

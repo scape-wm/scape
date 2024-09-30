@@ -67,6 +67,7 @@
           just
           pipewire
           stdenv.cc.cc.lib
+          libdisplay-info
         ];
         runtimeDependencies = with pkgs; [
           libglvnd

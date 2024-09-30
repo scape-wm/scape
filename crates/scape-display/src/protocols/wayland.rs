@@ -1,15 +1,22 @@
 use crate::{
     focus::{KeyboardFocusTarget, PointerFocusTarget},
+    state::DndIcon,
     State,
 };
 use smithay::{
     delegate_compositor, delegate_data_device, delegate_output, delegate_seat, delegate_shm,
-    input::{keyboard::LedState, pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
+    input::{
+        keyboard::LedState,
+        pointer::{CursorImageStatus, CursorImageSurfaceData},
+        Seat, SeatHandler, SeatState,
+    },
     reexports::wayland_server::{
         protocol::{wl_data_source::WlDataSource, wl_surface::WlSurface},
         Resource,
     },
+    utils::Point,
     wayland::{
+        compositor::with_states,
         output::OutputHandler,
         seat::WaylandFocus,
         selection::{
@@ -41,7 +48,21 @@ impl ClientDndGrabHandler for State {
         icon: Option<WlSurface>,
         _seat: Seat<Self>,
     ) {
-        self.dnd_icon = icon;
+        let offset = if let CursorImageStatus::Surface(ref surface) = self.cursor_state.status() {
+            with_states(surface, |states| {
+                let hotspot = states
+                    .data_map
+                    .get::<CursorImageSurfaceData>()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .hotspot;
+                Point::from((-hotspot.x, -hotspot.y))
+            })
+        } else {
+            (0, 0).into()
+        };
+        self.dnd_icon = icon.map(|surface| DndIcon { surface, offset });
     }
 
     fn dropped(&mut self, _seat: Seat<Self>) {

@@ -1,6 +1,7 @@
-use egui::PlatformOutput;
 use egui::{Context, Event, FullOutput, Pos2, RawInput, Rect, Vec2};
+use egui::{MouseWheelUnit, PlatformOutput};
 use egui_glow::Painter;
+use smithay::backend::renderer::Color32F;
 use smithay::{
     backend::{
         allocator::Fourcc,
@@ -184,6 +185,7 @@ impl EguiState {
         let key = if let Some(key) = convert_key(handle.raw_syms().iter().copied()) {
             inner.events.push(Event::Key {
                 key,
+                physical_key: None,
                 pressed,
                 repeat: false,
                 modifiers: convert_modifiers(modifiers),
@@ -247,10 +249,16 @@ impl EguiState {
     ///       instead of normal clients, check [`EguiState::wants_pointer`] to figure out,
     ///       if there is an egui-element below your pointer.
     pub fn handle_pointer_axis(&self, x_amount: f64, y_amount: f64) {
-        self.inner.lock().unwrap().events.push(Event::Scroll(Vec2 {
-            x: x_amount as f32,
-            y: y_amount as f32,
-        }))
+        let inner = self.inner.lock().unwrap();
+        let modifiers = convert_modifiers(inner.last_modifiers);
+        self.inner.lock().unwrap().events.push(Event::MouseWheel {
+            unit: MouseWheelUnit::Point,
+            delta: Vec2 {
+                x: x_amount as f32,
+                y: y_amount as f32,
+            },
+            modifiers,
+        })
     }
 
     /// Set if this [`EguiState`] should consider itself focused
@@ -274,7 +282,7 @@ impl EguiState {
     /// - `modifiers` should be the current state of modifiers pressed on the keyboards.
     pub fn render(
         &self,
-        ui: impl FnOnce(&Context),
+        ui: impl FnMut(&Context),
         renderer: &mut GlowRenderer,
         location: Point<i32, Physical>,
         scale: f64,
@@ -291,7 +299,7 @@ impl EguiState {
                     Transform::Normal,
                 )?;
                 frame
-                    .with_context(|context| Painter::new(context.clone(), "", None))?
+                    .with_context(|context| Painter::new(context.clone(), "", None, false))?
                     .map_err(|_| GlesError::ShaderCompileError)?
             };
             renderer.egl_context().user_data().insert_if_missing(|| {
@@ -340,7 +348,6 @@ impl EguiState {
                     y: screen_size.h as f32,
                 },
             }),
-            pixels_per_point: Some(int_scale as f32),
             time: Some(self.start_time.elapsed().as_secs_f64()),
             predicted_dt: 1.0 / 60.0,
             modifiers: convert_modifiers(inner.last_modifiers),
@@ -349,6 +356,7 @@ impl EguiState {
             dropped_files: Vec::with_capacity(0),
             focused: inner.focused,
             max_texture_side: Some(painter.max_texture_side()), // TODO query from GlState somehow
+            ..Default::default()
         };
 
         let FullOutput {
@@ -410,11 +418,11 @@ impl EguiState {
             let physical_area = inner.next_area.to_physical(int_scale);
             {
                 let mut frame = renderer.render(physical_area.size, Transform::Normal)?;
-                frame.clear([0.0, 0.0, 0.0, 0.0], &[physical_area])?;
+                frame.clear(Color32F::BLACK, &[physical_area])?;
                 painter.paint_and_update_textures(
                     [physical_area.size.w as u32, physical_area.size.h as u32],
                     int_scale as f32,
-                    &self.ctx.tessellate(shapes),
+                    &self.ctx.tessellate(shapes, 1.0),
                     &textures_delta,
                 );
             }
@@ -422,8 +430,8 @@ impl EguiState {
 
             let used = self.ctx.used_rect();
             let margin = self.ctx.style().visuals.clip_rect_margin.ceil() as i32;
-            let window_shadow = self.ctx.style().visuals.window_shadow.extrusion.ceil() as i32;
-            let popup_shadow = self.ctx.style().visuals.popup_shadow.extrusion.ceil() as i32;
+            let window_shadow = self.ctx.style().visuals.window_shadow.spread.ceil() as i32;
+            let popup_shadow = self.ctx.style().visuals.popup_shadow.spread.ceil() as i32;
             let offset = margin + Ord::max(window_shadow, popup_shadow);
             Result::<_, GlesError>::Ok(vec![Rectangle::<i32, Logical>::from_extemities(
                 (
@@ -541,6 +549,7 @@ impl<D: SeatHandler> KeyboardTarget<D> for EguiState {
                 let modifiers = convert_modifiers(inner.last_modifiers);
                 inner.events.push(Event::Key {
                     key,
+                    physical_key: None,
                     pressed: true,
                     repeat: false,
                     modifiers,
@@ -566,6 +575,7 @@ impl<D: SeatHandler> KeyboardTarget<D> for EguiState {
                 let modifiers = convert_modifiers(inner.last_modifiers);
                 inner.events.push(Event::Key {
                     key,
+                    physical_key: None,
                     pressed: false,
                     repeat: false,
                     modifiers,

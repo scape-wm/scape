@@ -3,7 +3,7 @@ use crate::pipewire::VideoStream;
 use crate::protocols::presentation_time::take_presentation_feedback;
 use crate::protocols::wlr_screencopy::Screencopy;
 use crate::render::GlMultiRenderer;
-use crate::state::{ActiveSpace, BackendData, SessionLock, SurfaceDmabufFeedback};
+use crate::state::{ActiveSpace, BackendData, DndIcon, SessionLock, SurfaceDmabufFeedback};
 use crate::workspace_window::WorkspaceWindow;
 use crate::{
     drawing::*,
@@ -11,6 +11,7 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
+use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmBuffer;
 use smithay::backend::drm::compositor::RenderFrameResult;
 use smithay::backend::drm::gbm::GbmFramebuffer;
@@ -36,6 +37,7 @@ use smithay::wayland::dmabuf::ImportNotifier;
 use smithay::wayland::drm_lease::{
     DrmLease, DrmLeaseBuilder, DrmLeaseHandler, DrmLeaseRequest, DrmLeaseState, LeaseRejected,
 };
+use smithay::wayland::drm_syncobj::{supports_syncobj_eventfd, DrmSyncobjState};
 use smithay::wayland::shm;
 use smithay::{
     backend::{
@@ -87,18 +89,9 @@ use smithay::{
         dmabuf::{DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufState},
     },
 };
-use smithay_drm_extras::{
-    drm_scanner::{DrmScanEvent, DrmScanner},
-    edid::EdidInfo,
-};
+use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 use std::time::Instant;
-use std::{
-    collections::{hash_map::HashMap, HashSet},
-    io,
-    path::Path,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{collections::hash_map::HashMap, io, path::Path, sync::Mutex, time::Duration};
 use tracing::{error, info, trace, warn};
 
 // we cannot simply pick the first supported format of the intersection of *all* formats, because:
@@ -132,6 +125,7 @@ pub struct UdevData {
     debug_flags: DebugFlags,
     keyboards: Vec<smithay::reexports::input::Device>,
     pub loop_handle: LoopHandle<'static, State>,
+    pub syncobj_state: Option<DrmSyncobjState>,
 }
 
 impl std::fmt::Debug for UdevData {
@@ -271,6 +265,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
         debug_flags: DebugFlags::empty(),
         keyboards: Vec::new(),
         loop_handle: loop_handle.clone(),
+        syncobj_state: None,
     };
 
     let mut libinput_context =
@@ -395,9 +390,8 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
             UdevEvent::Added { device_id, path } => {
                 if let Err(err) = DrmNode::from_dev_id(device_id)
                     .map_err(DeviceAddError::DrmNode)
-                    .map(|node| {
-                        state.last_node = Some(node);
-                        node
+                    .inspect(|node| {
+                        state.last_node = Some(*node);
                     })
                     .and_then(|node| device_added(state, node, &path))
                 {
@@ -435,7 +429,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
 
             #[cfg(feature = "debug")]
             {
-                let fps_image = image::io::Reader::with_format(
+                let fps_image = image::ImageReader::with_format(
                     std::io::Cursor::new(FPS_NUMBERS_PNG),
                     image::ImageFormat::Png,
                 )
@@ -469,7 +463,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
             }
 
             // init dmabuf support with format list from our primary gpu
-            let dmabuf_formats = renderer.dmabuf_formats().collect::<Vec<_>>();
+            let dmabuf_formats = renderer.dmabuf_formats();
             let default_feedback = DmabufFeedbackBuilder::new(primary_gpu.dev_id(), dmabuf_formats)
                 .build()
                 .unwrap();
@@ -495,6 +489,22 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
                         });
                 });
             });
+
+            // Expose syncobj protocol if supported by primary GPU
+            if let Some(primary_node) = udev_data
+                .primary_gpu
+                .node_with_type(NodeType::Primary)
+                .and_then(|x| x.ok())
+            {
+                if let Some(backend) = udev_data.backends.get(&primary_node) {
+                    let import_device = backend.drm.device_fd().clone();
+                    if supports_syncobj_eventfd(&import_device) {
+                        let syncobj_state =
+                            DrmSyncobjState::new::<State>(&state.display_handle, import_device);
+                        udev_data.syncobj_state = Some(syncobj_state);
+                    }
+                }
+            }
 
             TimeoutAction::Drop
         })
@@ -540,9 +550,24 @@ impl DrmLeaseHandler for State {
                     .drm
                     .planes(crtc)
                     .map_err(LeaseRejected::with_cause)?;
-                builder.add_plane(planes.primary.handle);
-                if let Some(cursor) = planes.cursor {
-                    builder.add_plane(cursor.handle);
+                let (primary_plane, primary_plane_claim) = planes
+                    .primary
+                    .iter()
+                    .find_map(|plane| {
+                        backend
+                            .drm
+                            .claim_plane(plane.handle, *crtc)
+                            .map(|claim| (plane, claim))
+                    })
+                    .ok_or_else(LeaseRejected::default)?;
+                builder.add_plane(primary_plane.handle, primary_plane_claim);
+                if let Some((cursor, claim)) = planes.cursor.iter().find_map(|plane| {
+                    backend
+                        .drm
+                        .claim_plane(plane.handle, *crtc)
+                        .map(|claim| (plane, claim))
+                }) {
+                    builder.add_plane(cursor.handle, claim);
                 }
             } else {
                 tracing::warn!(
@@ -685,7 +710,7 @@ struct DrmSurfaceDmabufFeedback {
 
 #[derive(Debug)]
 pub struct SurfaceData {
-    dh: DisplayHandle,
+    display_handle: DisplayHandle,
     device_id: DrmNode,
     render_node: DrmNode,
     global: Option<GlobalId>,
@@ -704,7 +729,7 @@ pub struct SurfaceData {
 impl Drop for SurfaceData {
     fn drop(&mut self) {
         if let Some(global) = self.global.take() {
-            self.dh.remove_global::<State>(global);
+            self.display_handle.remove_global::<State>(global);
         }
     }
 }
@@ -742,38 +767,30 @@ fn get_surface_dmabuf_feedback(
     gpus: &mut GpuManager<GbmGlesBackend<GlowRenderer, DrmDeviceFd>>,
     composition: &SurfaceComposition,
 ) -> Option<DrmSurfaceDmabufFeedback> {
-    let primary_formats = gpus
-        .single_renderer(&primary_gpu)
-        .ok()?
-        .dmabuf_formats()
-        .collect::<HashSet<_>>();
-
-    let render_formats = gpus
-        .single_renderer(&render_node)
-        .ok()?
-        .dmabuf_formats()
-        .collect::<HashSet<_>>();
+    let primary_formats = gpus.single_renderer(&primary_gpu).ok()?.dmabuf_formats();
+    let render_formats = gpus.single_renderer(&render_node).ok()?.dmabuf_formats();
 
     let all_render_formats = primary_formats
         .iter()
         .chain(render_formats.iter())
         .copied()
-        .collect::<HashSet<_>>();
+        .collect::<FormatSet>();
 
     let surface = composition.surface();
     let planes = surface.planes().clone();
     // We limit the scan-out trache to formats we can also render from
     // so that there is always a fallback render path available in case
     // the supplied buffer can not be scanned out directly
-    let planes_formats = planes
-        .primary
+    let planes_formats = surface
+        .plane_info()
         .formats
-        .into_iter()
+        .iter()
+        .copied()
         .chain(planes.overlay.into_iter().flat_map(|p| p.formats))
-        .collect::<HashSet<_>>()
+        .collect::<FormatSet>()
         .intersection(&all_render_formats)
         .copied()
-        .collect::<Vec<_>>();
+        .collect::<FormatSet>();
 
     let builder = DmabufFeedbackBuilder::new(primary_gpu.dev_id(), primary_formats);
     let render_feedback = builder
@@ -911,9 +928,16 @@ fn connector_connected(
         })
         .unwrap_or(false);
 
-    let (make, model) = EdidInfo::for_connector(&device.drm, connector.handle())
-        .map(|info| (info.manufacturer, info.model))
-        .unwrap_or_else(|| ("Unknown".into(), "Unknown".into()));
+    let display_info =
+        smithay_drm_extras::display_info::for_connector(&device.drm, connector.handle());
+    let make = display_info
+        .as_ref()
+        .and_then(|info| info.make())
+        .unwrap_or_else(|| "Unknown".into());
+    let model = display_info
+        .as_ref()
+        .and_then(|info| info.model())
+        .unwrap_or_else(|| "Unknown".into());
 
     if non_desktop {
         info!(
@@ -1042,7 +1066,7 @@ fn connector_connected(
         );
 
         let surface = SurfaceData {
-            dh: state.display_handle.clone(),
+            display_handle: state.display_handle.clone(),
             device_id: node,
             render_node: device.render_node,
             global: Some(global),
@@ -1119,7 +1143,15 @@ fn device_changed(state: &mut State, node: DrmNode) {
         return;
     };
 
-    for event in device.drm_scanner.scan_connectors(&device.drm) {
+    let scan_result = match device.drm_scanner.scan_connectors(&device.drm) {
+        Ok(scan_result) => scan_result,
+        Err(err) => {
+            tracing::warn!(?err, "Failed to scan connectors");
+            return;
+        }
+    };
+
+    for event in scan_result {
         match event {
             DrmScanEvent::Connected {
                 connector,
@@ -1556,7 +1588,7 @@ fn render_surface<'a>(
     output: &Output,
     pointer_location: Point<f64, Logical>,
     cursor_state: &mut CursorState,
-    dnd_icon: &Option<wl_surface::WlSurface>,
+    dnd_icon: &Option<DndIcon>,
     clock: &Clock<Monotonic>,
     show_window_preview: bool,
     session_lock: &Option<SessionLock>,
@@ -1587,8 +1619,7 @@ fn render_surface<'a>(
         } else {
             (0, 0).into()
         };
-        let cursor_pos = pointer_location - output_geometry.loc.to_f64() - cursor_hotspot.to_f64();
-        let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
+        let cursor_pos = pointer_location - output_geometry.loc.to_f64();
 
         {
             // reset the cursor if the surface is no longer alive
@@ -1604,22 +1635,29 @@ fn render_surface<'a>(
         // TODO get scale from the rendersurface when supporting HiDPI
         cursor_state.set_scale(scale);
         cursor_state.set_time(clock.now().into());
-        custom_elements.extend(cursor_state.render_elements(
-            renderer,
-            cursor_pos_scaled,
-            scale,
-            1.0,
-        ));
+        custom_elements.extend(
+            cursor_state.render_elements(
+                renderer,
+                (cursor_pos - cursor_hotspot.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round(),
+                scale,
+                1.0,
+            ),
+        );
 
         // draw the dnd icon if applicable
         {
-            if let Some(wl_surface) = dnd_icon.as_ref() {
-                if wl_surface.alive() {
+            if let Some(icon) = dnd_icon.as_ref() {
+                let dnd_icon_pos = (cursor_pos + icon.offset.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round();
+                if icon.surface.alive() {
                     custom_elements.extend(
                         AsRenderElements::<GlMultiRenderer<'a>>::render_elements(
-                            &SurfaceTree::from_surface(wl_surface),
+                            &SurfaceTree::from_surface(&icon.surface),
                             renderer,
-                            cursor_pos_scaled,
+                            dnd_icon_pos,
                             scale,
                             1.0,
                         ),

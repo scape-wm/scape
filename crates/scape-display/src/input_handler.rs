@@ -124,16 +124,7 @@ impl State {
     //         //                     false
     //         //                 }
     //         //             });
-    //         //             let initial_configure_sent = with_states(toplevel.wl_surface(), |states| {
-    //         //                 states
-    //         //                     .data_map
-    //         //                     .get::<XdgToplevelSurfaceData>()
-    //         //                     .unwrap()
-    //         //                     .lock()
-    //         //                     .unwrap()
-    //         //                     .initial_configure_sent
-    //         //             });
-    //         //             if mode_changed && initial_configure_sent {
+    //         //             if mode_changed && toplevel.is_initial_configure_sent() {
     //         //                 toplevel.send_pending_configure();
     //         //             }
     //         //         }
@@ -172,7 +163,7 @@ impl State {
 
         let keycode = evt.key_code();
         let evt_state = evt.state();
-        debug!(keycode, ?evt_state, "key");
+        debug!(?keycode, ?evt_state, "key");
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
         let mut suppressed_keys = self.suppressed_keys.clone();
@@ -181,7 +172,10 @@ impl State {
 
         for layer in self.layer_shell_state.layer_surfaces().rev() {
             let data = with_states(layer.wl_surface(), |states| {
-                *states.cached_state.current::<LayerSurfaceCachedState>()
+                *states
+                    .cached_state
+                    .get::<LayerSurfaceCachedState>()
+                    .current()
             });
             if data.keyboard_interactivity == KeyboardInteractivity::Exclusive
                 && (data.layer == WlrLayer::Top || data.layer == WlrLayer::Overlay)
@@ -419,7 +413,7 @@ impl State {
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
-    ) -> Option<(PointerFocusTarget, Point<i32, Logical>)> {
+    ) -> Option<(PointerFocusTarget, Point<f64, Logical>)> {
         let space = &self
             .spaces // FIXME: handle multiple spaces
             .iter()
@@ -479,7 +473,8 @@ impl State {
         {
             under = Some(focus)
         };
-        under
+
+        under.map(|(s, l)| (s, l.to_f64()))
     }
 
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
@@ -594,10 +589,10 @@ impl State {
         for keycode in keyboard.pressed_keys() {
             keyboard.input(
                 self,
-                keycode.raw(),
+                keycode,
                 KeyState::Released,
                 SCOUNTER.next_serial(),
-                0,
+                self.clock.now().as_millis(),
                 |_, _, _| FilterResult::Forward::<bool>,
             );
         }
@@ -697,7 +692,7 @@ impl State {
                 Some(constraint) if constraint.is_active() => {
                     // Constraint does not apply if not within region
                     if !constraint.region().map_or(true, |x| {
-                        x.contains(pointer_location.to_i32_round() - *surface_loc)
+                        x.contains((pointer_location - *surface_loc).to_i32_round())
                     }) {
                         return;
                     }
@@ -749,7 +744,7 @@ impl State {
                     return;
                 }
                 if let Some(region) = confine_region {
-                    if !region.contains(pointer_location.to_i32_round() - *surface_loc) {
+                    if !region.contains((pointer_location - *surface_loc).to_i32_round()) {
                         pointer.frame(self);
                         return;
                     }
@@ -775,7 +770,7 @@ impl State {
         {
             with_pointer_constraint(&under, &pointer, |constraint| match constraint {
                 Some(constraint) if !constraint.is_active() => {
-                    let point = pointer_location.to_i32_round() - surface_location;
+                    let point = (pointer_location - surface_location).to_i32_round();
                     if constraint
                         .region()
                         .map_or(true, |region| region.contains(point))
@@ -861,7 +856,7 @@ impl State {
                 &MotionEvent {
                     location: pointer_location,
                     serial: SCOUNTER.next_serial(),
-                    time: 0,
+                    time: evt.time_msec(),
                 },
             );
 
@@ -914,7 +909,7 @@ impl State {
 
         if let Some(rect) = output_geometry {
             let tool = evt.tool();
-            tablet_seat.add_tool::<Self>(&self.display_handle, &tool);
+            tablet_seat.add_tool::<Self>(self, &self.display_handle.clone(), &tool);
 
             let pointer_location = evt.position_transformed(rect.size) + rect.loc.to_f64();
 
@@ -929,7 +924,7 @@ impl State {
                 &MotionEvent {
                     location: pointer_location,
                     serial: SCOUNTER.next_serial(),
-                    time: 0,
+                    time: evt.time_msec(),
                 },
             );
             pointer.frame(self);

@@ -15,8 +15,8 @@ use smithay::backend::renderer::glow::GlowRenderer;
 use smithay::backend::renderer::ImportEgl;
 #[cfg(feature = "debug")]
 use smithay::backend::{allocator::Fourcc, renderer::ImportMem};
-use smithay::reexports::winit::platform::wayland::WindowBuilderExtWayland;
-use smithay::reexports::winit::window::WindowBuilder;
+use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
+use smithay::reexports::winit::window::WindowAttributes;
 use smithay::{
     backend::{
         allocator::dmabuf::Dmabuf,
@@ -101,8 +101,8 @@ pub fn init_winit(
     display_handle: DisplayHandle,
     event_loop: &mut EventLoop<State>,
 ) -> Result<BackendData> {
-    let (mut backend, winit) = winit::init_from_builder::<GlowRenderer>(
-        WindowBuilder::new()
+    let (mut backend, winit) = winit::init_from_attributes::<GlowRenderer>(
+        WindowAttributes::default()
             .with_visible(true)
             .with_title("Scape")
             .with_name("scape.Scape", "Scape"),
@@ -136,7 +136,7 @@ pub fn init_winit(
     output.set_preferred(mode);
 
     #[cfg(feature = "debug")]
-    let fps_image = image::io::Reader::with_format(
+    let fps_image = image::ImageReader::with_format(
         std::io::Cursor::new(FPS_NUMBERS_PNG),
         image::ImageFormat::Png,
     )
@@ -158,7 +158,7 @@ pub fn init_winit(
 
     let dmabuf_default_feedback = match render_node {
         Ok(Some(node)) => {
-            let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
+            let dmabuf_formats = backend.renderer().dmabuf_formats();
             let dmabuf_default_feedback = DmabufFeedbackBuilder::new(node.dev_id(), dmabuf_formats)
                 .build()
                 .unwrap();
@@ -182,7 +182,7 @@ pub fn init_winit(
             .create_global_with_default_feedback::<State>(&display_handle, &default_feedback);
         (dmabuf_state, dmabuf_global, Some(default_feedback))
     } else {
-        let dmabuf_formats = backend.renderer().dmabuf_formats().collect::<Vec<_>>();
+        let dmabuf_formats = backend.renderer().dmabuf_formats();
         let mut dmabuf_state = DmabufState::new();
         let dmabuf_global = dmabuf_state.create_global::<State>(&display_handle, dmabuf_formats);
         (dmabuf_state, dmabuf_global, None)
@@ -345,9 +345,7 @@ fn run_tick(state: &mut State) {
             } else {
                 (0, 0).into()
             };
-        let cursor_pos =
-            state.pointer.as_ref().unwrap().current_location() - cursor_hotspot.to_f64();
-        let cursor_pos_scaled = cursor_pos.to_physical(scale).to_i32_round();
+        let cursor_pos = state.pointer.as_ref().unwrap().current_location();
 
         let render_res = backend.bind().and_then(|_| {
             let age = if *full_redraw > 0 {
@@ -360,20 +358,27 @@ fn run_tick(state: &mut State) {
 
             let mut elements = Vec::<CustomRenderElements<GlowRenderer>>::new();
 
-            elements.extend(state.cursor_state.render_elements(
-                renderer,
-                cursor_pos_scaled,
-                scale,
-                1.0,
-            ));
+            elements.extend(
+                state.cursor_state.render_elements(
+                    renderer,
+                    (cursor_pos - cursor_hotspot.to_f64())
+                        .to_physical(scale)
+                        .to_i32_round(),
+                    scale,
+                    1.0,
+                ),
+            );
 
             // draw the dnd icon if any
-            if let Some(surface) = dnd_icon {
-                if surface.alive() {
+            if let Some(icon) = dnd_icon {
+                let dnd_icon_pos = (cursor_pos + icon.offset.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round();
+                if icon.surface.alive() {
                     elements.extend(AsRenderElements::<GlowRenderer>::render_elements(
-                        &smithay::desktop::space::SurfaceTree::from_surface(surface),
+                        &smithay::desktop::space::SurfaceTree::from_surface(&icon.surface),
                         renderer,
-                        cursor_pos_scaled,
+                        dnd_icon_pos,
                         scale,
                         1.0,
                     ));

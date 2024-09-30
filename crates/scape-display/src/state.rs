@@ -19,10 +19,12 @@ use smithay::reexports::gbm::Device as GbmDevice;
 use smithay::reexports::wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1;
 use smithay::utils::Logical;
 use smithay::wayland::dmabuf::ImportNotifier;
+use smithay::wayland::drm_syncobj::DrmSyncobjState;
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
 use smithay::wayland::selection::wlr_data_control::DataControlState;
 use smithay::wayland::session_lock::LockSurface;
 use smithay::wayland::session_lock::SessionLockManagerState;
+use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
 use smithay::wayland::tablet_manager::TabletManagerState;
 use smithay::wayland::xdg_foreign::XdgForeignState;
 use smithay::wayland::xwayland_shell::XWaylandShellState;
@@ -149,9 +151,10 @@ pub struct State {
     pub session_lock_state: SessionLockManagerState,
     pub xdg_foreign_state: XdgForeignState,
     pub xwayland_shell_state: XWaylandShellState,
+    pub single_pixel_buffer_state: SinglePixelBufferState,
     pub session_lock: Option<SessionLock>,
 
-    pub dnd_icon: Option<WlSurface>,
+    pub dnd_icon: Option<DndIcon>,
 
     // input-related fields
     pub suppressed_keys: Vec<Keysym>,
@@ -181,6 +184,12 @@ pub struct State {
     pub video_streams: Vec<VideoStream>,
 
     pub debug_ui: Option<EguiWindow>,
+}
+
+#[derive(Debug)]
+pub struct DndIcon {
+    pub surface: WlSurface,
+    pub offset: Point<i32, Logical>,
 }
 
 impl State {
@@ -224,6 +233,7 @@ impl State {
             FractionalScaleManagerState::new::<Self>(&display_handle);
         let xdg_foreign_state = XdgForeignState::new::<Self>(&display_handle);
         let xwayland_shell_state = XWaylandShellState::new::<Self>(&display_handle);
+        let single_pixel_buffer_state = SinglePixelBufferState::new::<Self>(&display_handle);
         let _text_input_manager_state = TextInputManagerState::new::<Self>(&display_handle);
         let _input_method_manager_state =
             InputMethodManagerState::new::<Self, _>(&display_handle, |_client| {
@@ -275,6 +285,7 @@ impl State {
             xwayland_shell_state,
             fractional_scale_manager_state,
             xdg_foreign_state,
+            single_pixel_buffer_state,
             dnd_icon: None,
             suppressed_keys: Vec::new(),
             cursor_state: CursorState::default(),
@@ -636,6 +647,13 @@ impl BackendData {
                 udev_data.session.change_vt(vt).map_err(|e| anyhow!(e))
             }
             _ => Ok(()),
+        }
+    }
+
+    pub fn syncobj_state(&mut self) -> &mut Option<DrmSyncobjState> {
+        match self {
+            BackendData::Udev(ref mut udev_data) => &mut udev_data.syncobj_state,
+            _ => unreachable!("No syncobj state available"),
         }
     }
 
