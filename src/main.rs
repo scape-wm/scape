@@ -32,6 +32,8 @@ fn setup_profiling() {
     profiling::register_thread!("Main Thread");
 }
 
+/// Sets up logging with tracing. If the `log_file` is `Some`, the log messages will be written to
+/// the file. Otherwise, they will be written to the standard output.
 fn setup_logging(log_file: Option<&str>) {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         let builder = EnvFilter::builder();
@@ -62,15 +64,17 @@ fn setup_logging(log_file: Option<&str>) {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Get a static reference to the global args, so that they can be sent across threads
     let args = Box::leak(Box::new(get_global_args()));
 
     setup_logging(args.log_file.as_deref());
     #[cfg(feature = "profiling")]
     setup_profiling();
 
-    start_app(args)
+    run_app(args)
 }
 
+/// Represents the data for the main thread
 struct MainData {
     loop_handle: LoopHandle<'static, MainData>,
     comms: Comms,
@@ -82,6 +86,7 @@ struct MainData {
 }
 
 impl MainData {
+    /// Creates a new instance of `MainData`
     fn new(
         loop_handle: LoopHandle<'static, MainData>,
         comms: Comms,
@@ -101,7 +106,10 @@ impl MainData {
     }
 }
 
-fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
+/// Starts the application by creating the needed channels and starting the necessary threads. The
+/// main thread will wait for the other threads to finish before exiting.
+fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
+    // Create the channels for communication between the threads
     let (to_main, main_channel) = channel();
     let (to_display, display_channel) = channel();
     let (to_renderer, renderer_channel) = channel();
@@ -118,6 +126,7 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
                 MainMessage::Shutdown => {
                     if !data.shutting_down {
                         data.shutting_down = true;
+                        // Notify the other threads that the application is shutting down
                         data.comms.input(InputMessage::Shutdown);
                         data.comms.display(DisplayMessage::Shutdown);
                         data.comms.renderer(RendererMessage::Shutdown);
@@ -140,6 +149,7 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         })
         .unwrap();
 
+    // Spawn the input thread
     let input_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
@@ -149,6 +159,7 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         args,
     )
     .context("Unable to run input module")?;
+    // Spawn the renderer thread
     let display_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
@@ -158,6 +169,7 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         args,
     )
     .context("Unable to run renderer module")?;
+    // Spawn the display thread
     let renderer_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
@@ -175,6 +187,8 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         display_join_handle,
         renderer_join_handle,
     );
+
+    // Run the main loop
     event_loop
         .run(None, &mut data, |data| {
             if data.shutting_down
@@ -191,6 +205,9 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Spawns a new thread and runs the given function in it, returning a handle to the newly created
+/// thread. The spawned thread is wrapped in a panic handler to gracefully handle any panics that
+/// might occur.
 fn run_thread<F, T>(
     comms: Comms,
     to_main: Sender<MainMessage>,
@@ -198,7 +215,7 @@ fn run_thread<F, T>(
     runner: F,
     channel: Channel<T>,
     args: &'static GlobalArgs,
-) -> anyhow::Result<thread::JoinHandle<()>>
+) -> anyhow::Result<JoinHandle<()>>
 where
     F: FnOnce(Comms, Channel<T>, &GlobalArgs) -> anyhow::Result<()> + Send + UnwindSafe + 'static,
     T: Send + 'static,
@@ -210,8 +227,11 @@ where
             let span = span!(Level::INFO, "scape", thread_name = name);
             let _guard = span.enter();
             match result {
-                Ok(r) => {
-                    error!(result = ?r, "Thread exited without panic");
+                Ok(Ok(r)) => {
+                    info!(result = ?r, "Thread exited normally");
+                }
+                Ok(Err(err)) => {
+                    error!(result = ?err, "Thread exited with an error");
                 }
                 Err(err) => {
                     if let Some(err) = err.downcast_ref::<&str>() {
@@ -225,6 +245,8 @@ where
             }
             info!("Sending shutdown signal to main, because thread is about to exit");
 
+            // The thread should only exit if the main thread has already sent a shutdown signal,
+            // but in case something is wrong, we send a shutdown signal to the main thread anyway.
             if let Err(err) = to_main.send(MainMessage::Shutdown) {
                 warn!(%err, "Unable to send shutdown signal to main");
             }
@@ -232,4 +254,69 @@ where
         .context("Unable to spawn thread")?;
 
     Ok(join_handle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_thread_sends_shutdown_signal() {
+        let (to_main, main_channel) = channel();
+        let (to_display, display_channel) = channel();
+        let (to_renderer, _) = channel();
+        let (to_input, _) = channel();
+        let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
+        let args = Box::leak(Box::new(get_global_args()));
+
+        let join_handle = run_thread(
+            comms,
+            to_main,
+            String::from("test_thread"),
+            |_, _, _| Ok(()),
+            display_channel, // pick any channel, does not matter for this test
+            args,
+        );
+
+        // Wait for the thread to finish
+        join_handle.unwrap().join().unwrap();
+
+        // Check if the main channel has received the shutdown signal
+        assert!(matches!(
+            main_channel.recv().unwrap(),
+            MainMessage::Shutdown
+        ));
+        // No other messages should be received
+        assert!(main_channel.try_recv().is_err());
+    }
+
+    #[test]
+    fn run_thread_sends_shutdown_signal_on_panic() {
+        let (to_main, main_channel) = channel();
+        let (to_display, display_channel) = channel();
+        let (to_renderer, _) = channel();
+        let (to_input, _) = channel();
+        let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
+        let args = Box::leak(Box::new(get_global_args()));
+
+        let join_handle = run_thread(
+            comms,
+            to_main,
+            String::from("test_thread"),
+            |_, _, _| panic!("Test panic"),
+            display_channel, // pick any channel, does not matter for this test
+            args,
+        );
+
+        // Wait for the thread to finish
+        join_handle.unwrap().join().unwrap();
+
+        // Check if the main channel has received the shutdown signal
+        assert!(matches!(
+            main_channel.recv().unwrap(),
+            MainMessage::Shutdown
+        ));
+        // No other messages should be received
+        assert!(main_channel.try_recv().is_err());
+    }
 }
