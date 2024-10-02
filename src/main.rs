@@ -5,11 +5,18 @@
 use anyhow::Context;
 use calloop::{
     channel::{channel, Channel, Sender},
-    EventLoop,
+    timer::{TimeoutAction, Timer},
+    EventLoop, LoopHandle,
 };
-use scape_shared::{get_global_args, Comms, GlobalArgs, MainMessage};
-use std::thread;
-use tracing::warn;
+use scape_shared::{
+    get_global_args, Comms, DisplayMessage, GlobalArgs, InputMessage, MainMessage, RendererMessage,
+};
+use std::{
+    panic::UnwindSafe,
+    thread::{self, JoinHandle},
+    time::Duration,
+};
+use tracing::{error, info, span, warn, Level};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 #[cfg(feature = "profile-with-tracy")]
@@ -36,7 +43,7 @@ fn setup_logging(log_file: Option<&str>) {
     });
 
     let log_builder = tracing_subscriber::fmt()
-        .compact()
+        .pretty()
         .with_env_filter(env_filter);
 
     if let Some(log_file) = log_file {
@@ -64,9 +71,34 @@ fn main() -> anyhow::Result<()> {
     start_app(args)
 }
 
-#[derive(Default)]
 struct MainData {
+    loop_handle: LoopHandle<'static, MainData>,
+    comms: Comms,
+    input_join_handle: JoinHandle<()>,
+    display_join_handle: JoinHandle<()>,
+    renderer_join_handle: JoinHandle<()>,
     shutting_down: bool,
+    force_shutting_down: bool,
+}
+
+impl MainData {
+    fn new(
+        loop_handle: LoopHandle<'static, MainData>,
+        comms: Comms,
+        input_join_handle: JoinHandle<()>,
+        display_join_handle: JoinHandle<()>,
+        renderer_join_handle: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            loop_handle,
+            comms,
+            input_join_handle,
+            display_join_handle,
+            renderer_join_handle,
+            shutting_down: false,
+            force_shutting_down: false,
+        }
+    }
 }
 
 fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
@@ -84,44 +116,73 @@ fn start_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         .insert_source(main_channel, |event, _, data| match event {
             calloop::channel::Event::Msg(msg) => match msg {
                 MainMessage::Shutdown => {
-                    data.shutting_down = true;
+                    if !data.shutting_down {
+                        data.shutting_down = true;
+                        data.comms.input(InputMessage::Shutdown);
+                        data.comms.display(DisplayMessage::Shutdown);
+                        data.comms.renderer(RendererMessage::Shutdown);
+                        // Force shutdown after some time
+                        if let Err(e) = data.loop_handle.insert_source(
+                            Timer::from_duration(Duration::from_millis(1000)),
+                            |_, _, data| {
+                                info!("Force shutdown timeout reached. Shutting down now");
+                                data.force_shutting_down = true;
+                                TimeoutAction::Drop
+                            },
+                        ) {
+                            warn!(err = ?e, "Unable to insert timer to force shutdown. Shutting down now");
+                            data.force_shutting_down = true;
+                        }
+                    }
                 }
             },
             calloop::channel::Event::Closed => (),
         })
         .unwrap();
 
-    run_thread(
+    let input_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
-        "input".to_string(),
+        String::from("input"),
         scape_input::run,
         input_channel,
         args,
     )
     .context("Unable to run input module")?;
-    run_thread(
+    let display_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
-        "renderer".to_string(),
+        String::from("renderer"),
         scape_renderer::run,
         renderer_channel,
         args,
     )
     .context("Unable to run renderer module")?;
-    run_thread(
+    let renderer_join_handle = run_thread(
         comms.clone(),
         to_main.clone(),
-        "display".to_string(),
+        String::from("display"),
         scape_display::run,
         display_channel,
         args,
     )
     .context("Unable to run display module")?;
 
+    let mut data = MainData::new(
+        loop_handle,
+        comms,
+        input_join_handle,
+        display_join_handle,
+        renderer_join_handle,
+    );
     event_loop
-        .run(None, &mut MainData::default(), |data| {
-            if data.shutting_down {
+        .run(None, &mut data, |data| {
+            if data.shutting_down
+                && data.input_join_handle.is_finished()
+                && data.display_join_handle.is_finished()
+                && data.renderer_join_handle.is_finished()
+                || data.force_shutting_down
+            {
                 signal.stop();
             }
         })
@@ -137,20 +198,38 @@ fn run_thread<F, T>(
     runner: F,
     channel: Channel<T>,
     args: &'static GlobalArgs,
-) -> anyhow::Result<()>
+) -> anyhow::Result<thread::JoinHandle<()>>
 where
-    F: FnOnce(Comms, Channel<T>, &GlobalArgs) + Send + 'static,
+    F: FnOnce(Comms, Channel<T>, &GlobalArgs) -> anyhow::Result<()> + Send + UnwindSafe + 'static,
     T: Send + 'static,
 {
-    thread::Builder::new()
-        .name(name)
+    let join_handle = thread::Builder::new()
+        .name(name.clone())
         .spawn(move || {
-            runner(comms, channel, args);
+            let result = std::panic::catch_unwind(move || runner(comms, channel, args));
+            let span = span!(Level::INFO, "scape", thread_name = name);
+            let _guard = span.enter();
+            match result {
+                Ok(r) => {
+                    error!(result = ?r, "Thread exited without panic");
+                }
+                Err(err) => {
+                    if let Some(err) = err.downcast_ref::<&str>() {
+                        error!(?err, "Thread panicked");
+                    } else if let Some(err) = err.downcast_ref::<String>() {
+                        error!(?err, "Thread panicked");
+                    } else {
+                        error!("Thread panicked");
+                    }
+                }
+            }
+            info!("Sending shutdown signal to main, because thread is about to exit");
+
             if let Err(err) = to_main.send(MainMessage::Shutdown) {
                 warn!(%err, "Unable to send shutdown signal to main");
             }
         })
         .context("Unable to spawn thread")?;
 
-    Ok(())
+    Ok(join_handle)
 }

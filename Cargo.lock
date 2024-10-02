@@ -2469,6 +2469,7 @@ dependencies = [
 name = "scape-input"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "calloop 0.14.1",
  "scape-shared",
  "tracing",
@@ -2478,6 +2479,7 @@ dependencies = [
 name = "scape-renderer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "calloop 0.14.1",
  "scape-shared",
  "tracing",

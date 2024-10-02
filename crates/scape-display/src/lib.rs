@@ -27,7 +27,14 @@ pub mod xwayland;
 use calloop::channel::Channel;
 use scape_shared::{Comms, DisplayMessage, GlobalArgs};
 pub use state::{ClientState, State};
+use tracing::{span, Level};
 
-pub fn run(comms: Comms, channel: Channel<DisplayMessage>, args: &GlobalArgs) {
-    wayland::run(args);
+pub fn run(
+    _comms: Comms,
+    _channel: Channel<DisplayMessage>,
+    args: &GlobalArgs,
+) -> anyhow::Result<()> {
+    let span = span!(Level::ERROR, "display");
+    let _guard = span.enter();
+    wayland::run(args)
 }

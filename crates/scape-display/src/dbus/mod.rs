@@ -2,7 +2,7 @@ use calloop::EventLoop;
 use tracing::{error, info};
 use zbus::Connection;
 
-pub mod org_gnome_mutter_screencast;
+// pub mod org_gnome_mutter_screencast;
 pub mod portals;
 
 struct DbusState {
@@ -30,8 +30,8 @@ pub fn run_dbus_services() -> anyhow::Result<()> {
         })
         .unwrap();
 
-    let future = org_gnome_mutter_screencast::start();
-    scheduler.schedule(future)?;
+    // let future = org_gnome_mutter_screencast::start();
+    // scheduler.schedule(future)?;
     let future = portals::start();
     scheduler.schedule(future)?;
 

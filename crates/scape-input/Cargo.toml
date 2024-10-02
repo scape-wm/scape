@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 scape-shared = { path = "../scape-shared" }
+anyhow = { workspace = true }
 calloop = { workspace = true }
 tracing = { workspace = true }
