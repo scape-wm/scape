@@ -267,7 +267,7 @@ mod tests {
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
         let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
-        let args = Box::leak(Box::new(get_global_args()));
+        let args = Box::leak(Box::new(GlobalArgs::default()));
 
         let join_handle = run_thread(
             comms,
@@ -297,7 +297,7 @@ mod tests {
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
         let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
-        let args = Box::leak(Box::new(get_global_args()));
+        let args = Box::leak(Box::new(GlobalArgs::default()));
 
         let join_handle = run_thread(
             comms,

@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 /// A Wayland compositor for efficient workflows
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[command(author, version, about, long_about = None)]
 pub struct GlobalArgs {
     /// Use winit as render backend instead of udev
@@ -16,6 +16,7 @@ pub struct GlobalArgs {
     #[arg(short, long)]
     pub config: Option<String>,
 
+    /// Optional sub-commands to run
     #[clap(subcommand)]
     pub command: Option<Command>,
 }
@@ -36,6 +37,7 @@ pub enum CliCommand {
     CloseWindow { window_name: String },
 }
 
+/// Parses and returns the command lines arguments
 pub fn get_global_args() -> GlobalArgs {
     GlobalArgs::parse()
 }

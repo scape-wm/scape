@@ -1,3 +1,7 @@
+//! Shared types that are used throughout scape
+
+#![warn(missing_docs)]
+
 mod args;
 mod comms;
 mod display_message;
