@@ -118,6 +118,13 @@
             partitions = 1;
             partitionType = "count";
           });
+
+        # cargo nextest currently does not support doc tests
+        scape-doctest = craneLib.cargoTest (pkgDef
+          // {
+            inherit cargoArtifacts;
+            cargoExtraArgs = "--locked --doc --workspace";
+          });
       };
 
       packages.default = scape;
