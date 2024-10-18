@@ -1,42 +1,12 @@
 use std::{process::Command, sync::atomic::Ordering};
 
-use mlua::Function as LuaFunction;
+use scape_shared::Action;
 use tracing::{error, info, warn};
 
 use crate::{
     dbus::portals::screen_cast::NODE_ID, pipewire::Pipewire, workspace_window::WorkspaceWindow,
     State,
 };
-
-#[derive(Debug)]
-pub enum Action {
-    /// Quit the compositor
-    Quit,
-    /// Trigger a vt-switch
-    VtSwitch(i32),
-    /// Spawn a command
-    Spawn { command: String, args: Vec<String> },
-    /// Focus or spawn a command
-    FocusOrSpawn { app_id: String, command: String },
-    /// Scales output up/down
-    ChangeScale { percentage_points: isize },
-    /// Sets output scale
-    SetScale { percentage: usize },
-    /// Rotate output
-    RotateOutput { output: usize, rotation: usize },
-    /// Move window to zone
-    MoveWindow { window: Option<usize>, zone: String },
-    /// Run Lua callback
-    Callback(LuaFunction<'static>),
-    /// Tab through windows
-    Tab { index: usize },
-    /// Close current window
-    Close,
-    /// Start pipewire video stream
-    StartVideoStream,
-    /// Do nothing
-    None,
-}
 
 impl State {
     pub fn execute(&mut self, action: Action) {

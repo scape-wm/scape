@@ -11,6 +11,7 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
+use scape_shared::{Comms, InputMessage};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmBuffer;
 use smithay::backend::drm::compositor::RenderFrameResult;
@@ -235,7 +236,7 @@ fn select_primary_gpu(session: &LibSeatSession) -> Result<DrmNode> {
         .ok_or(anyhow!("Unable to select primary gpu"))
 }
 
-pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendData> {
+pub fn init_udev(event_loop: &mut EventLoop<'static, State>, comms: &Comms) -> Result<BackendData> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| {
         error!("Could not initialize lib seat session: {}", e);
         e
@@ -268,45 +269,10 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
         syncobj_state: None,
     };
 
-    let mut libinput_context =
-        Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
-    let mut libinput_context_2 = libinput_context.clone();
-    loop_handle
-        .insert_source(Timer::immediate(), move |_event, &mut (), state| {
-            libinput_context_2
-                .udev_assign_seat(&state.backend_data.seat_name())
-                .unwrap();
-            TimeoutAction::Drop
-        })
-        .unwrap();
+    comms.input(InputMessage::SeatSessionCreated {
+        session: session.clone(),
+    });
 
-    let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
-    loop_handle
-        .insert_source(libinput_backend, move |mut event, _, state| {
-            if let InputEvent::DeviceAdded { device } = &mut event {
-                if device.has_capability(DeviceCapability::Keyboard) {
-                    if let Some(led_state) = state
-                        .seat
-                        .as_ref()
-                        .and_then(|seat| seat.get_keyboard())
-                        .map(|keyboard| keyboard.led_state())
-                    {
-                        device.led_update(led_state.into());
-                    }
-                    state.backend_data.udev_mut().keyboards.push(device.clone());
-                }
-            } else if let InputEvent::DeviceRemoved { device } = &event {
-                if device.has_capability(DeviceCapability::Keyboard) {
-                    state
-                        .backend_data
-                        .udev_mut()
-                        .keyboards
-                        .retain(|item| item != device);
-                }
-            }
-            state.process_input_event(event)
-        })
-        .unwrap();
     loop_handle
         .insert_source(notifier, move |event, &mut (), state| {
             let BackendData::Udev(udev_data) = &mut state.backend_data else {
@@ -317,7 +283,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
                 SessionEvent::PauseSession => {
                     info!("pausing session");
                     state.session_paused = true;
-                    libinput_context.suspend();
+                    state.comms.input(InputMessage::SeatSessionSuspended);
                     for backend in udev_data.backends.values_mut() {
                         backend.drm.pause();
                         backend.active_leases.clear();
@@ -329,9 +295,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>) -> Result<BackendDa
                 SessionEvent::ActivateSession => {
                     info!("resuming session");
                     state.session_paused = false;
-                    if let Err(err) = libinput_context.resume() {
-                        error!("Failed to resume libinput context: {:?}", err);
-                    }
+                    state.comms.input(InputMessage::SeatSessionResumed);
                     for (_node, backend) in udev_data
                         .backends
                         .iter_mut()

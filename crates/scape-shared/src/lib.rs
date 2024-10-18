@@ -2,6 +2,7 @@
 
 #![warn(missing_docs)]
 
+mod action;
 mod args;
 mod comms;
 mod display_message;
@@ -9,6 +10,8 @@ mod input_message;
 mod main_message;
 mod renderer_message;
 
+pub use action::Action;
+pub use action::CallbackRef;
 pub use args::get_global_args;
 pub use args::GlobalArgs;
 pub use comms::Comms;

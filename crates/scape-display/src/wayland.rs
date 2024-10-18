@@ -1,19 +1,33 @@
 use crate::{dbus, egui::debug_ui::DebugState, state::BackendData, State};
 use anyhow::Context;
-use calloop::EventLoop;
-use scape_shared::GlobalArgs;
-use smithay::reexports::wayland_server::{Display, DisplayHandle};
+use calloop::{channel::Channel, EventLoop};
+use scape_shared::{Comms, DisplayMessage, GlobalArgs, MainMessage};
+use smithay::{
+    reexports::wayland_server::{Display, DisplayHandle},
+    utils::SERIAL_COUNTER,
+};
 use std::{thread, time::Duration};
 use tracing::error;
 
-pub fn run(args: &GlobalArgs) -> anyhow::Result<()> {
+pub fn run(
+    comms: Comms,
+    channel: Channel<DisplayMessage>,
+    args: &GlobalArgs,
+) -> anyhow::Result<()> {
     let display = create_display()?;
     let mut event_loop = create_event_loop()?;
-    let backend_data = create_backend_data(args, &mut event_loop, display.handle())?;
+    let backend_data = create_backend_data(args, &mut event_loop, display.handle(), &comms)?;
 
-    let mut state = State::new(&display, &mut event_loop)?;
+    let mut state = State::new(&display, &mut event_loop, comms)?;
     state.load_config(args)?;
     state.init(display, backend_data)?;
+
+    event_loop
+        .handle()
+        .insert_source(channel, |event, _, state| match event {
+            calloop::channel::Event::Msg(msg) => handle_display_message(state, msg),
+            calloop::channel::Event::Closed => state.comms.main(MainMessage::Shutdown),
+        });
 
     // thread running dbus services
     thread::spawn(move || {
@@ -42,13 +56,47 @@ fn create_backend_data(
     args: &GlobalArgs,
     event_loop: &mut EventLoop<'static, State>,
     display_handle: DisplayHandle,
+    comms: &Comms,
 ) -> anyhow::Result<BackendData> {
     if args.winit_backend {
         tracing::info!("Starting with winit backend");
         crate::winit::init_winit(display_handle, event_loop)
     } else {
         tracing::info!("Starting on a tty using udev");
-        crate::udev::init_udev(event_loop)
+        crate::udev::init_udev(event_loop, comms)
+    }
+}
+
+fn handle_display_message(state: &mut State, message: DisplayMessage) {
+    match message {
+        DisplayMessage::Shutdown => {
+            state.loop_signal.stop();
+            state.loop_signal.wakeup();
+        }
+        DisplayMessage::KeyboardInput {
+            keycode,
+            key_state,
+            modifiers_changed,
+            time,
+        } => {
+            state
+                .seat
+                .as_mut()
+                .unwrap()
+                .get_keyboard()
+                .unwrap()
+                .input_forward(
+                    state,
+                    keycode,
+                    key_state,
+                    SERIAL_COUNTER.next_serial(),
+                    time,
+                    modifiers_changed,
+                );
+        }
+        DisplayMessage::Action(action) => {
+            state.execute(action);
+        }
     }
 }
 

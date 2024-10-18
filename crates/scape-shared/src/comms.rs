@@ -13,6 +13,12 @@ pub struct Comms {
     to_input: Sender<InputMessage>,
 }
 
+impl std::fmt::Debug for Comms {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Comms").finish()
+    }
+}
+
 impl Comms {
     /// Creates a new instance of `Comms` with the given channels.
     pub fn new(

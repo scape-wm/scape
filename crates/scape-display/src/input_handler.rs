@@ -1,6 +1,6 @@
-use crate::action::Action;
 use crate::{focus::PointerFocusTarget, State};
 use mlua::Function as LuaFunction;
+use scape_shared::Action;
 use smithay::backend::input::GestureSwipeUpdateEvent;
 use smithay::backend::input::{GesturePinchUpdateEvent, TouchEvent};
 use smithay::input::pointer;

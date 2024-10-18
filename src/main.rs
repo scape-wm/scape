@@ -120,7 +120,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     let signal = event_loop.get_signal();
     let loop_handle = event_loop.handle();
 
-    loop_handle
+    if let Err(e) = loop_handle
         .insert_source(main_channel, |event, _, data| match event {
             calloop::channel::Event::Msg(msg) => match msg {
                 MainMessage::Shutdown => {
@@ -146,8 +146,9 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
                 }
             },
             calloop::channel::Event::Closed => (),
-        })
-        .unwrap();
+        }) {
+        anyhow::bail!("Unable to insert main channel into event loop: {}", e);
+    }
 
     // Spawn the input thread
     let input_join_handle = run_thread(

@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 use calloop::generic::Generic;
 use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use mlua::Function as LuaFunction;
+use scape_shared::Comms;
 use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::input::keyboard::{Keysym, LedState};
 use smithay::reexports::gbm::Device as GbmDevice;
@@ -121,6 +122,7 @@ pub struct State {
     pub display_handle: DisplayHandle,
     pub loop_handle: LoopHandle<'static, Self>,
     pub loop_signal: LoopSignal,
+    pub comms: Comms,
 
     pub backend_data: BackendData,
 
@@ -204,6 +206,7 @@ impl State {
     pub fn new(
         display: &Display<State>,
         event_loop: &mut EventLoop<'static, State>,
+        comms: Comms,
     ) -> anyhow::Result<State> {
         let display_handle = display.handle();
         let loop_handle = event_loop.handle();
@@ -264,6 +267,7 @@ impl State {
             display_handle,
             loop_handle,
             loop_signal,
+            comms,
             backend_data: BackendData::None,
             popups: PopupManager::default(),
             compositor_state,

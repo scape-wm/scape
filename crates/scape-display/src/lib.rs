@@ -30,11 +30,11 @@ pub use state::{ClientState, State};
 use tracing::{span, Level};
 
 pub fn run(
-    _comms: Comms,
-    _channel: Channel<DisplayMessage>,
+    comms: Comms,
+    channel: Channel<DisplayMessage>,
     args: &GlobalArgs,
 ) -> anyhow::Result<()> {
     let span = span!(Level::ERROR, "display");
     let _guard = span.enter();
-    wayland::run(args)
+    wayland::run(comms, channel, args)
 }
