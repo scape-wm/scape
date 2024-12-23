@@ -4,19 +4,23 @@
 
 use anyhow::Context;
 use calloop::{
-    channel::{channel, Channel, Sender},
+    channel::{self, channel, Channel, Sender},
     timer::{TimeoutAction, Timer},
     EventLoop, LoopHandle,
 };
+use scape_config::ConfigState;
+use scape_input::InputState;
+use scape_renderer::RendererState;
 use scape_shared::{
-    get_global_args, Comms, DisplayMessage, GlobalArgs, InputMessage, MainMessage, RendererMessage,
+    get_global_args, Comms, ConfigMessage, DisplayMessage, GlobalArgs, InputMessage, MainMessage,
+    MessageRunner, RendererMessage,
 };
 use std::{
     panic::UnwindSafe,
     thread::{self, JoinHandle},
     time::Duration,
 };
-use tracing::{error, info, span, warn, Level};
+use tracing::{error, info, span, warn, Level, Span};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 #[cfg(feature = "profile-with-tracy")]
@@ -114,7 +118,14 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     let (to_display, display_channel) = channel();
     let (to_renderer, renderer_channel) = channel();
     let (to_input, input_channel) = channel();
-    let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
+    let (to_config, config_channel) = channel();
+    let comms = Comms::new(
+        to_main.clone(),
+        to_display,
+        to_renderer,
+        to_input,
+        to_config,
+    );
 
     let mut event_loop = EventLoop::<MainData>::try_new().context("Unable to create event loop")?;
     let signal = event_loop.get_signal();
@@ -130,6 +141,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
                         data.comms.input(InputMessage::Shutdown);
                         data.comms.display(DisplayMessage::Shutdown);
                         data.comms.renderer(RendererMessage::Shutdown);
+                        data.comms.config(ConfigMessage::Shutdown);
                         // Force shutdown after some time
                         if let Err(e) = data.loop_handle.insert_source(
                             Timer::from_duration(Duration::from_millis(1000)),
@@ -150,12 +162,22 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         anyhow::bail!("Unable to insert main channel into event loop: {}", e);
     }
 
+    // Spawn the config thread
+    let config_join_handle = run_thread::<ConfigState, _>(
+        comms.clone(),
+        to_main.clone(),
+        String::from("config"),
+        span!(Level::ERROR, "config"),
+        config_channel,
+        args,
+    )
+    .context("Unable to run config module")?;
     // Spawn the input thread
-    let input_join_handle = run_thread(
+    let input_join_handle = run_thread::<InputState, _>(
         comms.clone(),
         to_main.clone(),
         String::from("input"),
-        scape_input::run,
+        span!(Level::ERROR, "input"),
         input_channel,
         args,
     )
@@ -165,17 +187,17 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
         comms.clone(),
         to_main.clone(),
         String::from("renderer"),
-        scape_renderer::run,
+        span!(Level::ERROR, "renderer"),
         renderer_channel,
         args,
     )
     .context("Unable to run renderer module")?;
     // Spawn the display thread
-    let renderer_join_handle = run_thread(
+    let renderer_join_handle = run_thread::<RendererState, _>(
         comms.clone(),
         to_main.clone(),
         String::from("display"),
-        scape_display::run,
+        span!(Level::ERROR, "display"),
         display_channel,
         args,
     )
@@ -209,22 +231,24 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
 /// Spawns a new thread and runs the given function in it, returning a handle to the newly created
 /// thread. The spawned thread is wrapped in a panic handler to gracefully handle any panics that
 /// might occur.
-fn run_thread<F, T>(
+fn run_thread<R, M>(
     comms: Comms,
     to_main: Sender<MainMessage>,
     name: String,
-    runner: F,
-    channel: Channel<T>,
+    span: Span,
+    channel: Channel<M>,
     args: &'static GlobalArgs,
 ) -> anyhow::Result<JoinHandle<()>>
 where
-    F: FnOnce(Comms, Channel<T>, &GlobalArgs) -> anyhow::Result<()> + Send + UnwindSafe + 'static,
-    T: Send + 'static,
+    R: MessageRunner<Message = M>,
+    M: Send + 'static,
 {
     let join_handle = thread::Builder::new()
         .name(name.clone())
         .spawn(move || {
-            let result = std::panic::catch_unwind(move || runner(comms, channel, args));
+            let result = std::panic::catch_unwind(move || {
+                run_message_loop(comms, span, channel, args);
+            });
             let span = span!(Level::INFO, "scape", thread_name = name);
             let _guard = span.enter();
             match result {
@@ -232,7 +256,7 @@ where
                     info!(result = ?r, "Thread exited normally");
                 }
                 Ok(Err(err)) => {
-                    error!(result = ?err, "Thread exited with an error");
+                    error!(error = ?err, "Thread exited with an error");
                 }
                 Err(err) => {
                     if let Some(err) = err.downcast_ref::<&str>() {
@@ -257,6 +281,49 @@ where
     Ok(join_handle)
 }
 
+/// Run the message loop with the runner type `R`. The message loop will exit when the channel to
+/// the runner is closed.
+fn run_message_loop<R, T>(
+    comms: Comms,
+    span: Span,
+    channel: Channel<T>,
+    args: &'static GlobalArgs,
+) -> anyhow::Result<()>
+where
+    R: MessageRunner<Message = T>,
+    T: Send + 'static,
+{
+    let _guard = span.enter();
+    let mut event_loop = EventLoop::<R>::try_new().context("Unable to create event loop")?;
+    let signal = event_loop.get_signal();
+    let loop_handle = event_loop.handle();
+
+    if let Err(e) = loop_handle.insert_source(channel, |event, _, data| match event {
+        channel::Event::Msg(msg) => {
+            if let Err(err) = data.handle_message(msg) {
+                error!(%err, "Unable to handle message");
+            }
+        }
+        channel::Event::Closed => {
+            warn!("Channel closed, shutting down");
+            signal.stop();
+        }
+    }) {
+        anyhow::bail!("Unable to insert channel into event loop: {}", e);
+    }
+
+    let runner = R::new(comms, channel, args).context("Unable to create runner")?;
+
+    // Run the main loop
+    event_loop
+        .run(None, &mut runner, |data| {
+            data.on_dispatch_wait(&signal);
+        })
+        .context("Unable to run loop")?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,7 +334,14 @@ mod tests {
         let (to_display, display_channel) = channel();
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
-        let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
+        let (to_config, _) = channel();
+        let comms = Comms::new(
+            to_main.clone(),
+            to_display,
+            to_renderer,
+            to_input,
+            to_config,
+        );
         let args = Box::leak(Box::new(GlobalArgs::default()));
 
         let join_handle = run_thread(
@@ -297,7 +371,14 @@ mod tests {
         let (to_display, display_channel) = channel();
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
-        let comms = Comms::new(to_main.clone(), to_display, to_renderer, to_input);
+        let (to_config, _) = channel();
+        let comms = Comms::new(
+            to_main.clone(),
+            to_display,
+            to_renderer,
+            to_input,
+            to_config,
+        );
         let args = Box::leak(Box::new(GlobalArgs::default()));
 
         let join_handle = run_thread(
@@ -319,5 +400,20 @@ mod tests {
         ));
         // No other messages should be received
         assert!(main_channel.try_recv().is_err());
+    }
+
+    #[test]
+    fn run_message_loop_forwards_messages_to_runner() {
+        // TODO: fill body
+    }
+
+    #[test]
+    fn run_message_loop_calls_on_dispatch_wait() {
+        // TODO: fill body
+    }
+
+    #[test]
+    fn run_message_loop_stops_on_channel_close() {
+        // TODO: fill body
     }
 }

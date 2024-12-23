@@ -2,19 +2,44 @@
 
 #![warn(missing_docs)]
 
-use calloop::channel::Channel;
-use scape_shared::{Comms, GlobalArgs, RendererMessage};
-use tracing::{span, Level};
+use calloop::{LoopHandle, LoopSignal};
+use scape_shared::{Comms, GlobalArgs, MessageRunner, RendererMessage};
 
-/// Runs the renderer module, and only exits when it receives a shutdown signal.
-pub fn run(
-    _comms: Comms,
-    _channel: Channel<RendererMessage>,
-    _args: &GlobalArgs,
-) -> anyhow::Result<()> {
-    let span = span!(Level::ERROR, "renderer");
-    let _guard = span.enter();
-    loop {
-        std::thread::sleep(std::time::Duration::from_millis(10000));
+/// Holds the state of the renderer module
+pub struct RendererState {
+    comms: Comms,
+    shutting_down: bool,
+    loop_handle: LoopHandle<'static, RendererState>,
+}
+
+impl MessageRunner for RendererState {
+    type Message = RendererMessage;
+
+    fn new(
+        comms: Comms,
+        loop_handle: LoopHandle<'static, RendererState>,
+        _args: &GlobalArgs,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            comms,
+            shutting_down: false,
+            loop_handle,
+        })
+    }
+
+    fn handle_message(&mut self, message: RendererMessage) -> anyhow::Result<()> {
+        match message {
+            RendererMessage::Shutdown => {
+                self.shutting_down = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn on_dispatch_wait(&mut self, signal: &LoopSignal) {
+        if self.shutting_down {
+            signal.stop();
+        }
     }
 }

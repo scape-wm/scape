@@ -1,6 +1,6 @@
 use std::{process::Command, sync::atomic::Ordering};
 
-use scape_shared::Action;
+use scape_shared::{Action, ConfigMessage};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -66,7 +66,7 @@ impl State {
                     self.focus_window(window, &space_name.to_owned());
                 }
             }
-            Action::Callback(callback) => callback.call(()).unwrap(),
+            Action::Callback(callback) => self.comms.config(ConfigMessage::RunCallback(callback)),
             Action::FocusOrSpawn { app_id, command } => {
                 if !self.focus_window_by_app_id(app_id) {
                     self.execute(Action::Spawn {

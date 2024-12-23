@@ -5,9 +5,9 @@ use smithay::{
 };
 use xkbcommon::xkb::{self, Keysym};
 
-use crate::InputData;
+use crate::InputState;
 
-impl InputData {
+impl InputState {
     pub(crate) fn handle_keyboard_event<B: InputBackend>(&mut self, event: B::KeyboardKeyEvent) {
         let keyboard_state = &mut self.keyboard_state;
 

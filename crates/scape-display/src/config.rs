@@ -124,51 +124,6 @@ fn init_config_module<'lua>(
 
     let lh = loop_handle.clone();
     exports.set(
-        "on_startup",
-        lua.create_function(move |_, callback: LuaFunction<'_>| {
-            // SAFETY: The callback is valid as long as the lua instance is alive.
-            // The lua instance is never dropped, therefore the lifetime of the callback is
-            // effectively 'static.
-            let callback: LuaFunction<'static> = unsafe { std::mem::transmute(callback) };
-            lh.insert_idle(move |state| {
-                state.config.on_startup = Some(callback);
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "on_connector_change",
-        lua.create_function(move |_, callback: LuaFunction<'_>| {
-            info!("Setting up on_connector_change");
-            // SAFETY: The callback is valid as long as the lua instance is alive.
-            // The lua instance is never dropped, therefore the lifetime of the callback is
-            // effectively 'static.
-            let callback: LuaFunction<'static> = unsafe { std::mem::transmute(callback) };
-            lh.insert_idle(move |state| {
-                state.config.on_connector_change = Some(callback);
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "spawn",
-        lua.create_function(move |_, spawn: ConfigSpawn| {
-            lh.insert_idle(move |state| {
-                state.execute(Action::Spawn {
-                    command: spawn.command,
-                    args: spawn.args,
-                });
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
         "set_zones",
         lua.create_function(move |_, zones: Vec<ConfigZone>| {
             lh.insert_idle(move |state| {

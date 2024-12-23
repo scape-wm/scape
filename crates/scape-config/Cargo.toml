@@ -1,11 +1,11 @@
 [package]
-name = "scape-shared"
+name = "scape-config"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+scape-shared = { path = "../scape-shared" }
 anyhow = { workspace = true }
 calloop = { workspace = true }
-smithay = { workspace = true }
 tracing = { workspace = true }
-clap = { version = "4.3.19", features = ["derive"] }
+mlua = { version = "0.10.0", features = ["lua54", "vendored"] }

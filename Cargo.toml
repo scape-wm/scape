@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace]
 members = [
+    "crates/scape-config",
     "crates/scape-display",
     "crates/scape-input",
     "crates/scape-renderer",
@@ -23,6 +24,7 @@ profiling = "1.0.13"
 
 
 [dependencies]
+scape-config = { path = "./crates/scape-config" }
 scape-display = { path = "./crates/scape-display" }
 scape-input = { path = "./crates/scape-input" }
 scape-renderer = { path = "./crates/scape-renderer" }

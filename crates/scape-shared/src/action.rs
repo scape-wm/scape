@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 /// Represents the actions that a user can perform
 #[derive(Debug)]
 pub enum Action {
@@ -59,8 +61,14 @@ pub enum Action {
 }
 
 /// The callback reference
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallbackRef {
     /// The callback reference id
     pub callback_id: usize,
+}
+
+impl Display for CallbackRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.callback_id)
+    }
 }

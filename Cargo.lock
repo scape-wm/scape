@@ -340,7 +340,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "shlex",
  "syn",
 ]
@@ -1587,9 +1587,9 @@ dependencies = [
 
 [[package]]
 name = "lua-src"
-version = "546.0.2"
+version = "547.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2da0daa7eee611a4c30c8f5ee31af55266e26e573971ba9336d2993e2da129b2"
+checksum = "1edaf29e3517b49b8b746701e5648ccb5785cde1c119062cbabbc5d5cd115e42"
 dependencies = [
  "cc",
 ]
@@ -1675,14 +1675,28 @@ dependencies = [
  "mlua-sys",
  "num-traits",
  "once_cell",
- "rustc-hash",
+ "rustc-hash 1.1.0",
+]
+
+[[package]]
+name = "mlua"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f6ddbd668297c46be4bdea6c599dcc1f001a129586272d53170b7ac0a62961e"
+dependencies = [
+ "bstr",
+ "either",
+ "mlua-sys",
+ "num-traits",
+ "parking_lot",
+ "rustc-hash 2.0.0",
 ]
 
 [[package]]
 name = "mlua-sys"
-version = "0.6.0"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5552e7e4e22ada0463dfdeee6caf6dc057a189fdc83136408a8f950a5e5c5540"
+checksum = "e9eebac25c35a13285456c88ee2fde93d9aee8bcfdaf03f9d6d12be3391351ec"
 dependencies = [
  "cc",
  "cfg-if",
@@ -2394,6 +2408,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
+name = "rustc-hash"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
+
+[[package]]
 name = "rustix"
 version = "0.38.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2428,12 +2448,24 @@ dependencies = [
  "anyhow",
  "calloop 0.14.1",
  "profiling",
+ "scape-config",
  "scape-display",
  "scape-input",
  "scape-renderer",
  "scape-shared",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "scape-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "calloop 0.14.1",
+ "mlua 0.10.0",
+ "scape-shared",
+ "tracing",
 ]
 
 [[package]]
@@ -2449,7 +2481,7 @@ dependencies = [
  "fps_ticker",
  "gl_generator",
  "image",
- "mlua",
+ "mlua 0.9.8",
  "notify",
  "pipewire",
  "profiling",
@@ -2491,6 +2523,7 @@ dependencies = [
 name = "scape-shared"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "calloop 0.14.1",
  "clap",
  "smithay",

@@ -4,12 +4,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Context};
-use calloop::{
-    channel::{self, Channel},
-    EventLoop, LoopHandle,
-};
-use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MainMessage};
+use anyhow::bail;
+use calloop::{LoopHandle, LoopSignal};
+use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner};
 use smithay::{
     backend::{
         input::InputEvent,
@@ -19,50 +16,15 @@ use smithay::{
     input::keyboard::{LedMapping, LedState, ModifiersState},
     reexports::input::{Device, DeviceCapability, Libinput},
 };
-use tracing::{error, span, Level};
 use xkbcommon::xkb::{self, Keycode, Keymap, Keysym};
 
 mod keyboard;
 
-/// Runs the input module, and only exits when it receives a shutdown signal.
-pub fn run(comms: Comms, channel: Channel<InputMessage>, _args: &GlobalArgs) -> anyhow::Result<()> {
-    let span = span!(Level::ERROR, "input");
-    let _guard = span.enter();
-
-    let mut event_loop =
-        EventLoop::<InputData>::try_new().context("Unable to create event loop")?;
-    let signal = event_loop.get_signal();
-    let loop_handle = event_loop.handle();
-
-    if let Err(e) = loop_handle.insert_source(channel, |event, _, data| match event {
-        channel::Event::Msg(msg) => {
-            if let Err(err) = data.handle_input_message(msg) {
-                error!(%err, "Unable to handle input message");
-            }
-        }
-        channel::Event::Closed => data.comms.main(MainMessage::Shutdown),
-    }) {
-        anyhow::bail!("Unable to insert input channel into event loop: {}", e);
-    }
-
-    let mut data = InputData::new(comms, loop_handle)?;
-
-    // Run the main loop
-    event_loop
-        .run(None, &mut data, |data| {
-            if data.shutting_down {
-                signal.stop();
-            }
-        })
-        .context("Unable to run loop")?;
-
-    Ok(())
-}
-
-struct InputData {
+/// Holds the state of the input module
+pub struct InputState {
     comms: Comms,
     shutting_down: bool,
-    loop_handle: LoopHandle<'static, InputData>,
+    loop_handle: LoopHandle<'static, InputState>,
     keyboards: Vec<Device>,
     keyboard_state: KeyboardState,
     libinput_context: Option<Libinput>,
@@ -71,8 +33,14 @@ struct InputData {
     suppressed_keys: Vec<Keysym>,
 }
 
-impl InputData {
-    fn new(comms: Comms, loop_handle: LoopHandle<'static, InputData>) -> anyhow::Result<Self> {
+impl MessageRunner for InputState {
+    type Message = InputMessage;
+
+    fn new(
+        comms: Comms,
+        loop_handle: LoopHandle<'static, InputState>,
+        _args: &GlobalArgs,
+    ) -> anyhow::Result<Self> {
         let keyboard_state = KeyboardState::new()?;
 
         Ok(Self {
@@ -88,7 +56,7 @@ impl InputData {
         })
     }
 
-    fn handle_input_message(&mut self, msg: InputMessage) -> anyhow::Result<()> {
+    fn handle_message(&mut self, msg: InputMessage) -> anyhow::Result<()> {
         match msg {
             InputMessage::Shutdown => {
                 self.shutting_down = true;
@@ -119,7 +87,7 @@ impl InputData {
             InputMessage::SeatSessionResumed => {
                 if let Some(libinput_context) = &mut self.libinput_context {
                     if libinput_context.resume().is_err() {
-                        anyhow::bail!("Failed to resume libinput context")
+                        anyhow::bail!("Failed to resume libinput context");
                     }
                 }
             }
@@ -127,6 +95,14 @@ impl InputData {
         Ok(())
     }
 
+    fn on_dispatch_wait(&mut self, signal: &LoopSignal) {
+        if self.shutting_down {
+            signal.stop();
+        }
+    }
+}
+
+impl InputState {
     fn handle_input_event(&mut self, event: InputEvent<LibinputInputBackend>) {
         match event {
             InputEvent::DeviceAdded { mut device } => {
