@@ -134,7 +134,11 @@
       };
 
       devShells.default = pkgs.mkShell {
-        inputsFrom = builtins.attrValues self.checks.${system};
+        inputsFrom =
+          (builtins.attrValues self.checks.${system})
+          ++ [
+            pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
+          ];
         LD_LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath pkgDef.runtimeDependencies;
         LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       };

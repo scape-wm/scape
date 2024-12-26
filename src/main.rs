@@ -349,7 +349,7 @@ mod tests {
             to_main,
             String::from("test_thread"),
             |_, _, _| Ok(()),
-            display_channel, // pick any channel, does not matter for this test
+            display_channel, // Pick any channel, does not matter for this test
             args,
         );
 
