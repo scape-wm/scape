@@ -118,6 +118,11 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
                 }
             }
         }
+        DisplayMessage::VtSwitch(vt) => {
+            if let Err(err) = state.backend_data.switch_vt(vt) {
+                error!(vt, "Error switching vt: {}", err);
+            }
+        }
     }
 }
 

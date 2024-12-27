@@ -1,7 +1,7 @@
 use smithay::utils::{Logical, Rectangle};
 
-#[derive(Debug)]
 /// Represents a zone in logical compositor space. A zone is a rectangular area that is used for window placement.
+#[derive(Debug)]
 pub struct Zone {
     /// The name of the zone
     pub name: String,

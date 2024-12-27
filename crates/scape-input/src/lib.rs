@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::bail;
 use calloop::{LoopHandle, LoopSignal};
-use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner};
+use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner, Mods};
 use smithay::{
     backend::{
         input::InputEvent,
@@ -19,6 +19,7 @@ use smithay::{
 use xkbcommon::xkb::{self, Keycode, Keymap, Keysym};
 
 mod keyboard;
+mod keymap;
 
 /// Holds the state of the input module
 pub struct InputState {
@@ -29,7 +30,7 @@ pub struct InputState {
     keyboard_state: KeyboardState,
     libinput_context: Option<Libinput>,
     tab_index: usize,
-    key_maps: HashMap<ModifiersState, HashMap<Keysym, CallbackRef>>,
+    keymaps: HashMap<Mods, HashMap<Keysym, CallbackRef>>,
     suppressed_keys: Vec<Keysym>,
 }
 
@@ -51,7 +52,7 @@ impl MessageRunner for InputState {
             keyboard_state,
             libinput_context: None,
             tab_index: 0,
-            key_maps: HashMap::new(),
+            keymaps: HashMap::new(),
             suppressed_keys: Vec::new(),
         })
     }
@@ -90,6 +91,13 @@ impl MessageRunner for InputState {
                         anyhow::bail!("Failed to resume libinput context");
                     }
                 }
+            }
+            InputMessage::Keymap {
+                key_name,
+                mods,
+                callback,
+            } => {
+                self.keymap(key_name, mods, callback);
             }
         }
         Ok(())

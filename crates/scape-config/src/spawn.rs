@@ -2,8 +2,7 @@ use std::process::Command;
 
 use calloop::LoopHandle;
 use mlua::{
-    Error as LuaError, FromLua, Function as LuaFunction, IntoLua, Lua, Result as LuaResult,
-    Table as LuaTable, Value as LuaValue,
+    Error as LuaError, FromLua, Lua, Result as LuaResult, Table as LuaTable, Value as LuaValue,
 };
 use tracing::{error, info};
 

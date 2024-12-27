@@ -23,4 +23,6 @@ pub enum DisplayMessage {
     SetZones(Vec<Zone>),
     /// Move the currently keyboard focused window to the given zone
     MoveCurrentWindowToZone(String),
+    /// Trigger a vt-switch
+    VtSwitch(i32),
 }

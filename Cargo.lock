@@ -2493,7 +2493,6 @@ dependencies = [
  "x11rb",
  "xcursor",
  "xdg",
- "xkbcommon",
  "zbus",
 ]
 
@@ -2528,6 +2527,7 @@ dependencies = [
  "clap",
  "smithay",
  "tracing",
+ "xkbcommon",
 ]
 
 [[package]]

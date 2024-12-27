@@ -1,10 +1,9 @@
 //! Module responsible for handling and managing lua callbacks.
 use std::collections::HashMap;
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use mlua::Function as LuaFunction;
 use scape_shared::CallbackRef;
-use tracing::warn;
 
 /// Container for all lua callbacks that are registered.
 pub(crate) struct CallbackState {
@@ -53,24 +52,24 @@ impl CallbackState {
     /// # let lua = mlua::Lua::new();
     /// let callback = lua.create_function(|_, ()| Ok(())).expect("Failed to create callback");
     /// let callback_ref = callback_state.register_callback(callback);
-    /// let result = callback_state.run_callback(callback_ref);
+    /// let result = callback_state.run_callback(callback_ref, ());
     /// assert!(result.is_ok());
     ///
     /// let callback_with_error = lua.create_function(|_, ()| panic!("Error!")).expect("Failed to create callback");
     /// let callback_ref = callback_state.register_callback(callback);
-    /// let result = callback_state.run_callback(callback_ref);
+    /// let result = callback_state.run_callback(callback_ref, ());
     /// assert!(result.is_err());
     /// ```
     pub(crate) fn run_callback<ARGS, RESULT>(
         &self,
-        callback_ref: &CallbackRef,
+        callback_ref: CallbackRef,
         args: ARGS,
     ) -> anyhow::Result<RESULT>
     where
         ARGS: mlua::IntoLuaMulti,
         RESULT: mlua::FromLuaMulti,
     {
-        let Some(callback) = self.callbacks.get(callback_ref) else {
+        let Some(callback) = self.callbacks.get(&callback_ref) else {
             bail!(
                 "Tried to run callback that does not exist: callback: {}",
                 callback_ref
@@ -79,5 +78,22 @@ impl CallbackState {
         callback
             .call::<RESULT>(args)
             .map_err(|err| anyhow::anyhow!("Error while running lua callback: {err}"))
+    }
+
+    /// Forgets the given callback
+    ///
+    /// # Example
+    /// ```
+    /// # use scape_config::CallbackState;
+    /// # let mut callback_state = CallbackState::new();
+    /// # let lua = mlua::Lua::new();
+    /// let callback = lua.create_function(|_, ()| Ok(())).expect("Failed to create callback");
+    /// let callback_ref = callback_state.register_callback(callback);
+    /// assert!(callback_state.run_callback(callback_ref, ()).is_ok());
+    /// callback_state.forget_callback(callback_ref);
+    /// assert!(callback_state.run_callback(callback_ref, ()).is_err());
+    /// ```
+    pub(crate) fn forget_callback(&mut self, callback_ref: CallbackRef) {
+        self.callbacks.remove(&callback_ref);
     }
 }

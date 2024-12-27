@@ -6,6 +6,9 @@ pub enum ConfigMessage {
     Shutdown,
     /// Request to run the given callback
     RunCallback(CallbackRef),
+    /// Forgets the callback, usually because it is no longer possible to run it, e.g. because the
+    /// callback is no longer registered
+    ForgetCallback(CallbackRef),
     /// Notifies the config thread that the application has started
     Startup,
     /// Notifies the config thread that a connector has changed

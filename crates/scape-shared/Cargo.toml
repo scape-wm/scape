@@ -9,3 +9,4 @@ calloop = { workspace = true }
 smithay = { workspace = true }
 tracing = { workspace = true }
 clap = { version = "4.3.19", features = ["derive"] }
+xkbcommon = "0.8"

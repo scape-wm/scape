@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod callback;
+mod keymap;
 mod output;
 mod spawn;
 mod zone;
@@ -12,8 +13,11 @@ use std::collections::HashMap;
 use callback::CallbackState;
 use calloop::{LoopHandle, LoopSignal};
 use mlua::{Function as LuaFunction, Lua, Result as LuaResult, Table as LuaTable};
-use scape_shared::{CallbackRef, Comms, ConfigMessage, GlobalArgs, MessageRunner, Output};
-use tracing::warn;
+use scape_shared::{
+    CallbackRef, Comms, ConfigMessage, DisplayMessage, GlobalArgs, InputMessage, MainMessage,
+    MessageRunner, Mods, Output,
+};
+use tracing::{error, warn};
 
 /// Holds the state of the config module
 pub struct ConfigState {
@@ -58,10 +62,13 @@ impl MessageRunner for ConfigState {
                 self.shutting_down = true;
             }
             ConfigMessage::RunCallback(callback_ref) => {
-                self.callback_state.run_callback(&callback_ref, ())?;
+                self.callback_state.run_callback(callback_ref, ())?;
+            }
+            ConfigMessage::ForgetCallback(callback_ref) => {
+                self.callback_state.forget_callback(callback_ref)
             }
             ConfigMessage::Startup => {
-                if let Some(on_startup) = &self.on_startup {
+                if let Some(on_startup) = self.on_startup {
                     self.callback_state.run_callback(on_startup, ())?;
                 }
             }
@@ -94,6 +101,10 @@ impl ConfigState {
             .init_base_module()
             .map_err(|err| anyhow::anyhow!("Unable to initialize base module: {err}"))?;
 
+        if let Err(err) = self.set_default_keymaps() {
+            error!("Unable to set default keymaps: {err}");
+        }
+
         Ok(())
     }
 
@@ -106,6 +117,9 @@ impl ConfigState {
             "on_startup",
             self.lua.create_function(move |_, callback: LuaFunction| {
                 loop_handle.insert_idle(move |state| {
+                    if let Some(on_startup) = state.on_startup {
+                        state.callback_state.forget_callback(on_startup);
+                    }
                     state.on_startup = Some(state.callback_state.register_callback(callback));
                 });
                 Ok(())
@@ -118,4 +132,161 @@ impl ConfigState {
 
         Ok(module)
     }
+
+    fn set_default_keymaps(&mut self) -> LuaResult<()> {
+        let default_keymaps = [
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "backspace",
+                create_shutdown_callback(&self.lua, self.loop_handle.clone())?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f1",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 1)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f2",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 2)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f3",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 3)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f4",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 4)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f5",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 5)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f6",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 6)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f7",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 7)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f8",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 8)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f9",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 9)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f10",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 10)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f11",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 11)?,
+            ),
+            (
+                Mods {
+                    ctrl: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                "f12",
+                create_vt_callback(&self.lua, self.loop_handle.clone(), 12)?,
+            ),
+        ];
+
+        for (mods, key_name, callback) in default_keymaps {
+            self.comms.input(InputMessage::Keymap {
+                key_name: key_name.to_string(),
+                mods,
+                callback: self.callback_state.register_callback(callback),
+            });
+        }
+
+        Ok(())
+    }
+}
+
+fn create_shutdown_callback(
+    lua: &Lua,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<LuaFunction> {
+    lua.create_function(move |_, ()| {
+        loop_handle.insert_idle(move |state| {
+            state.comms.main(MainMessage::Shutdown);
+        });
+        Ok(())
+    })
+}
+
+fn create_vt_callback(
+    lua: &Lua,
+    loop_handle: LoopHandle<'static, ConfigState>,
+    vt: i32,
+) -> LuaResult<LuaFunction> {
+    lua.create_function(move |_, ()| {
+        loop_handle.insert_idle(move |state| {
+            state.comms.display(DisplayMessage::VtSwitch(vt));
+        });
+        Ok(())
+    })
 }

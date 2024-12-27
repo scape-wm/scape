@@ -1,4 +1,4 @@
-use scape_shared::{Action, DisplayMessage};
+use scape_shared::{CallbackRef, ConfigMessage, DisplayMessage, Mods};
 use smithay::{
     backend::input::{Event, InputBackend, KeyState, KeyboardKeyEvent},
     input::keyboard::ModifiersState,
@@ -43,9 +43,9 @@ impl InputState {
 
         let modifiers = keyboard_state.mods_state;
         let keysym = keyboard_state.xkb_state.key_get_one_sym(key_code);
-        if let Some(action) = self.keyboard_shortcut(modifiers, keysym) {
+        if let Some(callback) = self.keyboard_shortcut(modifiers, keysym) {
             self.suppressed_keys.push(keysym);
-            self.comms.display(DisplayMessage::Action(action));
+            self.comms.config(ConfigMessage::RunCallback(callback));
             return;
         }
 
@@ -62,8 +62,12 @@ impl InputState {
         });
     }
 
-    /// Check for keyboard shortcuts and return the corresponding action
-    fn keyboard_shortcut(&mut self, modifiers: ModifiersState, keysym: Keysym) -> Option<Action> {
+    /// Check for keyboard shortcuts and return the corresponding callback
+    fn keyboard_shortcut(
+        &mut self,
+        modifiers: ModifiersState,
+        keysym: Keysym,
+    ) -> Option<CallbackRef> {
         if !modifiers.alt {
             self.tab_index = 0;
         }
@@ -80,25 +84,19 @@ impl InputState {
         //     .map(|inhibitor| inhibitor.is_active())
         //     .unwrap_or(false);
 
-        if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace {
-            // ctrl+alt+backspace = quit
-            Some(Action::Quit)
-        } else if (xkb::keysyms::KEY_XF86Switch_VT_1..=xkb::keysyms::KEY_XF86Switch_VT_12)
-            .contains(&keysym.raw())
-        {
-            // VTSwitch
-            Some(Action::VtSwitch(
-                (keysym.raw() - xkb::keysyms::KEY_XF86Switch_VT_1 + 1) as i32,
-            ))
-        } else if modifiers.alt && keysym == Keysym::Tab {
-            self.tab_index += 1;
-            Some(Action::Tab {
-                index: self.tab_index,
-            })
-        } else {
-            let maps = self.key_maps.get(&modifiers)?;
-            let callback = maps.get(&keysym)?;
-            Some(Action::Callback(*callback))
+        let mods = Mods {
+            ctrl: modifiers.ctrl,
+            alt: modifiers.alt,
+            shift: modifiers.shift,
+            logo: modifiers.logo,
+        };
+
+        if let Some(keymaps) = self.keymaps.get(&mods) {
+            if let Some(callback) = keymaps.get(&keysym) {
+                return Some(*callback);
+            }
         }
+
+        None
     }
 }
