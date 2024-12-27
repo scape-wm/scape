@@ -11,6 +11,16 @@ pub(crate) fn init(
     module: &LuaTable,
     loop_handle: LoopHandle<'static, ConfigState>,
 ) -> LuaResult<()> {
+    init_set_zones(lua, module, loop_handle.clone())?;
+    init_move_current_window_to_zone(lua, module, loop_handle)?;
+    Ok(())
+}
+
+fn init_set_zones(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
     module.set(
         "set_zones",
         lua.create_function(move |_, zones: Vec<ConfigZone>| {
@@ -18,6 +28,26 @@ pub(crate) fn init(
                 state.comms.display(DisplayMessage::SetZones(
                     zones.into_iter().map(Into::into).collect(),
                 ));
+            });
+            Ok(())
+        })?,
+    )?;
+
+    Ok(())
+}
+
+fn init_move_current_window_to_zone(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
+    module.set(
+        "move_current_window_to_zone",
+        lua.create_function(move |_, zone_name: String| {
+            loop_handle.insert_idle(move |state| {
+                state
+                    .comms
+                    .display(DisplayMessage::MoveCurrentWindowToZone(zone_name))
             });
             Ok(())
         })?,

@@ -21,4 +21,6 @@ pub enum DisplayMessage {
     Action(Action),
     /// Overwrite all zones known to the compositor
     SetZones(Vec<Zone>),
+    /// Move the currently keyboard focused window to the given zone
+    MoveCurrentWindowToZone(String),
 }

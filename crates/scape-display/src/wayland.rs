@@ -1,4 +1,6 @@
-use crate::{dbus, egui::debug_ui::DebugState, state::BackendData, State};
+use crate::{
+    dbus, egui::debug_ui::DebugState, state::BackendData, workspace_window::WorkspaceWindow, State,
+};
 use anyhow::Context;
 use calloop::{channel::Channel, EventLoop};
 use scape_shared::{Comms, DisplayMessage, GlobalArgs, MainMessage};
@@ -99,6 +101,22 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
         }
         DisplayMessage::SetZones(zones) => {
             state.set_zones(zones);
+        }
+        DisplayMessage::MoveCurrentWindowToZone(zone_name) => {
+            // TODO: Handle multiple spaces
+            let (space_name, _) = state.spaces.iter().next().unwrap();
+            let keyboard = state.seat.as_ref().unwrap().get_keyboard().unwrap();
+            if let Some(focus) = keyboard.current_focus() {
+                if let Ok(window) = WorkspaceWindow::try_from(focus) {
+                    state.place_window(
+                        &space_name.to_owned(),
+                        &window,
+                        false,
+                        Some(&zone_name),
+                        true,
+                    );
+                }
+            }
         }
     }
 }

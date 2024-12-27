@@ -134,15 +134,6 @@ fn init_config_module<'lua>(
 
     let lh = loop_handle.clone();
     exports.set(
-        "move_to_zone",
-        lua.create_function(move |_, zone: String| {
-            lh.insert_idle(move |state| state.execute(Action::MoveWindow { window: None, zone }));
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
         "focus_or_spawn",
         lua.create_function(move |_, (command, app_id)| {
             lh.insert_idle(move |state| state.execute(Action::FocusOrSpawn { app_id, command }));
