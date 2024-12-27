@@ -1,4 +1,3 @@
-use crate::action::Action;
 use crate::config_watcher::ConfigWatcher;
 use crate::input_handler::Mods;
 use crate::state::ActiveSpace;
@@ -121,17 +120,6 @@ fn init_config_module<'lua>(
     loop_handle: LoopHandle<'static, State>,
 ) -> LuaResult<LuaTable<'lua>> {
     let exports = lua.create_table()?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "set_zones",
-        lua.create_function(move |_, zones: Vec<ConfigZone>| {
-            lh.insert_idle(move |state| {
-                state.set_zones(zones.into_iter().map(Into::into).collect());
-            });
-            Ok(())
-        })?,
-    )?;
 
     let lh = loop_handle.clone();
     exports.set(

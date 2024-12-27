@@ -5,6 +5,7 @@
 mod callback;
 mod output;
 mod spawn;
+mod zone;
 
 use std::collections::HashMap;
 
@@ -16,7 +17,7 @@ use tracing::warn;
 
 /// Holds the state of the config module
 pub struct ConfigState {
-    _comms: Comms,
+    comms: Comms,
     shutting_down: bool,
     loop_handle: LoopHandle<'static, ConfigState>,
     lua: Lua,
@@ -36,7 +37,7 @@ impl MessageRunner for ConfigState {
         _args: &GlobalArgs,
     ) -> anyhow::Result<Self> {
         let mut state = Self {
-            _comms: comms,
+            comms,
             shutting_down: false,
             loop_handle,
             lua: Lua::new(),
@@ -113,6 +114,7 @@ impl ConfigState {
 
         output::init(&self.lua, &module, self.loop_handle.clone())?;
         spawn::init(&self.lua, &module, self.loop_handle.clone())?;
+        zone::init(&self.lua, &module, self.loop_handle.clone())?;
 
         Ok(module)
     }

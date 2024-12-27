@@ -97,6 +97,9 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
         DisplayMessage::Action(action) => {
             state.execute(action);
         }
+        DisplayMessage::SetZones(zones) => {
+            state.set_zones(zones);
+        }
     }
 }
 

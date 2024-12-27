@@ -1,6 +1,6 @@
 use smithay::backend::input::{KeyState, Keycode};
 
-use crate::Action;
+use crate::{Action, Zone};
 
 /// Represents the messages that can be sent to the display thread
 pub enum DisplayMessage {
@@ -19,4 +19,6 @@ pub enum DisplayMessage {
     },
     /// An action needs to be executed
     Action(Action),
+    /// Overwrite all zones known to the compositor
+    SetZones(Vec<Zone>),
 }

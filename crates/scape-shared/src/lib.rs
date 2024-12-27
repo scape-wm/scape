@@ -13,6 +13,7 @@ mod input_message;
 mod main_message;
 mod output;
 mod renderer_message;
+mod zone;
 
 pub use action::Action;
 pub use action::CallbackRef;
@@ -25,6 +26,7 @@ pub use input_message::InputMessage;
 pub use main_message::MainMessage;
 pub use output::Output;
 pub use renderer_message::RendererMessage;
+pub use zone::Zone;
 
 /// A trait for running a message loop
 pub trait MessageRunner {

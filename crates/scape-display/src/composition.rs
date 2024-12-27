@@ -1,26 +1,10 @@
-use crate::{config::ConfigZone, state::WindowRule, workspace_window::WorkspaceWindow, State};
+use crate::{state::WindowRule, workspace_window::WorkspaceWindow, State};
+use scape_shared::Zone;
 use smithay::{
     desktop::layer_map_for_output,
     utils::{Logical, Rectangle, SERIAL_COUNTER},
 };
 use tracing::{info, warn};
-
-#[derive(Debug)]
-pub struct Zone {
-    pub name: String,
-    pub geometry: Rectangle<i32, Logical>,
-    pub default: bool,
-}
-
-impl From<ConfigZone> for Zone {
-    fn from(value: ConfigZone) -> Self {
-        Self {
-            name: value.name,
-            geometry: Rectangle::from_loc_and_size((value.x, value.y), (value.width, value.height)),
-            default: value.default,
-        }
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum WindowPosition {
