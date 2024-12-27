@@ -71,6 +71,9 @@ impl MessageRunner for ConfigState {
                 }
                 self.on_connector_change()?;
             }
+            ConfigMessage::ExtraEnv { name, value } => {
+                self.extra_env.insert(name, value);
+            }
         }
 
         Ok(())

@@ -10,4 +10,11 @@ pub enum ConfigMessage {
     Startup,
     /// Notifies the config thread that a connector has changed
     ConnectorChange(Vec<Output>),
+    /// Set extra environment variables, which are used for spawning processes
+    ExtraEnv {
+        /// The name of the environment variable
+        name: String,
+        /// The value of the environment variable
+        value: String,
+    },
 }
