@@ -129,7 +129,36 @@ impl ConfigState {
                 Ok(())
             })?,
         )?;
+        let loop_handle = self.loop_handle.clone();
+        module.set(
+            "toggle_debug_ui",
+            self.lua.create_function(move |_, ()| {
+                loop_handle.insert_idle(move |state| {
+                    state.comms.display(DisplayMessage::ToggleDebugUi);
+                });
+                Ok(())
+            })?,
+        )?;
+        module.set(
+            "quit",
+            create_shutdown_callback(&self.lua, self.loop_handle.clone())?,
+        )?;
+        module.set(
+            "shutdown",
+            create_shutdown_callback(&self.lua, self.loop_handle.clone())?,
+        )?;
+        let loop_handle = self.loop_handle.clone();
+        module.set(
+            "start_video_stream",
+            self.lua.create_function(move |_, ()| {
+                loop_handle.insert_idle(move |state| {
+                    state.comms.display(DisplayMessage::StartVideoStream);
+                });
+                Ok(())
+            })?,
+        )?;
 
+        keymap::init(&self.lua, &module, self.loop_handle.clone())?;
         output::init(&self.lua, &module, self.loop_handle.clone())?;
         spawn::init(&self.lua, &module, self.loop_handle.clone())?;
         zone::init(&self.lua, &module, self.loop_handle.clone())?;

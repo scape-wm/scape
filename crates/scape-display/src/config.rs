@@ -120,53 +120,6 @@ fn init_config_module<'lua>(
 ) -> LuaResult<LuaTable<'lua>> {
     let exports = lua.create_table()?;
 
-    let lh = loop_handle.clone();
-    exports.set(
-        "window_rule",
-        lua.create_function(move |_, window_rule: ConfigWindowRule| {
-            lh.insert_idle(move |state| {
-                state.add_window_rule(WindowRule {
-                    app_id: window_rule.app_id,
-                    zone: window_rule.zone,
-                })
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "toggle_debug_ui",
-        lua.create_function(move |_, ()| {
-            lh.insert_idle(move |state| {
-                state.toggle_debug_ui();
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "quit",
-        lua.create_function(move |_, ()| {
-            lh.insert_idle(move |state| {
-                state.execute(Action::Quit);
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "start_video_stream",
-        lua.create_function(move |_, ()| {
-            lh.insert_idle(move |state| {
-                state.execute(Action::StartVideoStream);
-            });
-            Ok(())
-        })?,
-    )?;
-
     exports.set(
         "set_layout",
         lua.create_function(move |_, layout: ConfigLayout| {

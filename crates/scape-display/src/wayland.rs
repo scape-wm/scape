@@ -141,6 +141,15 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
                 }
             }
         }
+        DisplayMessage::AddWindowRule(window_rule) => {
+            state.add_window_rule(window_rule);
+        }
+        DisplayMessage::ToggleDebugUi => {
+            state.toggle_debug_ui();
+        }
+        DisplayMessage::StartVideoStream => {
+            state.start_video_stream();
+        }
     }
 }
 

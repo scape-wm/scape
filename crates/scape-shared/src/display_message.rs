@@ -38,4 +38,8 @@ pub enum DisplayMessage {
     CloseCurrentWindow,
     /// Add a window rule
     AddWindowRule(WindowRule),
+    /// Toggle the debug UI
+    ToggleDebugUi,
+    /// Start a video stream
+    StartVideoStream,
 }

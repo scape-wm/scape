@@ -11,7 +11,26 @@ pub(crate) fn init(
     module: &LuaTable,
     loop_handle: LoopHandle<'static, ConfigState>,
 ) -> LuaResult<()> {
-    init_add_window_rule(lua, module, loop_handle)?;
+    init_add_window_rule(lua, module, loop_handle.clone())?;
+    init_close_current_window(lua, module, loop_handle)?;
+
+    Ok(())
+}
+
+fn init_close_current_window(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
+    module.set(
+        "close_current_window",
+        lua.create_function(move |_, ()| {
+            loop_handle.insert_idle(move |state| {
+                state.comms.display(DisplayMessage::CloseCurrentWindow);
+            });
+            Ok(())
+        })?,
+    )?;
 
     Ok(())
 }

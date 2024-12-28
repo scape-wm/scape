@@ -1,4 +1,4 @@
-use crate::{render::GlMultiRenderer, State};
+use crate::{dbus::portals::screen_cast::NODE_ID, render::GlMultiRenderer, State};
 use anyhow::anyhow;
 use calloop::{generic::Generic, Interest, LoopHandle, Mode, PostAction};
 use egui::ahash::HashMap;
@@ -50,9 +50,43 @@ use std::{
     io::Cursor,
     os::fd::{AsFd, AsRawFd, BorrowedFd},
     rc::Rc,
+    sync::atomic::Ordering,
     time::Duration,
 };
 use tracing::{error, info, warn};
+
+impl State {
+    pub fn start_video_stream(&mut self) {
+        if self.pipewire.is_none() {
+            match Pipewire::new(self.loop_handle.clone()) {
+                Ok(pipewire) => self.pipewire = Some(pipewire),
+                Err(err) => {
+                    error!("Failed to initialize pipewire: {}", err);
+                    return;
+                }
+            }
+        }
+
+        let Some(gbm_device) = self.backend_data.gbm_device() else {
+            error!("No gbm device available");
+            return;
+        };
+
+        match self
+            .pipewire
+            .as_ref()
+            .unwrap()
+            .start_video_stream(gbm_device)
+        {
+            Ok(stream) => {
+                info!("Pipewire video stream started");
+                NODE_ID.store(stream.node_id(), Ordering::SeqCst);
+                self.video_streams.push(stream);
+            }
+            Err(err) => error!(?err, "Failed to start pipewire video stream"),
+        }
+    }
+}
 
 struct MainLoopAsFd(MainLoop);
 
