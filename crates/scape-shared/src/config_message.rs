@@ -20,4 +20,6 @@ pub enum ConfigMessage {
         /// The value of the environment variable
         value: String,
     },
+    /// Spawn a process with the given command and arguments
+    Spawn(String, Vec<String>),
 }

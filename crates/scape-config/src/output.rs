@@ -28,7 +28,7 @@ pub(crate) fn init(
 
 impl ConfigState {
     pub(crate) fn on_connector_change(&mut self) -> anyhow::Result<()> {
-        if let Some(on_connector_change) = &self.on_connector_change {
+        if let Some(on_connector_change) = self.on_connector_change {
             return self.callback_state.run_callback(on_connector_change, ());
         }
 

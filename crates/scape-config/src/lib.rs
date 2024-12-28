@@ -82,6 +82,9 @@ impl MessageRunner for ConfigState {
             ConfigMessage::ExtraEnv { name, value } => {
                 self.extra_env.insert(name, value);
             }
+            ConfigMessage::Spawn(command, args) => {
+                self.spawn(&command, &args);
+            }
         }
 
         Ok(())

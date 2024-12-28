@@ -3,7 +3,7 @@ use crate::{
 };
 use anyhow::Context;
 use calloop::{channel::Channel, EventLoop};
-use scape_shared::{Comms, DisplayMessage, GlobalArgs, MainMessage};
+use scape_shared::{Comms, ConfigMessage, DisplayMessage, GlobalArgs, MainMessage};
 use smithay::{
     reexports::wayland_server::{Display, DisplayHandle},
     utils::SERIAL_COUNTER,
@@ -121,6 +121,15 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
         DisplayMessage::VtSwitch(vt) => {
             if let Err(err) = state.backend_data.switch_vt(vt) {
                 error!(vt, "Error switching vt: {}", err);
+            }
+        }
+        DisplayMessage::FocusOrSpawn {
+            app_id,
+            command,
+            args,
+        } => {
+            if !state.focus_window_by_app_id(app_id) {
+                state.comms.config(ConfigMessage::Spawn(command, args));
             }
         }
     }

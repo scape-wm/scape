@@ -15,7 +15,6 @@ use std::collections::HashMap;
 use std::fs;
 use tracing::info;
 use tracing::warn;
-use xkbcommon::xkb::Keysym;
 
 #[derive(Debug)]
 pub struct Config {
@@ -120,26 +119,6 @@ fn init_config_module<'lua>(
     loop_handle: LoopHandle<'static, State>,
 ) -> LuaResult<LuaTable<'lua>> {
     let exports = lua.create_table()?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "map_key",
-        lua.create_function(move |_, params: ConfigMapKey| {
-            lh.insert_idle(move |state| {
-                state.map_key(params.key, params.mods, params.callback);
-            });
-            Ok(())
-        })?,
-    )?;
-
-    let lh = loop_handle.clone();
-    exports.set(
-        "focus_or_spawn",
-        lua.create_function(move |_, (command, app_id)| {
-            lh.insert_idle(move |state| state.execute(Action::FocusOrSpawn { app_id, command }));
-            Ok(())
-        })?,
-    )?;
 
     let lh = loop_handle.clone();
     exports.set(

@@ -4,11 +4,23 @@ use calloop::LoopHandle;
 use mlua::{
     Error as LuaError, FromLua, Lua, Result as LuaResult, Table as LuaTable, Value as LuaValue,
 };
+use scape_shared::DisplayMessage;
 use tracing::{error, info};
 
 use crate::ConfigState;
 
 pub(crate) fn init(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
+    init_spawn(lua, module, loop_handle.clone())?;
+    init_focus_or_spawn(lua, module, loop_handle)?;
+
+    Ok(())
+}
+
+fn init_spawn(
     lua: &Lua,
     module: &LuaTable,
     loop_handle: LoopHandle<'static, ConfigState>,
@@ -26,8 +38,30 @@ pub(crate) fn init(
     Ok(())
 }
 
+fn init_focus_or_spawn(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
+    module.set(
+        "focus_or_spawn",
+        lua.create_function(move |_, (app_id, command): (String, ConfigSpawn)| {
+            loop_handle.insert_idle(move |state| {
+                state.comms.display(DisplayMessage::FocusOrSpawn {
+                    app_id,
+                    command: command.command,
+                    args: command.args,
+                });
+            });
+            Ok(())
+        })?,
+    )?;
+
+    Ok(())
+}
+
 impl ConfigState {
-    fn spawn(&self, command: &str, args: &[String]) {
+    pub(crate) fn spawn(&self, command: &str, args: &[String]) {
         info!(command, "Starting program");
 
         if let Err(e) = Command::new(command)

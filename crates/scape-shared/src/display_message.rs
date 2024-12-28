@@ -25,4 +25,13 @@ pub enum DisplayMessage {
     MoveCurrentWindowToZone(String),
     /// Trigger a vt-switch
     VtSwitch(i32),
+    /// Focus the window with the given app_id or spawn a process with the given command
+    FocusOrSpawn {
+        /// The app_id of the window to focus
+        app_id: String,
+        /// The command to spawn
+        command: String,
+        /// The arguments to pass to the command
+        args: Vec<String>,
+    },
 }
