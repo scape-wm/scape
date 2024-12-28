@@ -1,5 +1,7 @@
-use crate::{workspace_window::WorkspaceWindow, State};
-use scape_shared::{WindowRule, Zone};
+use std::collections::HashMap;
+
+use crate::{state::ActiveSpace, workspace_window::WorkspaceWindow, State};
+use scape_shared::{Output, WindowRule, Zone};
 use smithay::{
     desktop::layer_map_for_output,
     utils::{Logical, Rectangle, SERIAL_COUNTER},
@@ -108,5 +110,42 @@ impl State {
     pub fn add_window_rule(&mut self, window_rule: WindowRule) {
         self.window_rules
             .insert(window_rule.app_id.clone(), window_rule);
+    }
+
+    pub fn set_layout(&mut self, spaces: HashMap<String, Vec<Output>>) {
+        for (space_name, config_outputs) in spaces {
+            let space = self.spaces.entry(space_name.clone()).or_default();
+
+            for config_output in &config_outputs {
+                let Some(output) = self.outputs.get(&config_output.name) else {
+                    warn!(output_name = %config_output.name, "Output not found");
+                    continue;
+                };
+
+                output.change_current_state(None, None, None, Some(config_output.location));
+                space.map_output(output, config_output.location);
+                output
+                    .user_data()
+                    .get_or_insert_threadsafe(|| ActiveSpace(space_name.clone()));
+            }
+
+            // clean up no longer mapped outputs
+            for (output_name, output) in &self.outputs {
+                if !config_outputs
+                    .iter()
+                    .any(|config_output| config_output.name == *output_name)
+                {
+                    space.unmap_output(output);
+                }
+            }
+        }
+
+        // fixup window coordinates
+        // let space_names = state.spaces.keys().cloned().collect::<Vec<_>>();
+        // for space_name in space_names {
+        //     state.fixup_positions(&space_name);
+        // }
+
+        self.start_outputs();
     }
 }

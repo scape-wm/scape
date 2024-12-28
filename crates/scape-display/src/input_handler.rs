@@ -215,12 +215,12 @@ impl State {
             |state, modifiers, handle| {
                 let keysym = handle.modified_sym();
 
-                debug!(
-                    ?evt_state,
-                    mods = ?modifiers,
-                    keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
-                    "keysym"
-                );
+                // debug!(
+                //     ?evt_state,
+                //     mods = ?modifiers,
+                //     keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
+                //     "keysym"
+                // );
 
                 if !modifiers.alt {
                     state.tab_index = 0;
@@ -1253,26 +1253,27 @@ impl State {
         modifiers: ModifiersState,
         keysym: Keysym,
     ) -> Option<Action> {
-        if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
-            || modifiers.logo && keysym == Keysym::Q
-        {
-            // ctrl+alt+backspace = quit
-            // logo + q = quit
-            Some(Action::Quit)
-        } else if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
-            // VTSwitch
-            Some(Action::VtSwitch(
-                (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
-            ))
-        } else if modifiers.alt && keysym == Keysym::Tab {
-            self.tab_index += 1;
-            Some(Action::Tab {
-                index: self.tab_index,
-            })
-        } else {
-            let maps = self.key_maps.get(&modifiers.into())?;
-            let callback = maps.get(&keysym)?;
-            Some(Action::Callback(callback.clone()))
-        }
+        // if modifiers.ctrl && modifiers.alt && keysym == Keysym::BackSpace
+        //     || modifiers.logo && keysym == Keysym::Q
+        // {
+        //     // ctrl+alt+backspace = quit
+        //     // logo + q = quit
+        //     Some(Action::Quit)
+        // } else if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
+        //     // VTSwitch
+        //     Some(Action::VtSwitch(
+        //         (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
+        //     ))
+        // } else if modifiers.alt && keysym == Keysym::Tab {
+        //     self.tab_index += 1;
+        //     Some(Action::Tab {
+        //         index: self.tab_index,
+        //     })
+        // } else {
+        //     let maps = self.key_maps.get(&modifiers.into())?;
+        //     let callback = maps.get(&keysym)?;
+        //     Some(Action::Callback(callback.clone()))
+        // }
+        None
     }
 }

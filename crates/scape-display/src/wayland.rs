@@ -150,6 +150,9 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
         DisplayMessage::StartVideoStream => {
             state.start_video_stream();
         }
+        DisplayMessage::SetLayout { spaces } => {
+            state.set_layout(spaces);
+        }
     }
 }
 

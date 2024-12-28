@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use smithay::backend::input::{KeyState, Keycode};
 
-use crate::{Action, WindowRule, Zone};
+use crate::{Action, Output, WindowRule, Zone};
 
 /// Represents the messages that can be sent to the display thread
 pub enum DisplayMessage {
@@ -42,4 +44,9 @@ pub enum DisplayMessage {
     ToggleDebugUi,
     /// Start a video stream
     StartVideoStream,
+    /// Set the layout
+    SetLayout {
+        /// The spaces of the layout
+        spaces: HashMap<String, Vec<Output>>,
+    },
 }
