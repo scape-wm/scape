@@ -132,6 +132,15 @@ fn handle_display_message(state: &mut State, message: DisplayMessage) {
                 state.comms.config(ConfigMessage::Spawn(command, args));
             }
         }
+        DisplayMessage::CloseCurrentWindow => {
+            // TODO: Handle multiple spaces
+            let (_, space) = state.spaces.iter_mut().next().unwrap();
+            if let Some(window) = space.elements().last().cloned() {
+                if window.close() {
+                    space.unmap_elem(&window);
+                }
+            }
+        }
     }
 }
 

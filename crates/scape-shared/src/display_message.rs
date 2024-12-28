@@ -1,6 +1,6 @@
 use smithay::backend::input::{KeyState, Keycode};
 
-use crate::{Action, Zone};
+use crate::{Action, WindowRule, Zone};
 
 /// Represents the messages that can be sent to the display thread
 pub enum DisplayMessage {
@@ -34,4 +34,8 @@ pub enum DisplayMessage {
         /// The arguments to pass to the command
         args: Vec<String>,
     },
+    /// Close the currently keyboard focused window
+    CloseCurrentWindow,
+    /// Add a window rule
+    AddWindowRule(WindowRule),
 }

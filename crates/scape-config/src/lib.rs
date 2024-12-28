@@ -6,6 +6,7 @@ mod callback;
 mod keymap;
 mod output;
 mod spawn;
+mod window;
 mod zone;
 
 use std::collections::HashMap;
@@ -132,6 +133,7 @@ impl ConfigState {
         output::init(&self.lua, &module, self.loop_handle.clone())?;
         spawn::init(&self.lua, &module, self.loop_handle.clone())?;
         zone::init(&self.lua, &module, self.loop_handle.clone())?;
+        window::init(&self.lua, &module, self.loop_handle.clone())?;
 
         Ok(module)
     }

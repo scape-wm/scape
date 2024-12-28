@@ -1,4 +1,3 @@
-use crate::composition::Zone;
 use crate::config::Config;
 use crate::cursor::CursorState;
 use crate::egui_window::EguiWindow;
@@ -13,7 +12,7 @@ use anyhow::{anyhow, Result};
 use calloop::generic::Generic;
 use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use mlua::Function as LuaFunction;
-use scape_shared::Comms;
+use scape_shared::{Comms, WindowRule, Zone};
 use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::input::keyboard::{Keysym, LedState};
 use smithay::reexports::gbm::Device as GbmDevice;
@@ -110,12 +109,6 @@ pub struct SessionLock {
 
 #[derive(Debug)]
 pub struct ActiveSpace(pub String);
-
-#[derive(Debug)]
-pub struct WindowRule {
-    pub app_id: String,
-    pub zone: String,
-}
 
 #[derive(Debug)]
 pub struct State {

@@ -15,7 +15,8 @@ pub(crate) fn init(
     loop_handle: LoopHandle<'static, ConfigState>,
 ) -> LuaResult<()> {
     init_spawn(lua, module, loop_handle.clone())?;
-    init_focus_or_spawn(lua, module, loop_handle)?;
+    init_focus_or_spawn(lua, module, loop_handle.clone())?;
+    init_close(lua, module, loop_handle)?;
 
     Ok(())
 }
@@ -52,6 +53,24 @@ fn init_focus_or_spawn(
                     command: command.command,
                     args: command.args,
                 });
+            });
+            Ok(())
+        })?,
+    )?;
+
+    Ok(())
+}
+
+fn init_close(
+    lua: &Lua,
+    module: &LuaTable,
+    loop_handle: LoopHandle<'static, ConfigState>,
+) -> LuaResult<()> {
+    module.set(
+        "close",
+        lua.create_function(move |_, ()| {
+            loop_handle.insert_idle(move |state| {
+                state.comms.display(DisplayMessage::CloseCurrentWindow);
             });
             Ok(())
         })?,

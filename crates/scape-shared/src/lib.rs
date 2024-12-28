@@ -14,6 +14,7 @@ mod main_message;
 mod mods;
 mod output;
 mod renderer_message;
+mod window_rule;
 mod zone;
 
 pub use action::Action;
@@ -28,6 +29,7 @@ pub use main_message::MainMessage;
 pub use mods::Mods;
 pub use output::Output;
 pub use renderer_message::RendererMessage;
+pub use window_rule::WindowRule;
 pub use zone::Zone;
 
 /// A trait for running a message loop

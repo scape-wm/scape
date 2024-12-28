@@ -1,5 +1,5 @@
-use crate::{state::WindowRule, workspace_window::WorkspaceWindow, State};
-use scape_shared::Zone;
+use crate::{workspace_window::WorkspaceWindow, State};
+use scape_shared::{WindowRule, Zone};
 use smithay::{
     desktop::layer_map_for_output,
     utils::{Logical, Rectangle, SERIAL_COUNTER},
