@@ -9,6 +9,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use calloop::timer::{TimeoutAction, Timer};
+use scape_shared::ConfigMessage;
 #[cfg(feature = "debug")]
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::renderer::glow::GlowRenderer;
@@ -199,7 +200,9 @@ pub fn init_winit(
         .insert_source(Timer::immediate(), |_event, &mut (), state| {
             let output = state.backend_data.winit().output.clone();
             state.outputs.insert("winit".into(), output);
-            state.on_connector_change();
+            state
+                .comms
+                .config(ConfigMessage::ConnectorChange(state.outputs.clone()));
             TimeoutAction::Drop
         })
         .unwrap();

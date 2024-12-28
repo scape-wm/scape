@@ -11,7 +11,7 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
-use scape_shared::{Comms, InputMessage};
+use scape_shared::{Comms, ConfigMessage, InputMessage};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmBuffer;
 use smithay::backend::drm::compositor::RenderFrameResult;
@@ -1050,7 +1050,9 @@ fn connector_connected(
 
         state.outputs.insert(output_name, output);
 
-        state.on_connector_change();
+        state
+            .comms
+            .config(ConfigMessage::ConnectorChange(state.outputs.clone()));
     }
 }
 

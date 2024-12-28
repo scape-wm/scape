@@ -21,7 +21,6 @@ pub fn run(
     let backend_data = create_backend_data(args, &mut event_loop, display.handle(), &comms)?;
 
     let mut state = State::new(&display, &mut event_loop, comms)?;
-    state.load_config(args)?;
     state.init(display, backend_data)?;
 
     event_loop

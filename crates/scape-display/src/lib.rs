@@ -2,7 +2,6 @@ pub mod action;
 pub mod application_window;
 pub mod command;
 pub mod composition;
-pub mod config_watcher;
 pub mod cursor;
 pub mod dbus;
 pub mod drawing;

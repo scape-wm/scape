@@ -18,7 +18,6 @@ impl State {
         match action {
             Action::Quit => {
                 self.stop_loop();
-                self.config.stop();
                 self.clear_key_map();
             }
             Action::VtSwitch(vt) => {

@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::cursor::CursorState;
 use crate::egui_window::EguiWindow;
 use crate::input_handler::Mods;
@@ -12,7 +11,7 @@ use anyhow::{anyhow, Result};
 use calloop::generic::Generic;
 use calloop::{EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction};
 use mlua::Function as LuaFunction;
-use scape_shared::{Comms, WindowRule, Zone};
+use scape_shared::{Comms, ConfigMessage, WindowRule, Zone};
 use smithay::backend::drm::{DrmDeviceFd, DrmNode};
 use smithay::input::keyboard::{Keysym, LedState};
 use smithay::reexports::gbm::Device as GbmDevice;
@@ -164,8 +163,6 @@ pub struct State {
     pub session_paused: bool,
     pub last_node: Option<DrmNode>,
 
-    pub config: Config,
-
     pub socket_name: Option<String>,
 
     pub ready_state: ReadyState,
@@ -293,7 +290,6 @@ impl State {
             show_window_preview: false,
             session_paused: false,
             last_node: None,
-            config: Config::new(),
             socket_name: None,
             ready_state: ReadyState::default(),
             outputs: HashMap::new(),
@@ -394,7 +390,7 @@ impl State {
             && self.ready_state.xwayland_ready
         {
             self.ready_state.on_ready_called = true;
-            self.on_startup();
+            self.comms.config(ConfigMessage::Startup);
         }
     }
 

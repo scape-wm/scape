@@ -3,16 +3,18 @@
 #![warn(missing_docs)]
 
 mod callback;
+mod config_watcher;
 mod keymap;
 mod output;
 mod spawn;
 mod window;
 mod zone;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fs};
 
 use callback::CallbackState;
 use calloop::{LoopHandle, LoopSignal};
+use config_watcher::ConfigWatcher;
 use mlua::{Function as LuaFunction, Lua, Result as LuaResult, Table as LuaTable};
 use scape_shared::{
     CallbackRef, Comms, ConfigMessage, DisplayMessage, GlobalArgs, InputMessage, MainMessage,
@@ -39,7 +41,7 @@ impl MessageRunner for ConfigState {
     fn new(
         comms: Comms,
         loop_handle: LoopHandle<'static, Self>,
-        _args: &GlobalArgs,
+        args: &GlobalArgs,
     ) -> anyhow::Result<Self> {
         let mut state = Self {
             comms,
@@ -52,7 +54,7 @@ impl MessageRunner for ConfigState {
             outputs: HashMap::new(),
             extra_env: HashMap::new(),
         };
-        state.load_user_config()?;
+        state.load_user_config(args)?;
 
         Ok(state)
     }
@@ -63,14 +65,15 @@ impl MessageRunner for ConfigState {
                 self.shutting_down = true;
             }
             ConfigMessage::RunCallback(callback_ref) => {
-                self.callback_state.run_callback(callback_ref, ())?;
+                self.callback_state
+                    .run_callback::<(), ()>(callback_ref, ())?;
             }
             ConfigMessage::ForgetCallback(callback_ref) => {
                 self.callback_state.forget_callback(callback_ref)
             }
             ConfigMessage::Startup => {
                 if let Some(on_startup) = self.on_startup {
-                    self.callback_state.run_callback(on_startup, ())?;
+                    self.callback_state.run_callback::<(), ()>(on_startup, ())?;
                 }
             }
             ConfigMessage::ConnectorChange(outputs) => {
@@ -98,73 +101,64 @@ impl MessageRunner for ConfigState {
     }
 }
 
+const LUA_MODULE_NAME: &str = "scape";
+
 impl ConfigState {
     /// Initialize the lua state and starts requires some lua modules
-    fn load_user_config(&mut self) -> anyhow::Result<()> {
-        let module = self
-            .init_base_module()
+    fn load_user_config(&mut self, args: &GlobalArgs) -> anyhow::Result<()> {
+        let loop_handle = self.loop_handle.clone();
+        let _: LuaTable = self
+            .lua
+            .load_from_function(
+                LUA_MODULE_NAME,
+                self.lua
+                    .create_function(move |lua: &Lua, _modname: String| {
+                        init_base_module(lua, loop_handle.clone())
+                    })
+                    .map_err(|err| anyhow::anyhow!("Unable to initialize base module: {err}"))?,
+            )
             .map_err(|err| anyhow::anyhow!("Unable to initialize base module: {err}"))?;
 
         if let Err(err) = self.set_default_keymaps() {
             error!("Unable to set default keymaps: {err}");
         }
 
+        if let Err(err) = self.run_and_watch_user_config(args) {
+            warn!("Unable to run and watch user config: {err}");
+        }
+
         Ok(())
     }
 
-    /// Initialize the base scape lua module which is used by the user config to interact with the
-    /// window manager in a script-able and convenient way.
-    fn init_base_module(&mut self) -> LuaResult<LuaTable> {
-        let module = self.lua.create_table()?;
-        let loop_handle = self.loop_handle.clone();
-        module.set(
-            "on_startup",
-            self.lua.create_function(move |_, callback: LuaFunction| {
-                loop_handle.insert_idle(move |state| {
-                    if let Some(on_startup) = state.on_startup {
-                        state.callback_state.forget_callback(on_startup);
-                    }
-                    state.on_startup = Some(state.callback_state.register_callback(callback));
-                });
-                Ok(())
-            })?,
-        )?;
-        let loop_handle = self.loop_handle.clone();
-        module.set(
-            "toggle_debug_ui",
-            self.lua.create_function(move |_, ()| {
-                loop_handle.insert_idle(move |state| {
-                    state.comms.display(DisplayMessage::ToggleDebugUi);
-                });
-                Ok(())
-            })?,
-        )?;
-        module.set(
-            "quit",
-            create_shutdown_callback(&self.lua, self.loop_handle.clone())?,
-        )?;
-        module.set(
-            "shutdown",
-            create_shutdown_callback(&self.lua, self.loop_handle.clone())?,
-        )?;
-        let loop_handle = self.loop_handle.clone();
-        module.set(
-            "start_video_stream",
-            self.lua.create_function(move |_, ()| {
-                loop_handle.insert_idle(move |state| {
-                    state.comms.display(DisplayMessage::StartVideoStream);
-                });
-                Ok(())
-            })?,
-        )?;
+    fn run_and_watch_user_config(&mut self, args: &GlobalArgs) -> anyhow::Result<()> {
+        if let Some(config_path) = &args.config {
+            let user_config = fs::read(config_path.as_str())?;
+            let config = self.lua.load(&user_config);
+            config
+                .exec()
+                .map_err(|err| anyhow::anyhow!("Unable to run config: {err}"))?;
+        } else {
+            let xdg_dirs = xdg::BaseDirectories::with_prefix("scape").unwrap();
+            for path in xdg_dirs.list_config_files("") {
+                let user_config = fs::read(path)?;
+                let config = self.lua.load(&user_config);
+                config
+                    .exec()
+                    .map_err(|err| anyhow::anyhow!("Unable to run config: {err}"))?;
+            }
+            self.loop_handle
+                .insert_source(
+                    ConfigWatcher::new(xdg_dirs.get_config_home()),
+                    |path, _, state| {
+                        let user_config = fs::read(path).unwrap();
+                        let config = state.lua.load(&user_config);
+                        config.exec().unwrap();
+                    },
+                )
+                .unwrap();
+        }
 
-        keymap::init(&self.lua, &module, self.loop_handle.clone())?;
-        output::init(&self.lua, &module, self.loop_handle.clone())?;
-        spawn::init(&self.lua, &module, self.loop_handle.clone())?;
-        zone::init(&self.lua, &module, self.loop_handle.clone())?;
-        window::init(&self.lua, &module, self.loop_handle.clone())?;
-
-        Ok(module)
+        Ok(())
     }
 
     fn set_default_keymaps(&mut self) -> LuaResult<()> {
@@ -298,6 +292,55 @@ impl ConfigState {
 
         Ok(())
     }
+}
+
+/// Initialize the base scape lua module which is used by the user config to interact with the
+/// window manager in a script-able and convenient way.
+fn init_base_module(lua: &Lua, lh: LoopHandle<'static, ConfigState>) -> LuaResult<LuaTable> {
+    let module = lua.create_table()?;
+    let loop_handle = lh.clone();
+    module.set(
+        "on_startup",
+        lua.create_function(move |_, callback: LuaFunction| {
+            loop_handle.insert_idle(move |state| {
+                if let Some(on_startup) = state.on_startup {
+                    state.callback_state.forget_callback(on_startup);
+                }
+                state.on_startup = Some(state.callback_state.register_callback(callback));
+            });
+            Ok(())
+        })?,
+    )?;
+    let loop_handle = lh.clone();
+    module.set(
+        "toggle_debug_ui",
+        lua.create_function(move |_, ()| {
+            loop_handle.insert_idle(move |state| {
+                state.comms.display(DisplayMessage::ToggleDebugUi);
+            });
+            Ok(())
+        })?,
+    )?;
+    module.set("quit", create_shutdown_callback(lua, lh.clone())?)?;
+    module.set("shutdown", create_shutdown_callback(lua, lh.clone())?)?;
+    let loop_handle = lh.clone();
+    module.set(
+        "start_video_stream",
+        lua.create_function(move |_, ()| {
+            loop_handle.insert_idle(move |state| {
+                state.comms.display(DisplayMessage::StartVideoStream);
+            });
+            Ok(())
+        })?,
+    )?;
+
+    keymap::init(lua, &module, lh.clone())?;
+    output::init(lua, &module, lh.clone())?;
+    spawn::init(lua, &module, lh.clone())?;
+    zone::init(lua, &module, lh.clone())?;
+    window::init(lua, &module, lh.clone())?;
+
+    Ok(module)
 }
 
 fn create_shutdown_callback(
