@@ -11,14 +11,13 @@ use crate::{
     state::{post_repaint, State},
 };
 use anyhow::{anyhow, Result};
-use scape_shared::{Comms, ConfigMessage, InputMessage};
+use scape_shared::{Comms, InputMessage};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmBuffer;
 use smithay::backend::drm::compositor::RenderFrameResult;
 use smithay::backend::drm::gbm::GbmFramebuffer;
 use smithay::backend::drm::{DrmAccessError, DrmSurface};
 use smithay::backend::egl::context::ContextPriority;
-use smithay::backend::input::InputEvent;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::glow::GlowRenderer;
 #[cfg(feature = "debug")]
@@ -31,7 +30,6 @@ use smithay::delegate_drm_lease;
 use smithay::input::keyboard::LedState;
 use smithay::reexports::drm::control::Device;
 use smithay::reexports::drm::control::{connector, ModeTypeFlags};
-use smithay::reexports::input::DeviceCapability;
 use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::utils::{Rectangle, Size};
 use smithay::wayland::dmabuf::ImportNotifier;
@@ -49,7 +47,6 @@ use smithay::{
             DrmEvent, DrmEventMetadata, DrmNode, NodeType,
         },
         egl::{self, EGLDevice, EGLDisplay},
-        libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             damage::Error as OutputDamageTrackerError,
             element::AsRenderElements,
@@ -76,7 +73,6 @@ use smithay::{
             EventLoop, LoopHandle, RegistrationToken,
         },
         drm::{control::crtc, Device as _},
-        input::Libinput,
         rustix::fs::OFlags,
         wayland_protocols::wp::{
             linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1,
@@ -268,10 +264,6 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>, comms: &Comms) -> R
         loop_handle: loop_handle.clone(),
         syncobj_state: None,
     };
-
-    comms.input(InputMessage::SeatSessionCreated {
-        session: session.clone(),
-    });
 
     loop_handle
         .insert_source(notifier, move |event, &mut (), state| {
@@ -1050,9 +1042,10 @@ fn connector_connected(
 
         state.outputs.insert(output_name, output);
 
-        state
-            .comms
-            .config(ConfigMessage::ConnectorChange(state.outputs.clone()));
+        // TODO: Notify config of connector change
+        // state
+        //     .comms
+        //     .config(ConfigMessage::ConnectorChange(state.outputs.clone()));
     }
 }
 
@@ -1096,7 +1089,8 @@ fn connector_disconnected(
             state.outputs.retain(|_, o| o != &output);
         }
 
-        state.on_connector_change();
+        // TODO: Notify config of connector change
+        // state.on_connector_change();
     }
 }
 

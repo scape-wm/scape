@@ -4,22 +4,22 @@
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::bail;
+use anyhow::Context;
 use calloop::{LoopHandle, LoopSignal};
+use input::start_input;
 use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner, Mods};
+use seat::start_seat_session;
 use smithay::{
-    backend::{
-        input::InputEvent,
-        libinput::{LibinputInputBackend, LibinputSessionInterface},
-        session::{libseat::LibSeatSession, Session},
-    },
+    backend::{input::InputEvent, libinput::LibinputInputBackend},
     input::keyboard::{LedMapping, LedState, ModifiersState},
     reexports::input::{Device, DeviceCapability, Libinput},
 };
 use xkbcommon::xkb::{self, Keycode, Keymap, Keysym};
 
+mod input;
 mod keyboard;
 mod keymap;
+mod seat;
 
 /// Holds the state of the input module
 pub struct InputState {
@@ -28,7 +28,7 @@ pub struct InputState {
     loop_handle: LoopHandle<'static, InputState>,
     keyboards: Vec<Device>,
     keyboard_state: KeyboardState,
-    libinput_context: Option<Libinput>,
+    libinput_context: Libinput,
     tab_index: usize,
     keymaps: HashMap<Mods, HashMap<Keysym, CallbackRef>>,
     suppressed_keys: Vec<Keysym>,
@@ -42,7 +42,11 @@ impl MessageRunner for InputState {
         loop_handle: LoopHandle<'static, InputState>,
         _args: &GlobalArgs,
     ) -> anyhow::Result<Self> {
-        let keyboard_state = KeyboardState::new()?;
+        let keyboard_state = KeyboardState::new().context("Unable to create keyboard state")?;
+        let seat_session =
+            start_seat_session(loop_handle.clone()).context("Unable to start seat session")?;
+        let libinput_context =
+            start_input(loop_handle.clone(), seat_session).context("Unable to start libinput")?;
 
         Ok(Self {
             comms,
@@ -50,7 +54,7 @@ impl MessageRunner for InputState {
             loop_handle,
             keyboards: Vec::new(),
             keyboard_state,
-            libinput_context: None,
+            libinput_context,
             tab_index: 0,
             keymaps: HashMap::new(),
             suppressed_keys: Vec::new(),
@@ -61,36 +65,6 @@ impl MessageRunner for InputState {
         match msg {
             InputMessage::Shutdown => {
                 self.shutting_down = true;
-            }
-            InputMessage::SeatSessionCreated { session } => {
-                // A new seat session has been created, we can now initialize the input
-                let seat_name = session.seat();
-                let mut libinput_context = Libinput::new_with_udev::<
-                    LibinputSessionInterface<LibSeatSession>,
-                >(session.into());
-                if libinput_context.udev_assign_seat(&seat_name).is_err() {
-                    bail!("Failed to assign seat to libinput context");
-                }
-
-                let libinput_backend = LibinputInputBackend::new(libinput_context.clone());
-                self.libinput_context = Some(libinput_context);
-                self.loop_handle
-                    .insert_source(libinput_backend, move |event, _, state| {
-                        state.handle_input_event(event)
-                    })
-                    .unwrap();
-            }
-            InputMessage::SeatSessionSuspended => {
-                if let Some(libinput_context) = &self.libinput_context {
-                    libinput_context.suspend();
-                }
-            }
-            InputMessage::SeatSessionResumed => {
-                if let Some(libinput_context) = &mut self.libinput_context {
-                    if libinput_context.resume().is_err() {
-                        anyhow::bail!("Failed to resume libinput context");
-                    }
-                }
             }
             InputMessage::Keymap {
                 key_name,

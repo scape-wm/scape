@@ -183,7 +183,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     )
     .context("Unable to run input module")?;
     // Spawn the renderer thread
-    let display_join_handle = run_thread(
+    let renderer_join_handle = run_thread::<RendererState, _>(
         comms.clone(),
         to_main.clone(),
         String::from("renderer"),
@@ -193,7 +193,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     )
     .context("Unable to run renderer module")?;
     // Spawn the display thread
-    let renderer_join_handle = run_thread::<RendererState, _>(
+    let display_join_handle = run_thread::<DisplayState, _>(
         comms.clone(),
         to_main.clone(),
         String::from("display"),

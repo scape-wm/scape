@@ -28,7 +28,8 @@ pub fn run(
         .insert_source(channel, |event, _, state| match event {
             calloop::channel::Event::Msg(msg) => handle_display_message(state, msg),
             calloop::channel::Event::Closed => state.comms.main(MainMessage::Shutdown),
-        });
+        })
+        .unwrap();
 
     // thread running dbus services
     thread::spawn(move || {
