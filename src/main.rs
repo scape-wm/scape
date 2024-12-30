@@ -9,6 +9,7 @@ use calloop::{
     EventLoop, LoopHandle,
 };
 use scape_config::ConfigState;
+use scape_display::DisplayState;
 use scape_input::InputState;
 use scape_renderer::RendererState;
 use scape_shared::{
@@ -16,7 +17,6 @@ use scape_shared::{
     MessageRunner, RendererMessage,
 };
 use std::{
-    panic::UnwindSafe,
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -82,6 +82,7 @@ fn main() -> anyhow::Result<()> {
 struct MainData {
     loop_handle: LoopHandle<'static, MainData>,
     comms: Comms,
+    config_join_handle: JoinHandle<()>,
     input_join_handle: JoinHandle<()>,
     display_join_handle: JoinHandle<()>,
     renderer_join_handle: JoinHandle<()>,
@@ -94,6 +95,7 @@ impl MainData {
     fn new(
         loop_handle: LoopHandle<'static, MainData>,
         comms: Comms,
+        config_join_handle: JoinHandle<()>,
         input_join_handle: JoinHandle<()>,
         display_join_handle: JoinHandle<()>,
         renderer_join_handle: JoinHandle<()>,
@@ -101,6 +103,7 @@ impl MainData {
         Self {
             loop_handle,
             comms,
+            config_join_handle,
             input_join_handle,
             display_join_handle,
             renderer_join_handle,
@@ -206,6 +209,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     let mut data = MainData::new(
         loop_handle,
         comms,
+        config_join_handle,
         input_join_handle,
         display_join_handle,
         renderer_join_handle,
@@ -215,6 +219,7 @@ fn run_app(args: &'static GlobalArgs) -> anyhow::Result<()> {
     event_loop
         .run(None, &mut data, |data| {
             if data.shutting_down
+                && data.config_join_handle.is_finished()
                 && data.input_join_handle.is_finished()
                 && data.display_join_handle.is_finished()
                 && data.renderer_join_handle.is_finished()
@@ -244,19 +249,23 @@ where
     M: Send + 'static,
 {
     let join_handle = thread::Builder::new()
-        .name(name.clone())
+        .name(name)
         .spawn(move || {
-            let result = std::panic::catch_unwind(move || {
-                run_message_loop(comms, span, channel, args);
-            });
-            let span = span!(Level::INFO, "scape", thread_name = name);
             let _guard = span.enter();
-            match result {
-                Ok(Ok(r)) => {
-                    info!(result = ?r, "Thread exited normally");
+            let result = std::panic::catch_unwind(move || {
+                if let Err(err) = run_message_loop::<R, M>(comms, channel, args) {
+                    error!(err = ?err, "Thread exited with an error");
+                    false
+                } else {
+                    true
                 }
-                Ok(Err(err)) => {
-                    error!(error = ?err, "Thread exited with an error");
+            });
+            match result {
+                Ok(true) => {
+                    info!("Thread exited normally");
+                }
+                Ok(false) => {
+                    error!("Thread exited with an error");
                 }
                 Err(err) => {
                     if let Some(err) = err.downcast_ref::<&str>() {
@@ -283,22 +292,20 @@ where
 
 /// Run the message loop with the runner type `R`. The message loop will exit when the channel to
 /// the runner is closed.
-fn run_message_loop<R, T>(
+fn run_message_loop<R, M>(
     comms: Comms,
-    span: Span,
-    channel: Channel<T>,
+    channel: Channel<M>,
     args: &'static GlobalArgs,
 ) -> anyhow::Result<()>
 where
-    R: MessageRunner<Message = T>,
-    T: Send + 'static,
+    R: MessageRunner<Message = M>,
+    M: Send + 'static,
 {
-    let _guard = span.enter();
     let mut event_loop = EventLoop::<R>::try_new().context("Unable to create event loop")?;
     let signal = event_loop.get_signal();
     let loop_handle = event_loop.handle();
 
-    if let Err(e) = loop_handle.insert_source(channel, |event, _, data| match event {
+    if let Err(e) = loop_handle.insert_source(channel, move |event, _, data| match event {
         channel::Event::Msg(msg) => {
             if let Err(err) = data.handle_message(msg) {
                 error!(%err, "Unable to handle message");
@@ -312,8 +319,9 @@ where
         anyhow::bail!("Unable to insert channel into event loop: {}", e);
     }
 
-    let runner = R::new(comms, channel, args).context("Unable to create runner")?;
+    let mut runner = R::new(comms, loop_handle, args).context("Unable to create runner")?;
 
+    let signal = event_loop.get_signal();
     // Run the main loop
     event_loop
         .run(None, &mut runner, |data| {
@@ -327,11 +335,34 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calloop::LoopSignal;
+
+    struct TestRunner;
+
+    impl MessageRunner for TestRunner {
+        type Message = ();
+
+        fn new(
+            _comms: Comms,
+            _loop_handle: LoopHandle<'static, Self>,
+            _args: &GlobalArgs,
+        ) -> anyhow::Result<Self> {
+            Ok(Self)
+        }
+
+        fn handle_message(&mut self, _message: Self::Message) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn on_dispatch_wait(&mut self, signal: &LoopSignal) {
+            signal.stop();
+        }
+    }
 
     #[test]
     fn run_thread_sends_shutdown_signal() {
         let (to_main, main_channel) = channel();
-        let (to_display, display_channel) = channel();
+        let (to_display, _) = channel();
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
         let (to_config, _) = channel();
@@ -343,13 +374,14 @@ mod tests {
             to_config,
         );
         let args = Box::leak(Box::new(GlobalArgs::default()));
+        let (_, test_channel) = channel::<()>();
 
-        let join_handle = run_thread(
+        let join_handle = run_thread::<TestRunner, _>(
             comms,
             to_main,
             String::from("test_thread"),
-            |_, _, _| Ok(()),
-            display_channel, // Pick any channel, does not matter for this test
+            span!(Level::ERROR, "test_thread"),
+            test_channel,
             args,
         );
 
@@ -368,7 +400,7 @@ mod tests {
     #[test]
     fn run_thread_sends_shutdown_signal_on_panic() {
         let (to_main, main_channel) = channel();
-        let (to_display, display_channel) = channel();
+        let (to_display, _) = channel();
         let (to_renderer, _) = channel();
         let (to_input, _) = channel();
         let (to_config, _) = channel();
@@ -380,13 +412,14 @@ mod tests {
             to_config,
         );
         let args = Box::leak(Box::new(GlobalArgs::default()));
+        let (_, test_channel) = channel::<()>();
 
-        let join_handle = run_thread(
+        let join_handle = run_thread::<TestRunner, _>(
             comms,
             to_main,
             String::from("test_thread"),
-            |_, _, _| panic!("Test panic"),
-            display_channel, // pick any channel, does not matter for this test
+            span!(Level::ERROR, "test_thread"),
+            test_channel,
             args,
         );
 

@@ -275,7 +275,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>, comms: &Comms) -> R
                 SessionEvent::PauseSession => {
                     info!("pausing session");
                     state.session_paused = true;
-                    state.comms.input(InputMessage::SeatSessionSuspended);
+                    // state.comms.input(InputMessage::SeatSessionSuspended);
                     for backend in udev_data.backends.values_mut() {
                         backend.drm.pause();
                         backend.active_leases.clear();
@@ -287,7 +287,7 @@ pub fn init_udev(event_loop: &mut EventLoop<'static, State>, comms: &Comms) -> R
                 SessionEvent::ActivateSession => {
                     info!("resuming session");
                     state.session_paused = false;
-                    state.comms.input(InputMessage::SeatSessionResumed);
+                    // state.comms.input(InputMessage::SeatSessionResumed);
                     for (_node, backend) in udev_data
                         .backends
                         .iter_mut()

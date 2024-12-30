@@ -3,18 +3,38 @@
 #![warn(missing_docs)]
 
 mod drm;
+mod gbm;
 mod udev;
 
+use std::{
+    collections::{HashMap, HashSet},
+    os::fd::{AsFd, BorrowedFd, OwnedFd},
+};
+
+use ::drm::node::DrmNode;
 use anyhow::Context;
 use calloop::{LoopHandle, LoopSignal};
-use scape_shared::{Comms, GlobalArgs, MessageRunner, RendererMessage};
-use udev::init_udev_device_listener_for_seat;
+use scape_shared::{Comms, GlobalArgs, MainMessage, MessageRunner, RendererMessage};
+
+struct Gpu {
+    node: DrmNode,
+    fd: OwnedFd,
+}
+
+impl AsFd for Gpu {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+}
 
 /// Holds the state of the renderer module
 pub struct RendererState {
     comms: Comms,
     shutting_down: bool,
     loop_handle: LoopHandle<'static, RendererState>,
+    primary_gpu: Option<DrmNode>,
+    known_drm_devices: HashSet<DrmNode>,
+    gpus: HashMap<DrmNode, Gpu>,
 }
 
 impl MessageRunner for RendererState {
@@ -29,6 +49,9 @@ impl MessageRunner for RendererState {
             comms,
             shutting_down: false,
             loop_handle,
+            primary_gpu: None,
+            known_drm_devices: HashSet::new(),
+            gpus: HashMap::new(),
         })
     }
 
@@ -38,7 +61,7 @@ impl MessageRunner for RendererState {
                 self.shutting_down = true;
             }
             RendererMessage::SeatSessionCreated { seat_name } => {
-                init_udev_device_listener_for_seat(seat_name, self.loop_handle.clone())
+                self.init_udev_device_listener_for_seat(&seat_name)
                     .context("Unable to init udev device listener")?;
             }
             RendererMessage::SeatSessionPaused => {
@@ -79,6 +102,15 @@ impl MessageRunner for RendererState {
                 // }
                 //
                 // state.backend_data.schedule_render();
+            }
+            RendererMessage::FileOpenedInSession { path, fd } => {
+                let Some(primary_gpu) = self.primary_gpu else {
+                    self.comms.main(MainMessage::Shutdown);
+                    anyhow::bail!("No primary gpu available");
+                };
+                let node = DrmNode::from_path(path)?;
+                self.gpus.insert(node, Gpu { node, fd });
+                self.test_drm();
             }
         }
 

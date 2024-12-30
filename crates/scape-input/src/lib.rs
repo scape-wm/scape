@@ -7,12 +7,21 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Context;
 use calloop::{LoopHandle, LoopSignal};
 use input::start_input;
-use scape_shared::{CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner, Mods};
+use scape_shared::{
+    CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner, Mods, RendererMessage,
+};
 use seat::start_seat_session;
 use smithay::{
-    backend::{input::InputEvent, libinput::LibinputInputBackend},
+    backend::{
+        input::InputEvent,
+        libinput::LibinputInputBackend,
+        session::{libseat::LibSeatSession, Session},
+    },
     input::keyboard::{LedMapping, LedState, ModifiersState},
-    reexports::input::{Device, DeviceCapability, Libinput},
+    reexports::{
+        input::{Device, DeviceCapability, Libinput},
+        rustix::fs::OFlags,
+    },
 };
 use xkbcommon::xkb::{self, Keycode, Keymap, Keysym};
 
@@ -28,6 +37,7 @@ pub struct InputState {
     loop_handle: LoopHandle<'static, InputState>,
     keyboards: Vec<Device>,
     keyboard_state: KeyboardState,
+    seat_session: LibSeatSession,
     libinput_context: Libinput,
     tab_index: usize,
     keymaps: HashMap<Mods, HashMap<Keysym, CallbackRef>>,
@@ -45,8 +55,11 @@ impl MessageRunner for InputState {
         let keyboard_state = KeyboardState::new().context("Unable to create keyboard state")?;
         let seat_session =
             start_seat_session(loop_handle.clone()).context("Unable to start seat session")?;
-        let libinput_context =
-            start_input(loop_handle.clone(), seat_session).context("Unable to start libinput")?;
+        comms.renderer(RendererMessage::SeatSessionCreated {
+            seat_name: seat_session.seat(),
+        });
+        let libinput_context = start_input(loop_handle.clone(), seat_session.clone())
+            .context("Unable to start libinput")?;
 
         Ok(Self {
             comms,
@@ -54,6 +67,7 @@ impl MessageRunner for InputState {
             loop_handle,
             keyboards: Vec::new(),
             keyboard_state,
+            seat_session,
             libinput_context,
             tab_index: 0,
             keymaps: HashMap::new(),
@@ -72,6 +86,14 @@ impl MessageRunner for InputState {
                 callback,
             } => {
                 self.keymap(key_name, mods, callback);
+            }
+            InputMessage::OpenFileInSessionForRenderer { path } => {
+                let fd = self.seat_session.open(
+                    &path,
+                    OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
+                )?;
+                self.comms
+                    .renderer(RendererMessage::FileOpenedInSession { path, fd })
             }
         }
         Ok(())
