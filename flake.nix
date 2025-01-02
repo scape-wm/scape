@@ -68,6 +68,8 @@
           pipewire
           stdenv.cc.cc.lib
           libdisplay-info
+          pkgs.vulkan-tools
+          pkgs.vulkan-tools-lunarg
         ];
         runtimeDependencies = with pkgs; [
           libglvnd
@@ -76,6 +78,11 @@
           xorg.libXcursor # needed for winit on x11
           xorg.libXrandr # needed for winit on x11
           xorg.libXi # needed for winit on x11
+          pkgs.libGL
+          pkgs.vulkan-headers
+          pkgs.vulkan-loader
+          pkgs.vulkan-extension-layer
+          pkgs.vulkan-validation-layers
         ];
         LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       };

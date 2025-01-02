@@ -76,3 +76,7 @@ lto = true
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+
+# Use patched versions, until https://github.com/gfx-rs/wgpu/pull/5908 is merged
+[patch.crates-io]
+raw-window-handle = { git = "https://github.com/morr0ne/raw-window-handle", branch = "drm-connector" }

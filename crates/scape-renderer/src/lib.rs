@@ -5,6 +5,7 @@
 mod drm;
 mod gbm;
 mod udev;
+mod vulkan;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -15,6 +16,7 @@ use ::drm::node::DrmNode;
 use anyhow::Context;
 use calloop::{LoopHandle, LoopSignal};
 use scape_shared::{Comms, GlobalArgs, MainMessage, MessageRunner, RendererMessage};
+use tracing::info;
 
 struct Gpu {
     node: DrmNode,
@@ -109,8 +111,18 @@ impl MessageRunner for RendererState {
                     anyhow::bail!("No primary gpu available");
                 };
                 let node = DrmNode::from_path(path)?;
-                self.gpus.insert(node, Gpu { node, fd });
-                self.test_drm();
+                let gpu = Gpu { node, fd };
+                // self.gpus.insert(node, gpu);
+                // self.test_drm();
+
+                let (executor, scheduler) = calloop::futures::executor::<anyhow::Result<()>>()?;
+                self.loop_handle
+                    .insert_source(executor, |event, (), state| {
+                        info!("Finished futures {:?}", event);
+                    })
+                    .unwrap();
+                let future = drm::test_wgpu(gpu);
+                scheduler.schedule(future)?;
             }
         }
 
