@@ -151,6 +151,7 @@
             pkgs.vscode-extensions.vadimcn.vscode-lldb.adapter
           ];
         LD_LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath pkgDef.runtimeDependencies;
+        LIBRARY_PATH = pkgs.lib.strings.makeLibraryPath pkgDef.runtimeDependencies;
         LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
         VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
       };

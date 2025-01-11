@@ -107,23 +107,24 @@ impl MessageRunner for RendererState {
                 // state.backend_data.schedule_render();
             }
             RendererMessage::FileOpenedInSession { path, fd } => {
-                let Some(primary_gpu) = self.primary_gpu else {
-                    self.comms.main(MainMessage::Shutdown);
-                    anyhow::bail!("No primary gpu available");
-                };
+                // let Some(primary_gpu) = self.primary_gpu else {
+                //     self.comms.main(MainMessage::Shutdown);
+                //     anyhow::bail!("No primary gpu available");
+                // };
                 let node = DrmNode::from_path(path)?;
                 let gpu = Gpu { node, fd };
                 // self.gpus.insert(node, gpu);
                 // self.test_drm();
 
-                let (executor, scheduler) = calloop::futures::executor::<anyhow::Result<()>>()?;
-                self.loop_handle
-                    .insert_source(executor, |event, (), state| {
-                        info!("Finished futures {:?}", event);
-                    })
-                    .unwrap();
-                let future = drm::test_wgpu(gpu);
-                scheduler.schedule(future)?;
+                // let (executor, scheduler) = calloop::futures::executor::<anyhow::Result<()>>()?;
+                // self.loop_handle
+                //     .insert_source(executor, |event, (), state| {
+                //         info!("Finished futures {:?}", event);
+                //     })
+                //     .unwrap();
+                let future = vulkan::VulkanState::new(gpu).expect("Unable to create vulkan state");
+                self.comms.main(MainMessage::Shutdown);
+                // scheduler.schedule(future)?;
             }
         }
 
