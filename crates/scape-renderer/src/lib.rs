@@ -6,6 +6,7 @@ mod drm;
 mod gbm;
 mod udev;
 mod vulkan;
+mod vulkano;
 
 use std::{
     collections::{HashMap, HashSet},
