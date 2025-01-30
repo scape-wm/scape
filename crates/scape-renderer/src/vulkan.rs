@@ -127,7 +127,7 @@ impl VulkanState {
                 .application_version(1)
                 .engine_name(app_name)
                 .engine_version(1)
-                .api_version(vk::make_api_version(0, 1, 0, 0));
+                .api_version(vk::make_api_version(0, 1, 3, 0));
 
             let create_info = vk::InstanceCreateInfo::default()
                 .application_info(&appinfo)
@@ -170,6 +170,12 @@ impl VulkanState {
                 .first()
                 .context("No physical devices found")?;
 
+            let device_extensions =
+                instance.enumerate_device_extension_properties(*physical_device)?;
+            for device_extension in &device_extensions {
+                info!("Device extension: {:?}", device_extension);
+            }
+
             let display_loader = khr::display::Instance::new(&entry, &instance);
             let display_properties = display_loader
                 .get_physical_device_display_properties(*physical_device)
@@ -178,12 +184,14 @@ impl VulkanState {
             for display_property in &display_properties {
                 info!("Display property: {:?}", display_property);
             }
+            let display = display_properties[0].display;
 
             let acquire_drm_display_loader =
                 ext::acquire_drm_display::Instance::new(&entry, &instance);
-            // acquire_drm_display_loader
-            //     .acquire_drm_display(*physical_device, gpu.fd.as_raw_fd(), display)
-            //     .context("Unable to acquire drm display")?;
+            acquire_drm_display_loader
+                .acquire_drm_display(*physical_device, gpu.fd.as_raw_fd(), display)
+                .context("Unable to acquire drm display")?;
+            info!("Acquired drm display");
 
             // let surface_create_info = DisplaySurfaceCreateInfoKHR;
             //
