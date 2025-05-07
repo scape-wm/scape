@@ -192,33 +192,3 @@ impl Drop for Device {
         }
     }
 }
-
-// Example usage:
-/*
-fn main() {
-    let mut libinput = Libinput::new().expect("Failed to create libinput context");
-
-    // Add a device (e.g., a touchpad)
-    libinput.add_device("/dev/input/event2").expect("Failed to add device");
-
-    // Get the file descriptor for polling
-    let fd = libinput.get_fd();
-
-    // Main event loop
-    loop {
-        libinput.dispatch();
-
-        while let Some(event) = libinput.next_event() {
-            match event.get_type() {
-                libinput_event_type_LIBINPUT_EVENT_POINTER_MOTION => {
-                    println!("Pointer motion event");
-                }
-                libinput_event_type_LIBINPUT_EVENT_POINTER_BUTTON => {
-                    println!("Pointer button event");
-                }
-                _ => {}
-            }
-        }
-    }
-}
-*/
