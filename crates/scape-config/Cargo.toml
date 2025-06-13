@@ -7,7 +7,7 @@ edition = "2021"
 scape-shared = { path = "../scape-shared" }
 anyhow = { workspace = true }
 calloop = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 mlua = { version = "0.10.0", features = ["lua54", "vendored"] }
 xdg = "2.5"
 notify = "6.1"

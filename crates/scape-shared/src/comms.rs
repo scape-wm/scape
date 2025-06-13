@@ -1,5 +1,5 @@
 use calloop::channel::Sender;
-use tracing::warn;
+use log::warn;
 
 use crate::{ConfigMessage, DisplayMessage, InputMessage, MainMessage, RendererMessage};
 
@@ -76,7 +76,7 @@ impl Comms {
     /// ```
     pub fn display(&self, message: DisplayMessage) {
         if let Err(e) = self.to_display.send(message) {
-            warn!(err = %e, "Lost connection to display. Requesting shutdown");
+            warn!("Lost connection to display ({e}). Requesting shutdown");
             self.to_main
                 .send(MainMessage::Shutdown)
                 .expect("Lost connection to the main thread");
@@ -100,7 +100,7 @@ impl Comms {
     /// ```
     pub fn renderer(&self, message: RendererMessage) {
         if let Err(e) = self.to_renderer.send(message) {
-            warn!(err = %e, "Lost connection to renderer. Requesting shutdown");
+            warn!("Lost connection to renderer ({e}). Requesting shutdown");
             self.to_main
                 .send(MainMessage::Shutdown)
                 .expect("Lost connection to the main thread");
@@ -124,7 +124,7 @@ impl Comms {
     /// ```
     pub fn input(&self, message: InputMessage) {
         if let Err(e) = self.to_input.send(message) {
-            warn!(err = %e, "Lost connection to input. Requesting shutdown");
+            warn!("Lost connection to input ({e}). Requesting shutdown");
             self.to_main
                 .send(MainMessage::Shutdown)
                 .expect("Lost connection to the main thread");
@@ -148,7 +148,7 @@ impl Comms {
     /// ```
     pub fn config(&self, message: ConfigMessage) {
         if let Err(e) = self.to_config.send(message) {
-            warn!(err = %e, "Lost connection to config. Requesting shutdown");
+            warn!("Lost connection to config ({e}). Requesting shutdown");
             self.to_main
                 .send(MainMessage::Shutdown)
                 .expect("Lost connection to the main thread");

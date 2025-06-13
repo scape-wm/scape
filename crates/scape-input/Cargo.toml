@@ -7,6 +7,5 @@ edition = "2021"
 scape-shared = { path = "../scape-shared" }
 anyhow = { workspace = true }
 calloop = { workspace = true }
-smithay = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 xkbcommon = { version = "0.8", features = ["wayland"] }

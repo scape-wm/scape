@@ -142,6 +142,23 @@ impl Event {
             Some(Device { ptr: device })
         }
     }
+
+    /// Get the keyboard event if this is a keyboard event
+    pub fn get_keyboard_event(&self) -> Option<KeyboardEvent> {
+        if self.get_type() == libinput_event_type_LIBINPUT_EVENT_KEYBOARD_KEY {
+            let ptr = unsafe { libinput_event_get_keyboard_event(self.ptr) };
+            if ptr.is_null() {
+                None
+            } else {
+                Some(KeyboardEvent { 
+                    event: self,
+                    ptr 
+                })
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl Drop for Event {
@@ -190,5 +207,33 @@ impl Drop for Device {
         unsafe {
             libinput_device_unref(self.ptr);
         }
+    }
+}
+
+/// A safe wrapper around libinput keyboard events
+pub struct KeyboardEvent<'a> {
+    event: &'a Event,
+    ptr: *mut libinput_event_keyboard,
+}
+
+impl<'a> KeyboardEvent<'a> {
+    /// Get the key code of the pressed/released key
+    pub fn get_key(&self) -> u32 {
+        unsafe { libinput_event_keyboard_get_key(self.ptr) }
+    }
+
+    /// Get the key state (pressed or released)
+    pub fn get_key_state(&self) -> libinput_key_state {
+        unsafe { libinput_event_keyboard_get_key_state(self.ptr) }
+    }
+
+    /// Get the time of the event in microseconds
+    pub fn get_time_usec(&self) -> u64 {
+        unsafe { libinput_event_keyboard_get_time_usec(self.ptr) }
+    }
+
+    /// Get the seat key count
+    pub fn get_seat_key_count(&self) -> u32 {
+        unsafe { libinput_event_keyboard_get_seat_key_count(self.ptr) }
     }
 }

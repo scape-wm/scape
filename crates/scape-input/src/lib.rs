@@ -11,18 +11,6 @@ use scape_shared::{
     CallbackRef, Comms, GlobalArgs, InputMessage, MessageRunner, Mods, RendererMessage,
 };
 use seat::start_seat_session;
-use smithay::{
-    backend::{
-        input::InputEvent,
-        libinput::LibinputInputBackend,
-        session::{libseat::LibSeatSession, Session},
-    },
-    input::keyboard::{LedMapping, LedState, ModifiersState},
-    reexports::{
-        input::{Device, DeviceCapability, Libinput},
-        rustix::fs::OFlags,
-    },
-};
 use xkbcommon::xkb::{self, Keycode, Keymap, Keysym};
 
 mod input;
@@ -154,6 +142,8 @@ struct KeyboardState {
     xkb_state: xkb::State,
     led_mapping: LedMapping,
     led_state: LedState,
+    // TODO: Think of using a more efficient data structure for this,
+    // since there are usually only a few keys pressed at a time
     pressed_keys: HashSet<Keycode>,
     mods_state: ModifiersState,
 }

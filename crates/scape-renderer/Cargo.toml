@@ -7,8 +7,7 @@ edition = "2021"
 scape-shared = { path = "../scape-shared" }
 anyhow = { workspace = true }
 calloop = { workspace = true }
-tracing = { workspace = true }
-smithay = { workspace = true }
+log = { workspace = true }
 gbm = "0.18.0"
 drm = "0.14.1"
 udev = "0.9.1"

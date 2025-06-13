@@ -1,0 +1,10 @@
+[package]
+name = "wayland-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+calloop = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+wayland-protocol-macros = { path = "../wayland-protocol-macros" }

@@ -1,5 +1,5 @@
+use log::{error, warn};
 use scape_shared::{CallbackRef, ConfigMessage, Mods};
-use tracing::{error, warn};
 use xkbcommon::xkb::Keysym;
 
 use crate::InputState;

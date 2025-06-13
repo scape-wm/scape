@@ -1,8 +1,4 @@
 use scape_shared::{CallbackRef, ConfigMessage, DisplayMessage, Mods};
-use smithay::{
-    backend::input::{Event, InputBackend, KeyState, KeyboardKeyEvent},
-    input::keyboard::ModifiersState,
-};
 use xkbcommon::xkb::{self, Keysym};
 
 use crate::InputState;

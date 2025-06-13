@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 calloop = { workspace = true }
-smithay = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 clap = { version = "4.3.19", features = ["derive"] }
 xkbcommon = "0.8"

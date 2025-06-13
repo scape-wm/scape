@@ -1,6 +1,6 @@
 # Scape
 
-A wayland compositor with configurable window zones. 
+A wayland compositor with configurable window zones.
 
 ## License
 
@@ -15,7 +15,3 @@ at your option. This means you can select the license you prefer!
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you,
 as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
-
-### Smithay
-
-Portions of this project are derived from [smithay](https://github.com/Smithay/smithay) and are licensed under its [MIT license](https://github.com/Smithay/smithay/blob/master/LICENSE.txt). Smithay's copyright notice can be found in this repository [here](LICENSE-MIT-SMITHAY.txt).

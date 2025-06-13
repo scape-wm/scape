@@ -6,16 +6,20 @@ license = "MIT OR Apache-2.0"
 
 [workspace]
 members = [
+    "crates/libinput",
+    "crates/libudev",
     "crates/scape-config",
     "crates/scape-display",
     "crates/scape-input",
     "crates/scape-renderer",
-    "crates/scape-shared",
+    "crates/scape-shared", "crates/wayland-protocol",
+    "crates/wayland-protocol-macros",
 ]
 
 [workspace.dependencies]
 calloop = { version = "0.14.0", features = ["executor"] }
-tracing = { version = "0.1.37", features = [
+log = { version = "0.4.27", features = [
+    "kv",
     "max_level_trace",
     "release_max_level_debug",
 ] }
@@ -30,39 +34,9 @@ scape-input = { path = "./crates/scape-input" }
 scape-renderer = { path = "./crates/scape-renderer" }
 scape-shared = { path = "./crates/scape-shared" }
 calloop = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 anyhow = { workspace = true }
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 profiling = { workspace = true, optional = true }
-
-[workspace.dependencies.smithay]
-default-features = false
-features = [
-    "desktop",
-    "wayland_frontend",
-    "backend_libinput",
-    "backend_winit",
-    "backend_udev",
-    "backend_drm",
-    "backend_gbm",
-    "backend_egl",
-    "backend_session_libseat",
-    "renderer_gl",
-    "renderer_pixman",
-    "renderer_glow",
-    "renderer_multi",
-    "x11rb_event_source",
-    "use_system_lib",
-    "xwayland",
-]
-git = "https://github.com/Dirli-V/smithay"
-rev = "55feba8c8"
-# path = "../smithay"
-
-[workspace.dependencies.smithay-drm-extras]
-git = "https://github.com/Dirli-V/smithay"
-rev = "55feba8c8"
-# path = "../smithay/smithay-drm-extras"
 
 [features]
 default = []
@@ -76,7 +50,3 @@ lto = true
 [profile.release-with-debug]
 inherits = "release"
 debug = true
-
-# Use patched versions, until https://github.com/gfx-rs/wgpu/pull/5908 is merged
-[patch.crates-io]
-raw-window-handle = { git = "https://github.com/morr0ne/raw-window-handle", branch = "drm-connector" }

@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use smithay::backend::input::{KeyState, Keycode};
-
 use crate::{Action, Output, WindowRule, Zone};
 
 /// Represents the messages that can be sent to the display thread
